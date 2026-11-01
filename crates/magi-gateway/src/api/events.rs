@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -15,14 +15,33 @@ use tokio::sync::broadcast::error::RecvError;
 
 use super::{security::SESSION_TOKEN_HEADER, state::ApiState};
 
-pub async fn subscribe(State(state): State<ApiState>, headers: HeaderMap) -> Response {
+#[derive(Default, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventScope {
+    #[default]
+    Product,
+    Diagnostics,
+}
+
+#[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventQuery {
+    #[serde(default)]
+    scope: EventScope,
+}
+
+pub async fn subscribe(State(state): State<ApiState>, Query(query): Query<EventQuery>, headers: HeaderMap) -> Response {
     let after = headers
         .get("last-event-id")
         .and_then(|value| value.to_str().ok());
     if after.is_some_and(|id| id.len() > 100) {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let Some(subscription) = state.events.subscribe(after) else {
+    let hub = match query.scope {
+        EventScope::Product => Arc::clone(&state.events),
+        EventScope::Diagnostics => state.events.diagnostics(),
+    };
+    let Some(subscription) = hub.subscribe(after) else {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     };
     let token = headers
@@ -31,7 +50,6 @@ pub async fn subscribe(State(state): State<ApiState>, headers: HeaderMap) -> Res
         .unwrap_or_default()
         .to_owned();
     let auth = Arc::clone(&state.security.auth);
-    let hub = Arc::clone(&state.events);
     let stream = stream::unfold(
         (subscription, false),
         move |(mut subscription, finished)| {

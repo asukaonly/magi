@@ -78,7 +78,7 @@ class CollectorTransport:
 
     async def scope(self, connection_id: str, plugin_version: str, plugin_id: str, *, claim: bool = False) -> dict[str, str]:
         info = await self.request("GET", "/server/info")
-        if info.get("server_id") != self.credential["server_id"] or info.get("protocol_version") != 2:
+        if info.get("server_id") != self.credential["server_id"] or info.get("protocol_version") != 3:
             raise CollectorRejected("Collector server identity or protocol changed")
         maintenance = info.get("maintenance")
         if not isinstance(maintenance, dict) or not isinstance(maintenance.get("data_epoch"), str):

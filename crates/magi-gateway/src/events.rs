@@ -13,6 +13,7 @@ const MAX_REPLAY_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Serialize)]
 pub struct EventEnvelope {
+    pub contract_version: u32,
     pub server_id: String,
     pub epoch: String,
     pub sequence: u64,
@@ -34,6 +35,7 @@ struct History {
 }
 
 pub struct EventHub {
+    diagnostics: Option<Arc<EventHub>>,
     server_id: String,
     history: Mutex<History>,
     sender: broadcast::Sender<Arc<ServerEvent>>,
@@ -48,7 +50,15 @@ pub struct Subscription {
 
 impl EventHub {
     pub fn new(server_id: String) -> Self {
+        let diagnostics = Arc::new(Self::lane(server_id.clone()));
+        let mut product = Self::lane(server_id);
+        product.diagnostics = Some(diagnostics);
+        product
+    }
+
+    fn lane(server_id: String) -> Self {
         Self {
+            diagnostics: None,
             server_id,
             history: Mutex::new(History {
                 epoch: uuid::Uuid::new_v4().to_string(),
@@ -58,6 +68,17 @@ impl EventHub {
             }),
             sender: broadcast::channel(RETAINED_EVENTS).0,
             slots: Arc::new(Semaphore::new(64)),
+        }
+    }
+
+    pub fn diagnostics(&self) -> Arc<EventHub> {
+        Arc::clone(self.diagnostics.as_ref().expect("product event hub owns diagnostic lane"))
+    }
+
+    pub fn publish_notification(&self, name: &str, payload: &crate::notification_bridge::NotificationPayload) {
+        self.diagnostics().publish(name, payload.data.clone());
+        if let Some((event_type, data)) = crate::client_events::project(name, payload) {
+            self.publish(&event_type, data);
         }
     }
 
@@ -85,6 +106,9 @@ impl EventHub {
     }
 
     pub fn reset(&self, reason: &str) {
+        if let Some(diagnostics) = &self.diagnostics {
+            diagnostics.reset(reason);
+        }
         let mut history = self.history.lock().unwrap_or_else(|e| e.into_inner());
         history.epoch = uuid::Uuid::new_v4().to_string();
         history.sequence = 0;
@@ -141,6 +165,7 @@ impl EventHub {
 
     fn event(&self, history: &History, event_type: &str, data: Value) -> ServerEvent {
         let envelope = EventEnvelope {
+            contract_version: 1,
             server_id: self.server_id.clone(),
             epoch: history.epoch.clone(),
             sequence: history.sequence,

@@ -1,0 +1,1535 @@
+{
+  "components": {
+    "schemas": {
+      "ChatDisplayMessage": {
+        "description": "Typed read model for chat history and display timeline messages.",
+        "properties": {
+          "allow_trace_collapse": {
+            "default": false,
+            "title": "Allow Trace Collapse",
+            "type": "boolean"
+          },
+          "attachments": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Attachments"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Label"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message Id"
+          },
+          "message_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message Kind"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Payload"
+          },
+          "persona_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Persona Id"
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reply To"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "run_state": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Run State"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "integer"
+          },
+          "trace_available": {
+            "default": false,
+            "title": "Trace Available",
+            "type": "boolean"
+          },
+          "trace_display_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Trace Display Mode"
+          },
+          "trace_summary": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Trace Summary"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turn Id"
+          }
+        },
+        "required": [
+          "role",
+          "content",
+          "timestamp",
+          "kind"
+        ],
+        "title": "ChatDisplayMessage",
+        "type": "object"
+      },
+      "ChatSessionSummary": {
+        "description": "Typed session summary returned by the chat read model.",
+        "properties": {
+          "history_version": {
+            "default": 0,
+            "title": "History Version",
+            "type": "integer"
+          },
+          "last_message_preview": {
+            "title": "Last Message Preview",
+            "type": "string"
+          },
+          "last_timestamp": {
+            "title": "Last Timestamp",
+            "type": "integer"
+          },
+          "last_user_message_preview": {
+            "title": "Last User Message Preview",
+            "type": "string"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "title_overridden": {
+            "title": "Title Overridden",
+            "type": "boolean"
+          },
+          "workspace_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Workspace Path"
+          }
+        },
+        "required": [
+          "session_id",
+          "title",
+          "last_message_preview",
+          "last_user_message_preview",
+          "title_overridden",
+          "last_timestamp",
+          "message_count"
+        ],
+        "title": "ChatSessionSummary",
+        "type": "object"
+      },
+      "ContextUsageEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductContextUsage"
+          },
+          "epoch": {
+            "format": "uuid",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "const": "context_usage",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_id",
+          "epoch",
+          "sequence",
+          "event_id",
+          "event_type",
+          "data"
+        ],
+        "title": "ContextUsageEvent",
+        "type": "object"
+      },
+      "InteractionEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductInteractionPointer"
+          },
+          "epoch": {
+            "format": "uuid",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "enum": [
+              "control.ask.requested",
+              "control.ask.answered",
+              "control.permission.requested",
+              "control.permission.resolved",
+              "control.plan.updated",
+              "control.background.suspended",
+              "control.background.resumed"
+            ],
+            "title": "Event Type",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_id",
+          "epoch",
+          "sequence",
+          "event_id",
+          "event_type",
+          "data"
+        ],
+        "title": "InteractionEvent",
+        "type": "object"
+      },
+      "JsonValue": {},
+      "MessageHiddenEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductMessageHidden"
+          },
+          "epoch": {
+            "format": "uuid",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "const": "chat_message_hidden",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_id",
+          "epoch",
+          "sequence",
+          "event_id",
+          "event_type",
+          "data"
+        ],
+        "title": "MessageHiddenEvent",
+        "type": "object"
+      },
+      "MessageUpsertEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductMessageUpsert"
+          },
+          "epoch": {
+            "format": "uuid",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "const": "chat_message_upserted",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_id",
+          "epoch",
+          "sequence",
+          "event_id",
+          "event_type",
+          "data"
+        ],
+        "title": "MessageUpsertEvent",
+        "type": "object"
+      },
+      "NotificationEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductNotificationCount"
+          },
+          "epoch": {
+            "format": "uuid",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "const": "user_notification_added",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_id",
+          "epoch",
+          "sequence",
+          "event_id",
+          "event_type",
+          "data"
+        ],
+        "title": "NotificationEvent",
+        "type": "object"
+      },
+      "ProductContextUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "input_capacity": {
+            "title": "Input Capacity",
+            "type": "integer"
+          },
+          "measurement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Measurement"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model Id"
+          },
+          "model_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model Provider"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "number"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          },
+          "updated_at_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Updated At Ms"
+          },
+          "used_tokens": {
+            "title": "Used Tokens",
+            "type": "integer"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          },
+          "window_size": {
+            "title": "Window Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "session_id",
+          "turn_id",
+          "used_tokens",
+          "window_size",
+          "input_capacity",
+          "threshold",
+          "timestamp"
+        ],
+        "title": "ProductContextUsage",
+        "type": "object"
+      },
+      "ProductEvent": {
+        "discriminator": {
+          "mapping": {
+            "agent_response": "#/components/schemas/ResponseDisplayEvent",
+            "agent_response_chunk": "#/components/schemas/ResponsePreviewEvent",
+            "chat_message_hidden": "#/components/schemas/MessageHiddenEvent",
+            "chat_message_upserted": "#/components/schemas/MessageUpsertEvent",
+            "context_usage": "#/components/schemas/ContextUsageEvent",
+            "control.ask.answered": "#/components/schemas/InteractionEvent",
+            "control.ask.requested": "#/components/schemas/InteractionEvent",
+            "control.background.resumed": "#/components/schemas/InteractionEvent",
+            "control.background.suspended": "#/components/schemas/InteractionEvent",
+            "control.permission.requested": "#/components/schemas/InteractionEvent",
+            "control.permission.resolved": "#/components/schemas/InteractionEvent",
+            "control.plan.updated": "#/components/schemas/InteractionEvent",
+            "resync_required": "#/components/schemas/ResyncEvent",
+            "state.changed": "#/components/schemas/ResourceChangeEvent",
+            "turn_execution_control": "#/components/schemas/TurnControlEvent",
+            "turn_ux_plan": "#/components/schemas/TurnPresentationEvent",
+            "user_notification_added": "#/components/schemas/NotificationEvent"
+          },
+          "propertyName": "event_type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MessageUpsertEvent"
+          },
+          {
+            "$ref": "#/components/schemas/MessageHiddenEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TurnControlEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TurnPresentationEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ResponsePreviewEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ResponseDisplayEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ContextUsageEvent"
+          },
+          {
+            "$ref": "#/components/schemas/InteractionEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ResourceChangeEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ResyncEvent"
+          },
+          {
+            "$ref": "#/components/schemas/NotificationEvent"
+          }
+        ],
+        "title": "ProductEvent"
+      },
+      "ProductInteractionPointer": {
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Request Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Run Id"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "ProductInteractionPointer",
+        "type": "object"
+      },
+      "ProductMessageHidden": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "session_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatSessionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "session_id",
+          "message_id"
+        ],
+        "title": "ProductMessageHidden",
+        "type": "object"
+      },
+      "ProductMessageUpsert": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "$ref": "#/components/schemas/ChatDisplayMessage"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "session_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatSessionSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "session_id",
+          "message_id",
+          "message"
+        ],
+        "title": "ProductMessageUpsert",
+        "type": "object"
+      },
+      "ProductNotificationCount": {
+        "additionalProperties": false,
+        "properties": {
+          "unread_count": {
+            "minimum": 0,
+            "title": "Unread Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unread_count"
+        ],
+        "title": "ProductNotificationCount",
+        "type": "object"
+      },
+      "ProductResourceChange": {
+        "additionalProperties": false,
+        "properties": {
+          "resource": {
+            "title": "Resource",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource"
+        ],
+        "title": "ProductResourceChange",
+        "type": "object"
+      },
+      "ProductResponseDisplay": {
+        "additionalProperties": false,
+        "properties": {
+          "attachments": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "is_final": {
+            "title": "Is Final",
+            "type": "boolean"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message Id"
+          },
+          "message_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message Kind"
+          },
+          "message_payload": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message Payload"
+          },
+          "persona_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Persona Id"
+          },
+          "reply_to_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reply To Message Id"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "number"
+          },
+          "trace_available": {
+            "default": false,
+            "title": "Trace Available",
+            "type": "boolean"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turn Id"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          },
+          "ux_plan": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ux Plan"
+          }
+        },
+        "required": [
+          "user_id",
+          "session_id",
+          "content",
+          "is_final",
+          "timestamp"
+        ],
+        "title": "ProductResponseDisplay",
+        "type": "object"
+      },
+      "ProductResponsePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/ProductTextPreview"
+          },
+          "is_final": {
+            "title": "Is Final",
+            "type": "boolean"
+          },
+          "persona_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Persona Id"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "number"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "session_id",
+          "turn_id",
+          "event",
+          "is_final",
+          "seq",
+          "timestamp"
+        ],
+        "title": "ProductResponsePreview",
+        "type": "object"
+      },
+      "ProductResyncRequired": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ProductResyncRequired",
+        "type": "object"
+      },
+      "ProductTextPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "error_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Kind"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Message"
+          },
+          "kind": {
+            "enum": [
+              "text_delta",
+              "text_flush",
+              "text_reset",
+              "status_update",
+              "error",
+              "done"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "step_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Step Label"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Text"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ProductTextPreview",
+        "type": "object"
+      },
+      "ProductTurnControl": {
+        "additionalProperties": false,
+        "properties": {
+          "can_cancel": {
+            "title": "Can Cancel",
+            "type": "boolean"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Label"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Run Id"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "number"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "session_id",
+          "turn_id",
+          "state",
+          "can_cancel",
+          "timestamp"
+        ],
+        "title": "ProductTurnControl",
+        "type": "object"
+      },
+      "ProductTurnPresentation": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message Id"
+          },
+          "message_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message Kind"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "number"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          },
+          "ux_plan": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Ux Plan",
+            "type": "object"
+          }
+        },
+        "required": [
+          "user_id",
+          "session_id",
+          "turn_id",
+          "ux_plan",
+          "timestamp"
+        ],
+        "title": "ProductTurnPresentation",
+        "type": "object"
+      },
+      "ResourceChangeEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductResourceChange"
+          },
+          "epoch": {
+            "format": "uuid",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "const": "state.changed",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_id",
+          "epoch",
+          "sequence",
+          "event_id",
+          "event_type",
+          "data"
+        ],
+        "title": "ResourceChangeEvent",
+        "type": "object"
+      },
+      "ResponseDisplayEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductResponseDisplay"
+          },
+          "epoch": {
+            "format": "uuid",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "const": "agent_response",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_id",
+          "epoch",
+          "sequence",
+          "event_id",
+          "event_type",
+          "data"
+        ],
+        "title": "ResponseDisplayEvent",
+        "type": "object"
+      },
+      "ResponsePreviewEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductResponsePreview"
+          },
+          "epoch": {
+            "format": "uuid",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "const": "agent_response_chunk",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_id",
+          "epoch",
+          "sequence",
+          "event_id",
+          "event_type",
+          "data"
+        ],
+        "title": "ResponsePreviewEvent",
+        "type": "object"
+      },
+      "ResyncEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductResyncRequired"
+          },
+          "epoch": {
+            "format": "uuid",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "const": "resync_required",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_id",
+          "epoch",
+          "sequence",
+          "event_id",
+          "event_type",
+          "data"
+        ],
+        "title": "ResyncEvent",
+        "type": "object"
+      },
+      "TurnControlEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductTurnControl"
+          },
+          "epoch": {
+            "format": "uuid",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "const": "turn_execution_control",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_id",
+          "epoch",
+          "sequence",
+          "event_id",
+          "event_type",
+          "data"
+        ],
+        "title": "TurnControlEvent",
+        "type": "object"
+      },
+      "TurnPresentationEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductTurnPresentation"
+          },
+          "epoch": {
+            "format": "uuid",
+            "title": "Epoch",
+            "type": "string"
+          },
+          "event_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "const": "turn_ux_plan",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "sequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_id",
+          "epoch",
+          "sequence",
+          "event_id",
+          "event_type",
+          "data"
+        ],
+        "title": "TurnPresentationEvent",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Magi product event contracts",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {}
+}

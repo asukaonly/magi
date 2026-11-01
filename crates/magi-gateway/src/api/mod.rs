@@ -100,7 +100,8 @@ pub fn build_router(state: ApiState) -> Router {
             let events = Arc::clone(&events);
             async move {
                 let resource = request.uri().path().strip_prefix("/api/").and_then(|path| path.split('/').next()).unwrap_or("").to_owned();
-                let mutation = !matches!(*request.method(), axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS)
+                let mutation = request.uri().path() != "/api/messages/confirmation"
+                    && !matches!(*request.method(), axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS)
                     && !matches!(resource.as_str(), "" | "auth" | "server" | "private-resource-tickets");
                 let response = next.run(request).await;
                 if mutation && response.status().is_success() { events.publish("state.changed", serde_json::json!({"resource":resource})); }

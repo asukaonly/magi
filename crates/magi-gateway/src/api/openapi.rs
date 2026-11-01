@@ -12,6 +12,7 @@ use super::{proxy, security, state::ApiState};
 
 const MANIFEST: &str = include_str!("../../../../contracts/api/gateway_routes.json");
 const NATIVE_SCHEMA: &str = include_str!("../../../../contracts/api/gateway_openapi.json");
+const PRODUCT_EVENTS: &str = include_str!("../../../../contracts/api/frontend-product-events.json");
 const RELEASE_VERSION: &str = include_str!("../../../../VERSION");
 const MAX_SCHEMA_BYTES: usize = 16 * 1024 * 1024;
 const DESCRIPTION: &str = "Magi Server gateway API (native Rust and Python IPC routes). All requests require an opaque access token in x-magi-session-token except public liveness/bundled avatars and the separately authenticated pairing/device-credential exchanges. Authentication is enabled in development too. Paired owner devices share full control of one owner's data; this is not multi-tenant authorization. Collector credentials have a narrower source scope. Never send credentials in URLs. Browser Origin access is restricted to configured desktop origins; non-browser HTTP clients can omit Origin. See server/README.md for pairing, reconnect, and mutation recovery. Dynamic JSON responses intentionally retain open schemas; route coverage does not imply every domain response is strongly typed.";
@@ -169,6 +170,14 @@ fn combine(mut python: Value) -> Result<Value, &'static str> {
             return Err("schema name collision");
         }
         python["components"]["schemas"][name] = schema.clone();
+    }
+    let product: Value = serde_json::from_str(PRODUCT_EVENTS).expect("product event contract");
+    for (name, schema) in product["components"]["schemas"].as_object().ok_or("missing product schemas")? {
+        // Shared chat read models already appear in the HTTP schema. Both are
+        // exported from the same production models; keep HTTP's response mode.
+        if python["components"]["schemas"].get(name).is_none() {
+            python["components"]["schemas"][name] = schema.clone();
+        }
     }
     let mut schemes = json!({});
     for (name, description) in [

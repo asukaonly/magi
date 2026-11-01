@@ -8,7 +8,7 @@ pub mod health;
 pub mod lifecycle;
 pub mod restart_budget;
 
-pub const SERVER_PROTOCOL_VERSION: u32 = 2;
+pub const SERVER_PROTOCOL_VERSION: u32 = 3;
 
 /// Private launch request passed over the owning process's stdin pipe.
 #[derive(Deserialize, Serialize)]

@@ -1,5 +1,5 @@
 {
-  "channel": "chat_message_upserted",
+  "contract_version": 1,
   "data": {
     "message": {
       "allow_trace_collapse": false,
@@ -35,7 +35,9 @@
     },
     "user_id": "fixture-user"
   },
-  "session_id": "fixture-session",
-  "turn_id": null,
-  "user_id": "fixture-user"
+  "epoch": "a0c4c092-b043-4767-a2a7-041ad6194b8c",
+  "event_id": "a0c4c092-b043-4767-a2a7-041ad6194b8c:1",
+  "event_type": "chat_message_upserted",
+  "sequence": 1,
+  "server_id": "cde1b1d1-7f23-4b95-a5d4-04e84d209af0"
 }

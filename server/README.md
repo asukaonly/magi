@@ -580,11 +580,15 @@ private-resource tickets belong in asset URLs.
 ### Events, retries and durable mutations
 
 - `GET /api/events` uses authenticated SSE. Frames have event name `magi`, a
-  JSON envelope (`server_id`, `epoch`, `sequence`, `event_id`, `event_type`,
+  JSON envelope (`contract_version`, `server_id`, `epoch`, `sequence`, `event_id`, `event_type`,
   `data`), and an SSE `id` equal to `event_id`. Resume with the last processed ID
   in `Last-Event-ID`. Renew the access session before reconnecting; use bounded
   backoff with jitter. Native browser `EventSource` cannot set the auth header;
   use a fetch-based SSE client or a native HTTP client.
+- Protocol version 3 advertises the version 1 client contract in `/api/server/info`.
+  The default `scope=product` stream uses the generated `ProductEvent` schema;
+  `scope=diagnostics` is optional and has its own cursor and retention window.
+  See [Client–Server Contract](../docs/client-server-contract.md) for status and event ownership.
 - This stream contains state-change hints, not durable delivery acknowledgments.
   A `resync_required` frame means reload authoritative snapshots. The bounded
   in-memory history holds at most 256 events / 8 MiB; old cursors, new

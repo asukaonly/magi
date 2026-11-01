@@ -29,7 +29,8 @@ import {
   captureBrowserContentGeneration,
   isBrowserContentGenerationCurrent,
 } from '@/lib/browserContentGeneration';
-import { messagesApi, type ChatSessionListItem } from '@/api';
+import { messagesApi, backgroundTasksApi, type ChatSessionListItem } from '@/api';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
 import { completeChatSessionDeletion } from '@/hooks/chatRetryLifecycle';
 import {
@@ -486,6 +487,17 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   );
 
   const tasksActiveCount = useBackgroundTaskStore((state) => state.activeCount);
+  const beginTaskCountRead = useRequestOwner();
+  const refreshTaskCount = useCallback(async () => {
+    const isCurrent = beginTaskCountRead('active-count');
+    const version = useBackgroundTaskStore.getState().mutationVersion;
+    try {
+      const snapshot = await backgroundTasksApi.list({ userId: USER_ID, limit: 1 });
+      if (isCurrent()) useBackgroundTaskStore.getState().receiveActiveCount(snapshot.active_count, version);
+    } catch { /* Keep the last count while the center is unavailable. */ }
+  }, [beginTaskCountRead]);
+  useCenterRefresh(refreshTaskCount, ['background-tasks']);
+  useEffect(() => { void refreshTaskCount(); }, [refreshTaskCount]);
   const runningSchedulesCount = useSchedulesStore((state) => state.runningCount);
 
   if (collapsed) {

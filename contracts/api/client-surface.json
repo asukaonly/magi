@@ -1,0 +1,1796 @@
+{
+  "description": "Client implementation surfaces, not authorization scopes. Diagnostics use the optional events scope. OpenAPI owns wire schemas.",
+  "operations": [
+    {
+      "method": "POST",
+      "path": "/api/auth/pair",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/session",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/availability",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/availability/refresh",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/background-tasks",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/background-tasks/{task_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/background-tasks/{task_id}/cancel",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/background-tasks/{task_id}/dismiss",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/background-tasks/{task_id}/retry",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/channels/bindings",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/channels/bindings/{channel_type}/{external_user_id}/auto-approve",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/channels/delivery-preferences",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/channels/delivery-preferences",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/channels/delivery-status",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/channels/endpoints",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat/preview",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/code_agent/delegations/{session_id}/{delegation_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/code_agent/delegations/{session_id}/{delegation_id}/apply",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/code_agent/delegations/{session_id}/{delegation_id}/cancel",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/code_agent/delegations/{session_id}/{delegation_id}/discard",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/code_agent/probe",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/code_agent/rescan",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/code_agent/settings",
+      "surface": "management"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/code_agent/settings",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/code_agent/settings/reset",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/commands/",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/commands/run",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/commands/run-skill-as-background",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/channels/telegram/test",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/embedding-preflight",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/onboarding-complete",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/onboarding-draft",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/onboarding-status",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/onboarding-template",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config/preferences/language",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/template",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/config/test",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/control/ask/{request_id}/respond",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/control/permission/{request_id}/respond",
+      "surface": "product"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/control/rules",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/control/rules",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/control/rules/{rule_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/control/sessions/{session_id}/ask",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/control/sessions/{session_id}/permissions",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/control/sessions/{session_id}/plan",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/control/sessions/{session_id}/settings",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/control/sessions/{session_id}/settings",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/control/settings",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/control/settings",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/delivery/collector/{connection_id}",
+      "surface": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/api/delivery/collector/{connection_id}",
+      "surface": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/api/delivery/collector/{connection_id}/release",
+      "surface": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/api/delivery/connections/{connection_id}",
+      "surface": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/api/delivery/discard",
+      "surface": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/api/delivery/events",
+      "surface": "device"
+    },
+    {
+      "method": "POST",
+      "path": "/api/delivery/retry",
+      "surface": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/api/delivery/status",
+      "surface": "device"
+    },
+    {
+      "method": "GET",
+      "path": "/api/docs",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/events",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/files/browse",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/files/directories",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/files/outputs/{operation_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/files/outputs/{operation_id}/chunks",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/files/uploads",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/files/uploads/{resource_id}",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/files/uploads/{resource_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/hooks",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/llm/providers/catalog",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/llm/providers/catalog",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/llm/providers/custom-template",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/llm/providers/discover-models",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/llm/providers/test",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/local-embedding/discovered",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/local-embedding/models",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/local-embedding/models/{model_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/local-embedding/models/{model_id}/download",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/local-embedding/models/{model_id}/download/cancel",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/local-embedding/models/{model_id}/status",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/local-reranker/models",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/local-reranker/models/{model_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/local-reranker/models/{model_id}/download",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/local-reranker/models/{model_id}/download/cancel",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/local-reranker/models/{model_id}/status",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/resources",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mcp/resources/read",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/servers",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mcp/servers",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/mcp/servers/{server_id}",
+      "surface": "management"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/mcp/servers/{server_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/servers/{server_id}/logs",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mcp/servers/{server_id}/start",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mcp/servers/{server_id}/stop",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/archives/search",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/background/pending",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/memory/clear",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/dashboard",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/embeddings/rebuild",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/embeddings/rebuild/{job_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/embeddings/rebuild/{job_id}/cancel",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/embeddings/status",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/eval/finalize-replay",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/eval/judge-answer",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/eval/query",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/eval/replay",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/forget/entity",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/forget/episode",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/forget/time-range",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/history-imports",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/history-imports/importers",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/history-imports/importers/{plugin_id}/{importer_id}/preview",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/history-imports/markdown/preview",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/memory/history-imports/{job_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/history-imports/{job_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/history-imports/{job_id}/confirm",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/history-imports/{job_id}/markdown/append",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/history-imports/{job_id}/resume",
+      "surface": "management"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/memory/history-imports/{job_id}/selection",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/history-imports/{job_id}/source-preview",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/identity/links",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l0/sessions",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l0/workbench/{session_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l1/events",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/memory/l1/events/{event_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/assertions",
+      "surface": "management"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/memory/l2/assertions/{assertion_id}/feedback",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/conflict-rules",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/memory/l2/conflict-rules/{predicate}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/consolidation",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/consolidation",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/context-options",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/corrections",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/corrections",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/corrections/{correction_id}/revert",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/entities",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/entities/changes/apply",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/entities/changes/preview",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/entities/identity-audit",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/entities/reviews",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/entities/reviews/keep",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/entities/reviews/{review_id}/reject",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/episodes",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/episodes/reconsolidate",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/episodes/{episode_id}",
+      "surface": "management"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/memory/l2/episodes/{episode_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/episodes/{episode_id}/event-candidates",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/memory/l2/episodes/{episode_id}/events",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/episodes/{episode_id}/events",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/episodes/{episode_id}/merge",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/episodes/{episode_id}/merge-candidates",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/episodes/{episode_id}/regenerate",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/episodes/{episode_id}/split",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/episodes/{episode_id}/split-preview",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/experience-drafts",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/experience-drafts/organize",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/experience-drafts/{draft_id}",
+      "surface": "management"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/memory/l2/experience-drafts/{draft_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/experience-drafts/{draft_id}/cover",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/experience-drafts/{draft_id}/create",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/experience-seeds",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/experience-seeds",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/experience-seeds/{seed_id}/promote",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/experience-seeds/{seed_id}/reject",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/experiences",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/experiences/{experience_id}",
+      "surface": "management"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/memory/l2/experiences/{experience_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/experiences/{experience_id}/cover",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/experiences/{experience_id}/hide",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/experiences/{experience_id}/regenerate",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/mentions",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/pending",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/projection-flush",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/relations",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/retry-failed",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/reviews",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/l2/reviews/{review_id}/resolve",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/snapshots",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/statistics",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l3/summaries",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/maintenance/tasks",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/manual-entries",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/manual-entries",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/manual-entries/assets",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/memory/manual-entries/{entry_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/manual-entries/{entry_id}",
+      "surface": "management"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/memory/manual-entries/{entry_id}",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/memory/manual-entries/{entry_id}/weather",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/portability/backups",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/portability/exports",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/portability/operations/active",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/portability/operations/latest",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/portability/operations/{operation_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/portability/restores/inspect",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/memory/portability/restores/{candidate_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/portability/restores/{candidate_id}/confirm",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/portrait",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/portrait/self",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/post-turn/retry-failed",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/procedures",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/quality",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/memory/search",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/statistics",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/stories",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/stories/{summary_id}/evidence",
+      "surface": "management"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/memory/stories/{summary_id}/review",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/tom/{entity_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/messages/confirmation",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/messages/history",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/messages/history/clear",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/messages/send",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/messages/session/new",
+      "surface": "product"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/messages/session/{session_id}",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/messages/session/{session_id}",
+      "surface": "product"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/messages/session/{session_id}",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/messages/session/{session_id}/attachments",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/messages/session/{session_id}/attachments/{attachment_id}/content",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/messages/session/{session_id}/cancel-run",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/messages/session/{session_id}/detach-run",
+      "surface": "product"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/messages/session/{session_id}/message/{message_id}",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/messages/session/{session_id}/message/{message_id}/label",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/messages/session/{session_id}/turn/{turn_id}",
+      "surface": "product"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/messages/session/{session_id}/workspace",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/messages/sessions",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/messages/trace",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/messages/workspaces/recent",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/messages/workspaces/recent",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/metrics/llm/usage/summary",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/metrics/llm/usage/timeseries",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/metrics/runtime/overview",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/dismiss-all",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/mark-read",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/{notification_id}/action",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/{notification_id}/dismiss",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/{notification_id}/resolve-conflict",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/openapi.json",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personal-tasks",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personal-tasks/mutations",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personal-tasks/{item_id}",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personalities/",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personalities/avatar/upload",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personalities/{preset_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personality/adjust",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personality/bootstrap/init",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personality/generate",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personality/generation-intents/resolve",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personality/generation-intents/verify",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personality/generation-jobs",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personality/generation-jobs/{job_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personality/greeting",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personality/journal/reflect",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personas/",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personas/",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personas/active",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/personas/active",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personas/seed",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personas/seed-previews",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/personas/{persona_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personas/{persona_id}",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/personas/{persona_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/connections/{connection_id}/settings/actions/{action_id}/sessions/{session_id}/cancel",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/connections/{connection_id}/settings/actions/{action_id}/sessions/{session_id}/poll",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/connections/{connection_id}/settings/actions/{action_id}/start",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/connections/{connection_id}/settings/resources/{resource_name}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/install/candidates",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/plugins/install/candidates/{candidate_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/install/candidates/{candidate_id}/jobs",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/install/jobs/{job_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/install/registry",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/install/registry/jobs",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/install/registry/plan",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/registry",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/requests/{operation_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/requests/{operation_id}/resolve",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/rescan",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/source-catalog",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/updates",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/plugins/{plugin_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/{plugin_id}/connections",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/{plugin_id}/connections",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/plugins/{plugin_id}/connections/{connection_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plugins/{plugin_id}/connections/{connection_id}",
+      "surface": "management"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/plugins/{plugin_id}/connections/{connection_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/{plugin_id}/connections/{connection_id}/clear",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/{plugin_id}/reload",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/{plugin_id}/trust",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/{plugin_id}/update",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/plugins/{plugin_id}/update/jobs",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/private-resource-tickets",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/profile/me",
+      "surface": "management"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/profile/me",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/profile/me/refresh",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/schedules",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/schedules",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/schedules/activity",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/schedules/activity/{activity_id}/cancel",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/schedules/executions/recent",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/schedules/{schedule_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/schedules/{schedule_id}",
+      "surface": "management"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/schedules/{schedule_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/schedules/{schedule_id}/executions",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/schedules/{schedule_id}/run",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/server/clients",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/server/clients/{client_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/server/collector-grants",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/server/info",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/server/maintenance",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/server/maintenance/{operation_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/server/notification-claims",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/server/notification-policy",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/server/notification-policy",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/server/pairing-grants",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sources/status",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sources/today-summary",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sources/{source_name}/authorize",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sources/{source_name}/flush-state",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sources/{source_name}/memory-readiness",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sources/{source_name}/sync",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sources/{source_name}/sync-history",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/speech/asr/models",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/speech/asr/models/{model_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/speech/asr/models/{model_id}/download",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/speech/asr/models/{model_id}/download/cancel",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/speech/asr/status",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/speech/asr/transcriptions/{request_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/speech/asr/transcriptions/{request_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/speech/asr/transcriptions/{request_id}/cancel",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/speech/tts/models",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/speech/tts/models",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/speech/tts/models/download",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/speech/tts/models/download/cancel",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/speech/tts/settings",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/speech/tts/settings",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/speech/tts/syntheses",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/speech/tts/syntheses/by-request/{request_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/speech/tts/syntheses/by-request/{request_id}/cancel",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/speech/tts/syntheses/{job_id}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/speech/tts/syntheses/{job_id}/cancel",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/speech/tts/syntheses/{job_id}/segments/{seq}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/speech/tts/syntheses/{job_id}/segments/{seq}",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/system-suggestions/check",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/system-suggestions/dismiss",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/system-suggestions/dismissals",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/system-suggestions/dismissals/{dedupe_key}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/system-suggestions/installable",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/timeline/asset/{asset_ref}",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/timeline/context/{anchor_id}",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/timeline/cover",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/timeline/mood-calendar",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/timeline/standout",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/timeline/viewport",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tools/config",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tools/{tool_name}/config",
+      "surface": "management"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/tools/{tool_name}/config",
+      "surface": "management"
+    }
+  ],
+  "version": 1
+}

@@ -337,7 +337,7 @@ mod tests {
                     let (mut socket, _) = listener.accept().await.unwrap();
                     let mut request = [0; 4096];
                     let _ = socket.read(&mut request).await.unwrap();
-                    let body = serde_json::json!({"success":true,"data":{"server_id":"center","protocol_version":2,"service_ready":false,"maintenance":{"data_epoch":"data","content_epoch":"content","phase":"running"}}}).to_string();
+                    let body = serde_json::json!({"success":true,"data":{"server_id":"center","protocol_version":3,"service_ready":false,"maintenance":{"data_epoch":"data","content_epoch":"content","phase":"running"}}}).to_string();
                     socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
                 };
                 let (probe, ()) = tokio::join!(state.probe_owned_service(), serve_unready);
@@ -404,7 +404,7 @@ mod tests {
                 } else if scenario == "switch" {
                     switch.await;
                 }
-                let body = serde_json::json!({"success":true,"data":{"server_id":"center","protocol_version":2,"service_ready":true,"maintenance":{"data_epoch":"data","content_epoch":"content","phase":"idle"}}}).to_string();
+                let body = serde_json::json!({"success":true,"data":{"server_id":"center","protocol_version":3,"service_ready":true,"maintenance":{"data_epoch":"data","content_epoch":"content","phase":"idle"}}}).to_string();
                 let _ = socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
             };
             let (result, ()) = tokio::time::timeout(Duration::from_secs(10), async {

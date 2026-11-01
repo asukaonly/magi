@@ -1,18 +1,20 @@
 import { z } from 'zod';
-import { authenticatedFetch, resolveApiBaseUrl } from '@/api/client';
-import { getRuntimeConfig } from '@/runtime/config';
 import type { RealtimeMessage } from './provider';
 import { normalizeRealtimeStreamEvent } from './stream-events';
+import { validateProductEvent } from '@/api/generated/product-events-validators';
 
-export const bridgePayloadSchema = z.object({
-  channel: z.string(), user_id: z.string(), session_id: z.string(), turn_id: z.string().nullable(),
-  data: z.record(z.string(), z.unknown()),
-});
 const envelopeSchema = z.object({
+  contract_version: z.literal(1),
   server_id: z.string().uuid(), epoch: z.string().uuid(), sequence: z.number().int().nonnegative(),
   event_id: z.string().max(100), event_type: z.string().min(1).max(128), data: z.unknown(),
 });
 type Status = { connected: boolean; reconnectAttempts: number; lastError: string | null };
+
+export interface EventTransport {
+  baseUrl: string;
+  serverId: string;
+  fetch: (input: string, init: RequestInit) => Promise<Response>;
+}
 
 /** Incremental parsing is bounded independently of network chunk boundaries. */
 export class SseFrames {
@@ -33,6 +35,7 @@ export class SseFrames {
 }
 
 export class SseClient {
+  constructor(private readonly transport: EventTransport, private readonly scope: 'product' | 'diagnostics' = 'product') {}
   private listeners = new Set<(message: RealtimeMessage) => void>();
   private statusListeners = new Set<(status: Status) => void>();
   private abort: AbortController | undefined;
@@ -67,7 +70,7 @@ export class SseClient {
     if (this.lastId) headers['Last-Event-ID'] = this.lastId;
     const opening = new AbortController();
     const timer = setTimeout(() => opening.abort(), 15_000);
-    const response = await authenticatedFetch(`${resolveApiBaseUrl()}/events`, {
+    const response = await this.transport.fetch(`${this.transport.baseUrl}/events?scope=${this.scope}`, {
       headers, signal: AbortSignal.any([owner.signal, opening.signal]),
     }).finally(() => clearTimeout(timer));
     if (!response.ok || !response.headers.get('Content-Type')?.startsWith('text/event-stream') || !response.body) {
@@ -129,7 +132,7 @@ export class SseClient {
     const data = frame.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trimStart()).join('\n');
     if (!data) return;
     const event = envelopeSchema.parse(JSON.parse(data) as unknown);
-    if (event.server_id !== getRuntimeConfig().serverId || event.event_id !== `${event.epoch}:${event.sequence}`) {
+    if (event.server_id !== this.transport.serverId || event.event_id !== `${event.epoch}:${event.sequence}`) {
       throw new Error('Center event identity is invalid');
     }
     const epochChanged = this.epoch !== undefined && event.epoch !== this.epoch;
@@ -139,13 +142,17 @@ export class SseClient {
     this.sequence = event.sequence;
     this.lastId = event.event_id;
     if (epochChanged || gap) this.emit({ event: 'resync_required', data: { reason: 'event_gap' } });
+    if (this.scope === 'product' && !validateProductEvent(event)) {
+      this.emit({ event: 'resync_required', data: { reason: 'invalid_product_event' } });
+      return;
+    }
     if (event.event_type === 'state.changed' || event.event_type === 'resync_required') {
       this.emit({ event: event.event_type, data: event.data });
       return;
     }
-    const payload = bridgePayloadSchema.parse(event.data);
-    this.emit({ event: event.event_type, data: payload.data,
-      streamEvent: event.event_type === 'agent_response_chunk' ? normalizeRealtimeStreamEvent(payload.data) : null });
+    const payload = z.record(z.string(), z.unknown()).parse(event.data);
+    this.emit({ event: event.event_type, data: payload,
+      streamEvent: event.event_type === 'agent_response_chunk' ? normalizeRealtimeStreamEvent(payload) : null });
   }
 
   private emit(message: RealtimeMessage): void {

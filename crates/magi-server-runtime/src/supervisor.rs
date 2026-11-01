@@ -120,10 +120,7 @@ pub async fn run(
             if event == "server_resync_required" {
                 event_hub.reset("notification_source_changed");
             } else {
-                event_hub.publish(
-                    "runtime.notification",
-                    serde_json::to_value(payload).unwrap_or_default(),
-                );
+                event_hub.publish_notification(event, payload);
             }
         });
     let bridge_shutdown = shutdown.clone();

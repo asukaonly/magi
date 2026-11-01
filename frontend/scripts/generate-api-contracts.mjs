@@ -10,7 +10,7 @@ async function generate(domain, names) {
   const header = '// Generated from production response schemas. Run npm run contracts:generate.\n';
   const types = header + astToString(await openapiTS(schema, { defaultNonNullable: false }));
   // Timestamps remain strings in the UI; semantic datetime rules stay with their owner.
-  const ajv = new Ajv({ strict: false, inlineRefs: false, allErrors: false, formats: { 'date-time': true }, code: { source: true, esm: true, lines: true } });
+  const ajv = new Ajv({ strict: false, inlineRefs: false, allErrors: false, formats: { 'date-time': true, uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i }, code: { source: true, esm: true, lines: true } });
   // Compile ahead of time: desktop WebViews never need eval or a runtime schema compiler.
   ajv.addSchema({ $id: 'magi-config', components: schema.components });
   // JSON Schema lengths count Unicode code points; keep that helper self-contained in the WebView.
@@ -40,6 +40,7 @@ async function generate(domain, names) {
 
 await generate('config', ['ConfigResponse', 'OnboardingStatusResponse', 'OnboardingTemplateResponse', 'ToolConfigResponse', 'ToolsListResponse', 'CodeAgentSettingsResponse', 'CodeAgentProbeResponse']);
 await generate('client', ['TurnSnapshot', 'SendConfirmation', 'SendConfirmationRequest']);
+await generate('product-events', ['ProductEvent']);
 await generate('tts', ['SynthesisJob', 'TTSConfiguration', 'TTSModelStatus']);
 await generate('plugins', ['PluginConnectionResponse', 'PluginConnectionsResponse', 'PluginPackageResponse', 'PluginInstallCandidateResponse', 'PluginInstallJobSnapshot', 'PluginRegistryResponse', 'PluginInstallPlanResponse', 'PluginSettingsActionRunResponse', 'PluginSettingsResourceResponse', 'PluginsListResponse', 'SourceCatalogResponse']);
 

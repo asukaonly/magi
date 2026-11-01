@@ -176,7 +176,7 @@ configuration initialize, before optional plugin/Agent startup. Missing core
 model configuration leaves management, raw memory storage and source collection
 available; model-dependent capabilities wait on the same lifecycle owner and
 resume after configuration is saved. `/api/server/info` and operator `status`
-use protocol version 2 and `service_ready` for this management boundary. Query
+use protocol version 3 and `service_ready` for this management boundary. Query
 `/api/ready` for actual Agent readiness and per-capability reasons. A client and
 server must use the same protocol version; there is no legacy response alias.
 
@@ -272,7 +272,9 @@ changes the stream epoch; clients must reload authoritative state. Replay is
 within the running gateway's retained window, not a durable event-delivery SLA.
 
 The center polls persisted runtime notifications once for all clients using
-bounded blocking reads. Successful product HTTP mutations also emit resource
+bounded blocking reads. The gateway projects declared product events and routes
+raw execution details into a separate optional diagnostic stream. The streams
+have independent cursors and reset together; see [Client–Server Contract](./client-server-contract.md). Successful product HTTP mutations also emit resource
 invalidation hints. These hints do not provide an atomic outbox across domain
 stores: client reconnection and periodic snapshot reconciliation are still
 required to cover a commit followed by a process failure before notification.

@@ -1055,7 +1055,7 @@ mod tests {
                 .unwrap();
             let info = super::super::protocol::ServerInfo {
                 server_id: descriptor.server_id.clone(),
-                protocol_version: 2,
+                protocol_version: 3,
                 service_ready: ready,
                 maintenance: super::super::protocol::MaintenanceInfo {
                     data_epoch: data.into(),
@@ -1385,7 +1385,7 @@ mod tests {
             assert!(
                 String::from_utf8_lossy(&request[..length]).starts_with("GET /api/server/info ")
             );
-            let body = serde_json::json!({"success":true,"data":{"server_id":"center","protocol_version":2,"service_ready":true,"maintenance":{"data_epoch":"new-epoch","content_epoch":"content","phase":"completed"}}}).to_string();
+            let body = serde_json::json!({"success":true,"data":{"server_id":"center","protocol_version":3,"service_ready":true,"maintenance":{"data_epoch":"new-epoch","content_epoch":"content","phase":"completed"}}}).to_string();
             socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes()).await.unwrap();
         });
         let state = ConnectionRuntime::default();

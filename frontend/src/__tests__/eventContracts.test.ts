@@ -1,5 +1,5 @@
 import nativeNotification from '../../../contracts/api/frontend-native-notification.json';
-import { bridgePayloadSchema } from '@/realtime/sse-client';
+import { validateProductEvent } from '@/api/generated/product-events-validators';
 import { messagesApi } from '@/api/modules/messages';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import examples from '../../../contracts/api/frontend-events-examples.json';
@@ -46,7 +46,7 @@ describe('production chat and task serialization contracts', () => {
   });
 
   it('reads owner-serialized session and notification fixtures through the real clients', async () => {
-    expect(bridgePayloadSchema.safeParse(nativeNotification).success).toBe(true);
+    expect(validateProductEvent(nativeNotification)).toBe(true);
     get.mockResolvedValueOnce(examples.sessionPage);
     await expect(messagesApi.listSessions()).resolves.toEqual(examples.sessionPage);
     get.mockResolvedValueOnce({ ...examples.sessionPage, sessions: [{ ...examples.sessionPage.sessions[0], history_version: '7' }] });

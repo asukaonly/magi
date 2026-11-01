@@ -88,6 +88,31 @@
                         },
                         "plugin_execution": {
                           "const": "server"
+                        },
+                        "client_contract": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "version": {
+                              "type": "integer",
+                              "const": 1
+                            },
+                            "product_events": {
+                              "type": "string"
+                            },
+                            "diagnostic_events": {
+                              "type": "string"
+                            },
+                            "schema": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "version",
+                            "product_events",
+                            "diagnostic_events",
+                            "schema"
+                          ]
                         }
                       },
                       "required": [
@@ -97,7 +122,8 @@
                         "maintenance",
                         "service_ready",
                         "supervisor",
-                        "plugin_execution"
+                        "plugin_execution",
+                        "client_contract"
                       ]
                     }
                   },
@@ -815,9 +841,23 @@
               "maxLength": 100
             },
             "description": "Last processed SSE id, formatted as epoch:sequence."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "product",
+                "diagnostics"
+              ],
+              "default": "product"
+            },
+            "description": "Independent streams with independent replay cursors. Product events follow ProductEvent; diagnostics are optional runtime details."
           }
         ],
-        "description": "SSE event name is magi; each data field is a GatewayEvent JSON envelope and id matches event_id. Retains at most 256 events / 8 MiB in memory. Missing, unknown, old, or different-epoch cursors yield resync_required: reload authoritative snapshots. These hints are not durable business messages. Epoch changes on process restart or reset; data_epoch in maintenance status is a separate mutation scope. Store the cursor only after handling a frame. Renew authentication then reconnect with bounded backoff/jitter; token expiry or revocation ends the stream. A lagging subscriber receives resync_required and is disconnected. Keep-alive comments occur every 15 seconds; capacity is 64 subscribers, excess requests return 429.",
+        "description": "SSE event name is magi; each data field is a GatewayEvent JSON envelope and id matches event_id. Retains at most 256 events / 8 MiB in memory. Missing, unknown, old, or different-epoch cursors yield resync_required: reload authoritative snapshots. These hints are not durable business messages. Epoch changes on process restart or reset; data_epoch in maintenance status is a separate mutation scope. Store the cursor only after handling a frame. Renew authentication then reconnect with bounded backoff/jitter; token expiry or revocation ends the stream. A lagging subscriber receives resync_required and is disconnected. Keep-alive comments occur every 15 seconds; capacity is 64 subscribers, excess requests return 429. Product events carry contract_version 1 and follow ProductEvent. No raw runtime notification wrapper is exposed on the product stream. Each scope has an independent epoch, sequence, retention buffer and subscriber limit.",
         "operationId": "gateway_get_api_events"
       }
     },
@@ -1190,7 +1230,11 @@
           "event_type": {
             "type": "string"
           },
-          "data": {}
+          "data": {},
+          "contract_version": {
+            "type": "integer",
+            "const": 1
+          }
         },
         "required": [
           "server_id",
@@ -1198,7 +1242,8 @@
           "sequence",
           "event_id",
           "event_type",
-          "data"
+          "data",
+          "contract_version"
         ]
       }
     }

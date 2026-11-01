@@ -17,6 +17,7 @@ interface BackgroundTaskState {
 
   /** Replace the entire cache with a fresh snapshot from the list endpoint. */
   hydrate: (tasks: BackgroundTaskDTO[], activeCount: number, expectedMutationVersion: number) => boolean;
+  receiveActiveCount: (activeCount: number, expectedMutationVersion: number) => void;
   /** Apply a realtime state update (always the authoritative task record). */
   upsert: (task: BackgroundTaskDTO) => boolean;
   /** Drop a task after a successful dismiss. */
@@ -54,6 +55,10 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
   clearBoundaryAt: null,
   retiredTaskIds: {},
   mutationVersion: 0,
+
+  receiveActiveCount: (activeCount, expectedMutationVersion) => set((state) => (
+    state.mutationVersion === expectedMutationVersion ? { activeCount } : state
+  )),
 
   hydrate: (tasks, activeCount, expectedMutationVersion) => {
     let accepted = false;

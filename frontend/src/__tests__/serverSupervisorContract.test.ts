@@ -5,7 +5,7 @@ vi.mock('@/runtime/config', () => ({ getRuntimeConfig: () => ({ serverId: 'cde1b
 import { serverApi } from '@/api/modules/server';
 
 const info = () => ({
-  server_id: 'cde1b1d1-7f23-4b95-a5d4-04e84d209af0', protocol_version: 2, service_ready: false,
+  server_id: 'cde1b1d1-7f23-4b95-a5d4-04e84d209af0', protocol_version: 3, service_ready: false,
   plugin_execution: 'server',
   supervisor: { phase: 'cooldown', restart_count: 3, last_error: 'Python event loop failed consecutive IPC probes', next_retry_at_ms: 123456 },
   maintenance: { version: 2, kind: null, operation_id: null, phase: 'idle', content_epoch: 'initial', data_epoch: 'initial', result: null, error: null },

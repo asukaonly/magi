@@ -8,6 +8,7 @@ const SKIPPED_DIRS = new Set(['__tests__', '__ui_preview__', '__visual__', 'test
 const DEFAULT_SRC_ROOT = path.resolve(process.cwd(), 'src');
 
 const FORBIDDEN_LAYER_IMPORTS = {
+  client: new Set(['api', 'components', 'hooks', 'pages', 'router', 'runtime', 'stores']),
   api: new Set(['pages', 'router']),
   constants: new Set(['pages', 'router']),
   domain: new Set(['pages', 'router']),
@@ -117,6 +118,11 @@ export function findBoundaryViolations(files, options = {}) {
 
     const source = file.source;
     for (const importEntry of extractImportSources(source)) {
+      if (importerLayer === 'client' && importEntry.source.startsWith('@tauri-apps/')) {
+        violations.push({ filePath, line: importEntry.line, importSource: importEntry.source,
+          importerLayer, importedLayer: 'desktop host' });
+        continue;
+      }
       const importedPath = resolveImportPath(filePath, importEntry.source, srcRoot);
       if (!importedPath) {
         continue;

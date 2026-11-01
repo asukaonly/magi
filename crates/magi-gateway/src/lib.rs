@@ -1,5 +1,6 @@
 pub mod api;
 pub mod auth;
+pub mod client_events;
 pub mod db;
 pub mod ipc;
 pub mod notification_bridge;

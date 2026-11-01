@@ -17,7 +17,7 @@ export const supervisorSchema = z.object({
 });
 export type SupervisorStatus = z.infer<typeof supervisorSchema>;
 const infoSchema = z.object({
-  server_id: z.string().uuid(), protocol_version: z.literal(2), service_ready: z.boolean(),
+  server_id: z.string().uuid(), protocol_version: z.literal(3), service_ready: z.boolean(),
   supervisor: supervisorSchema,
   maintenance: maintenanceSchema, plugin_execution: z.literal('server'),
 });

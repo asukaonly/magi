@@ -1,3 +1,4 @@
+import { fetchService, requireServiceUrl, isReadRequest, isSessionRejection } from '@/client/http';
 /**
  * Axios API client.
  */
@@ -59,11 +60,7 @@ function assertScope(scope: ApiScope): void {
   }
 }
 function requireOwnedUrl(input: string, scope: ApiScope): void {
-  const url = new URL(input, `${scope.baseUrl}/`);
-  const base = new URL(scope.baseUrl);
-  if (url.origin !== base.origin || url.username || url.password || url.hash) {
-    throw new Error('Authenticated requests must stay on the active center');
-  }
+  requireServiceUrl(input, scope.baseUrl);
 }
 async function sessionForScope(scope: ApiScope): Promise<string | undefined> {
   assertScope(scope);
@@ -72,15 +69,6 @@ async function sessionForScope(scope: ApiScope): Promise<string | undefined> {
   return token ?? scope.token;
 }
 subscribeRuntimeReset(() => { apiScope.abort.abort(); });
-
-function isSessionRejection(status: number | undefined, data: unknown): boolean {
-  return status === 401 && typeof data === 'object' && data !== null
-    && 'error_code' in data && data.error_code === 'client_auth_required';
-}
-
-function isReadRequest(method: string): boolean {
-  return ['GET', 'HEAD'].includes(method.toUpperCase());
-}
 
 const AXIOS_CONFIG_KEYS = new Set([
   'adapter',
@@ -406,39 +394,16 @@ export function getDesktopSessionToken(): string | undefined {
   return getRuntimeConfig().sessionToken ?? apiScope.token;
 }
 
-export async function authenticatedFetch(
-  input: RequestInfo | URL,
-  init: RequestInit = {},
-): Promise<Response> {
+export function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const scope = apiScope;
-  const target = input instanceof Request ? input.url : String(input);
-  requireOwnedUrl(target, scope);
-  const token = await sessionForScope(scope);
-  const headers = new Headers(init.headers ?? (input instanceof Request ? input.headers : undefined));
-  headers.delete('X-Magi-Session-Token');
-  if (token) headers.set('X-Magi-Session-Token', token);
-  headers.set('Accept-Language', resolveInitialLanguage());
-  const sourceSignal = init.signal ?? (input instanceof Request ? input.signal : undefined);
-  const signal = sourceSignal ? AbortSignal.any([scope.abort.signal, sourceSignal]) : scope.abort.signal;
-  registerKnownLogSecrets({ body: init.body, headers: Object.fromEntries(headers.entries()) });
-  let response = await fetch(input, { ...init, headers, signal, redirect: 'error', credentials: 'omit' });
-  assertScope(scope);
-  if (response.status === 401) {
-    const payload: unknown = await response.clone().json().catch(() => undefined);
-    if (isSessionRejection(response.status, payload)) {
-      const refreshed = await recoverRuntimeSession(token, scope.owner);
-      assertScope(scope);
-      const method = init.method ?? (input instanceof Request ? input.method : 'GET');
-      if (refreshed && isReadRequest(method)) {
-        await response.body?.cancel();
-        headers.set('X-Magi-Session-Token', refreshed);
-        registerKnownLogSecrets({ headers: Object.fromEntries(headers.entries()) });
-        response = await fetch(input, { ...init, headers, signal, redirect: 'error', credentials: 'omit' });
-        assertScope(scope);
-      }
-    }
-  }
-  return response;
+  return fetchService({
+    baseUrl: scope.baseUrl, signal: scope.abort.signal,
+    token: () => sessionForScope(scope),
+    renew: (token) => recoverRuntimeSession(token, scope.owner),
+    assertCurrent: () => assertScope(scope),
+    language: resolveInitialLanguage(),
+    observeSecrets: (headers, body) => registerKnownLogSecrets({ body, headers: Object.fromEntries(headers.entries()) }),
+  }, input, init);
 }
 
 export const configureApiClient = (options: {

@@ -673,6 +673,39 @@ def build_client_contract() -> dict:
     return result
 
 
+def build_product_event_contract() -> dict:
+    from magi.core.client_events import ProductEvent
+
+    _, document = models_json_schema([(ProductEvent, "validation")], ref_template="#/components/schemas/{model}")
+    return {"openapi": "3.1.0", "info": {"title": "Magi product event contracts", "version": "1"},
+            "paths": {}, "components": {"schemas": document["$defs"]}}
+
+
+def build_client_surface() -> dict:
+    from fastapi import FastAPI
+    from magi.api.routes import register_api_routes
+
+    app = FastAPI()
+    register_api_routes(app)
+    paths = app.openapi()["paths"]
+    native = json.loads((ROOT / "contracts/api/gateway_openapi.json").read_text())
+    paths.update(native["paths"])
+    def surface(path: str) -> str:
+        if path.startswith("/api/delivery"):
+            return "device"
+        if path.startswith(("/api/messages", "/api/personal-tasks", "/api/timeline", "/api/notifications")):
+            return "management" if "/trace" in path or "/workspaces" in path else "product"
+        if path.startswith(("/api/control/ask/", "/api/control/permission/")) or path.endswith(("/ask", "/permissions")):
+            return "product"
+        if path in {"/api/auth/pair", "/api/auth/session", "/api/server/info", "/api/events", "/api/private-resource-tickets", "/api/health", "/api/ready"}:
+            return "product"
+        return "management"
+    return {"version": 1, "description": "Client implementation surfaces, not authorization scopes. Diagnostics use the optional events scope. OpenAPI owns wire schemas.",
+            "operations": [{"method": method.upper(), "path": path, "surface": surface(path)}
+                           for path, operations in sorted(paths.items()) for method in sorted(operations)
+                           if method in {"get", "post", "put", "patch", "delete", "head", "options"}]}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -683,6 +716,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="magi-contract-export-") as runtime_dir:
         set_runtime_dir(runtime_dir)
         outputs = {
+            "client-surface.json": build_client_surface(),
+            "frontend-product-events.json": build_product_event_contract(),
             "frontend-client.json": build_client_contract(),
             "frontend-tts.json": build_tts_contract(),
             "frontend-asr.json": build_asr_contract(),

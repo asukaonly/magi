@@ -256,7 +256,14 @@ mod frontend_contract_tests {
             turn_id: None,
             data: input["upsert"].clone(),
         };
-        let serialized = serde_json::to_value(payload).unwrap();
+        let (event_type, data) = crate::client_events::project("chat_message_upserted", &payload).unwrap();
+        let serialized = serde_json::to_value(crate::events::EventEnvelope {
+            contract_version: 1,
+            server_id: "cde1b1d1-7f23-4b95-a5d4-04e84d209af0".into(),
+            epoch: "a0c4c092-b043-4767-a2a7-041ad6194b8c".into(),
+            sequence: 1, event_id: "a0c4c092-b043-4767-a2a7-041ad6194b8c:1".into(),
+            event_type, data,
+        }).unwrap();
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../contracts/api/frontend-native-notification.json");
         if std::env::var("UPDATE_FRONTEND_NATIVE_CONTRACTS").as_deref() == Ok("1") {

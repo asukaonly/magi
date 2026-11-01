@@ -27,7 +27,8 @@ import type { RealtimeStreamEvent } from './stream-events';
 import { normalizeRealtimeStreamEvent } from './stream-events';
 import { isRealtimeChatContentEvent } from './chat-projection-retirement';
 import { applyRealtimeStoreProjection } from './store-projection';
-import { SseClient } from './sse-client';
+import type { SseClient } from './sse-client';
+import { createDesktopEventClient } from './desktop-client';
 
 export interface RealtimeMessage {
   type?: string;
@@ -95,7 +96,7 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
     const dispatcher = dispatcherRef.current!;
 
     // One center event connection serves all page subscribers.
-    const bridge = new SseClient();
+    const bridge = createDesktopEventClient();
     bridgeRef.current = bridge;
     let lastRejectedProjectionSyncAt = 0;
     const unsubscribeBridge = bridge.subscribe((message) => {

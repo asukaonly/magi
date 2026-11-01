@@ -19,6 +19,11 @@ const { toastWarningMock } = vi.hoisted(() => ({
 
 let bridgeListener: ((message: Record<string, unknown>) => void) | null = null;
 
+vi.mock('@/runtime/config', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/runtime/config')>(),
+  getRuntimeConfig: () => ({ apiBaseUrl: 'https://center.example/api', serverId: 'cde1b1d1-7f23-4b95-a5d4-04e84d209af0' }),
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,

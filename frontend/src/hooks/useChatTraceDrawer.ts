@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { messagesApi } from '@/api';
 import { DEFAULT_USER_ID } from '@/constants';
 import { normalizeTraceSnapshot } from '@/domain/chat/state';
 import { useChatTraceStore } from '@/stores';
+import { createDesktopEventClient } from '@/realtime/desktop-client';
 
 const USER_ID = DEFAULT_USER_ID;
 
@@ -59,6 +60,21 @@ export function useChatTraceDrawer({ currentSessionId }: UseChatTraceDrawerOptio
       void loadTrace(normalizedTurnId);
     }
   }, [activeTurnId, drawerOpen, loadTrace]);
+
+  useEffect(() => {
+    if (!drawerOpen || !activeTurnId || !currentSessionId) return;
+    const stream = createDesktopEventClient('diagnostics');
+    const unsubscribe = stream.subscribe((message) => {
+      const data = message.data;
+      if (message.event === 'resync_required' || (message.event === 'execution_trace_update'
+        && data && typeof data === 'object' && 'session_id' in data && data.session_id === currentSessionId
+        && 'turn_id' in data && data.turn_id === activeTurnId)) {
+        void loadTrace(activeTurnId);
+      }
+    });
+    void stream.connect().catch(() => undefined);
+    return () => { unsubscribe(); stream.disconnect(); };
+  }, [activeTurnId, currentSessionId, drawerOpen, loadTrace]);
 
   const openTraceDrawer = useCallback((turnId: string) => {
     const normalizedTurnId = String(turnId || '').trim();
