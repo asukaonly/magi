@@ -6,6 +6,7 @@ from typing import Any
 
 from magi_plugin_sdk.ingress import PluginIngressHandlerRegistration, IngressProcessingError
 from magi_plugin_sdk.runtime import SourceChange
+from ..core.device_models import CapabilityIdentity, collection_capability
 
 
 class _SourceIngress:
@@ -16,14 +17,14 @@ class _SourceIngress:
 
     async def handle_event(self, event: Any, payload: dict[str, Any]) -> None:
         source_type = payload.get("source_type")
-        if source_type not in self.source_types or set(payload) != {"source_type", "plugin_version", "source_change"}:
+        if source_type not in self.source_types or set(payload) != {"source_type", "capability", "source_change"}:
             raise ValueError("Invalid collector source envelope")
         contributor = self.get_contributor()
         if contributor is None:
             raise IngressProcessingError("temporarily_unavailable")
         await contributor.ingest_collector_change(
             connection_id=self.connection_id, source_type=source_type,
-            client_id=event.producer.split(":", 1)[0], plugin_version=payload["plugin_version"],
+            client_id=event.producer.split(":", 1)[0], capability=CapabilityIdentity.model_validate(payload["capability"]),
             change=SourceChange.model_validate(payload["source_change"]),
         )
 
@@ -32,7 +33,7 @@ def source_ingress_registrations(connection_id: str, plugin_id: str, sources: li
                                  get_contributor: Callable[[], Any]) -> list[PluginIngressHandlerRegistration]:
     """Only explicitly portable, resource-free sources may accept collector payloads."""
     types = {str(spec.metadata["source_type"]) for _, source, spec in sources
-             if spec.metadata.get("remote_collection") == "source.change.v1"
+             if collection_capability(spec.metadata) is not None
              and not bool(getattr(source, "supports_watch_mode", False))}
     if not types:
         return []

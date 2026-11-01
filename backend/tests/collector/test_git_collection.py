@@ -40,7 +40,7 @@ async def test_real_git_worker_restarts_with_checkpoint_and_deduplicates_overlap
         batch = await source.collect_items(context)
         assert batch.changes
         scope = {"connection_id": config["connection_id"], "connection_epoch": "11111111-1111-1111-1111-111111111111",
-                 "plugin_id": manifest.plugin_id, "plugin_version": manifest.version, "source_type": "git_activity"}
+                 "capability": process.get_sources()[0][2].metadata["remote_collection"], "source_type": "git_activity"}
         queue.append(batch, scope)
         event = json.loads(queue.head()["event"])
         await process.shutdown()
@@ -52,18 +52,26 @@ async def test_real_git_worker_restarts_with_checkpoint_and_deduplicates_overlap
         queue.append(second, scope)
         assert queue.status()["pending"] == count
         # The center worker receives only collected data; it needs no access to the original repository.
-        center_config = {**config, "settings": {"sources": {"git_activity": {"enabled": True, "repos": []}}}}
+        center_package = tmp_path / "center-package"
+        shutil.copytree(package, center_package)
+        center_manifest = center_package / "plugin.toml"
+        center_manifest.write_text(center_manifest.read_text().replace(f'version = "{manifest.version}"', 'version = "99.0.0"'))
+        center_config = {**config, "plugin": str(center_package),
+                         "plugin_sha256": compute_installed_package_sha256(center_package),
+                         "settings": {"sources": {"git_activity": {"enabled": True, "repos": []}}}}
         center_root = tmp_path / "center"
         center_root.mkdir()
-        _, center = load_plugin(center_config, center_root)
+        center_info, center = load_plugin(center_config, center_root)
         try:
+            assert center_info.version != manifest.version
+            assert center.get_sources()[0][2].metadata["remote_collection"] == scope["capability"]
             center_source = center.get_sources()[0][1]
-            item = await center_source.fetch_item(event["payload"]["data"]["source_change"]["payload"])
+            item = await center_source.fetch_item(event["payload"]["change"]["payload"])
             output = await center_source.build_output(item)
             assert output.narration.body
             assert output.narration.title == repo.name
             assert output.source_type == "git_activity"
-            assert output.source_item_id == event["payload"]["data"]["source_change"]["object_id"]
+            assert output.source_item_id == event["payload"]["change"]["object_id"]
         finally:
             await center.shutdown()
     finally:

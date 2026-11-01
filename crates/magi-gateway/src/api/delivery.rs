@@ -35,8 +35,8 @@ pub async fn receive(State(state): State<ApiState>, request: Request) -> Respons
     if let Some(client) = parts.extensions.get::<AuthenticatedClient>() {
         if let Some(scope) = state.security.auth.collector_scope(&client.client_id) {
             let allowed = batch.events.iter().all(|event| matches!(&event.payload,
-                magi_service_contract::delivery::BackgroundPayload::PluginEvent { connection_id, event_type, data, .. }
-                if connection_id == &scope.connection_id && event_type == "source.change.v1" && data.get("source_type").and_then(|v|v.as_str()) == Some(&scope.source_type)));
+                magi_service_contract::delivery::BackgroundPayload::SourceObservation { connection_id, source_type, .. }
+                if connection_id == &scope.connection_id && source_type == &scope.source_type));
             if !allowed {
                 return (
                     StatusCode::FORBIDDEN,

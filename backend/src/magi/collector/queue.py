@@ -9,6 +9,7 @@ import time
 from uuid import uuid4
 
 from magi_plugin_sdk.runtime import SourceChangeBatch
+from ..core.device_models import CollectionCapability, SourceObservation, validate_observation
 
 
 class CollectorQueue:
@@ -40,15 +41,15 @@ class CollectorQueue:
     def state(self) -> sqlite3.Row:
         return self.db.execute("SELECT * FROM state").fetchone()
 
-    def append(self, batch: SourceChangeBatch, scope: dict[str, str]) -> None:
+    def append(self, batch: SourceChangeBatch, scope: dict) -> None:
         """Advance the checkpoint only in the transaction that stores every collected fact."""
         with self.db:
+            capability = CollectionCapability.model_validate(scope["capability"])
             state = self.state()
             position = state["position"]
             rows = []
             for change in batch.changes:
-                if change.resources:
-                    raise ValueError("Remote collection does not accept resource references")
+                validate_observation(capability, capability.identity(), change)
                 digest = hashlib.sha256(json.dumps(change.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
                 previous = self.db.execute("SELECT version,digest FROM observations WHERE object_id=?", (change.object_id,)).fetchone()
                 if previous and previous[0] == change.version:
@@ -57,10 +58,9 @@ class CollectorQueue:
                     continue
                 position += 1
                 self.db.execute("INSERT OR REPLACE INTO observations VALUES (?,?,?,?)", (change.object_id, change.version, digest, position))
-                payload = {"kind": "plugin_event", "connection_id": scope["connection_id"],
-                           "connection_epoch": scope["connection_epoch"], "plugin_target": scope["plugin_id"],
-                           "event_type": "source.change.v1", "data": {"source_type": scope["source_type"],
-                           "plugin_version": scope["plugin_version"], "source_change": change.model_dump(mode="json")}}
+                payload = SourceObservation(kind="source_observation", connection_id=scope["connection_id"],
+                    connection_epoch=scope["connection_epoch"], source_type=scope["source_type"],
+                    change=change.model_dump(mode="json"), **capability.identity().model_dump()).model_dump(mode="json")
                 if len(json.dumps(payload).encode()) > 65536:
                     raise ValueError("Collected observation exceeds the delivery limit")
                 event = {"event_id": str(uuid4()), "stream": scope["source_type"], "sequence": position,

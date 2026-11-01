@@ -12,6 +12,7 @@ import pytest
 
 from magi.api.routers import delivery
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+from magi.core.device_models import CapabilityIdentity
 from magi.events.plugin_ingress import PluginIngressHandlerRegistration, PluginIngressRegistry
 from magi.runtime_trace import RuntimeTraceStore
 
@@ -473,7 +474,9 @@ async def test_permanent_handler_error_is_quarantined_without_secret_text(receiv
 @pytest.mark.asyncio
 async def test_collector_routes_use_public_router_and_do_not_expose_center_settings(monkeypatch):
     from unittest.mock import AsyncMock
-    scope = SimpleNamespace(metadata={"remote_collection": "source.change.v1"})
+    capability = {'capability_id': 'git_activity.observe', 'protocol': 'source.change.v1', 'schema_id': 'git_activity.session', 'schema_version': 1, 'direction': 'observe', 'supports_resources': False, 'payload_schema': {'type': 'object'}}
+    identity = {'capability_id': 'git_activity.observe', 'protocol': 'source.change.v1', 'schema_id': 'git_activity.session', 'schema_version': 1}
+    scope = SimpleNamespace(metadata={"remote_collection": capability})
     store = SimpleNamespace(get=lambda _: SimpleNamespace(enabled=True, settings={"secret": "private"}),
                             ingress_epoch=lambda _: EPOCH, collector_binding=lambda *_: "device")
     manager = SimpleNamespace(connection_store=store, get_package=lambda _: SimpleNamespace(manifest=SimpleNamespace(version="0.3.2")))
@@ -487,9 +490,76 @@ async def test_collector_routes_use_public_router_and_do_not_expose_center_setti
         response = await client.get(f"/api/delivery/collector/{CONNECTION}")
         assert response.status_code == 200
         assert "private" not in response.text and "settings" not in response.text
-        invalid = await client.post(f"/api/delivery/collector/{CONNECTION}", json={"plugin_id": "wrong", "plugin_version": "0.3.2"})
+        assert response.json()["capability"] == capability
+        assert "plugin_version" not in response.text
+        old = await client.post(f"/api/delivery/collector/{CONNECTION}", json={"plugin_id": "git-activity", "plugin_version": "0.3.2"})
+        assert old.status_code == 422
+        claim = {**identity, "connection_epoch": EPOCH}
+        invalid = await client.post(f"/api/delivery/collector/{CONNECTION}", json={**claim, "schema_version": 2})
         assert invalid.status_code == 409
+        stale = await client.post(f"/api/delivery/collector/{CONNECTION}", json={**claim, "connection_epoch": str(uuid4())})
+        assert stale.status_code == 409
         contributor.claim_collector.assert_not_awaited()
-        valid = await client.post(f"/api/delivery/collector/{CONNECTION}", json={"plugin_id": "git-activity", "plugin_version": "0.3.2"})
+        valid = await client.post(f"/api/delivery/collector/{CONNECTION}", json=claim)
         assert valid.status_code == 200
-        contributor.claim_collector.assert_awaited_once_with(CONNECTION, "git_activity", "device")
+        contributor.claim_collector.assert_awaited_once_with(
+            CONNECTION, "git_activity", "device", capability=CapabilityIdentity(**identity), connection_epoch=EPOCH,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault", [None, "schema", "payload", "owner", "resource", "plugin_target"])
+async def test_observation_is_validated_and_routed_by_server(receiver, monkeypatch, fault):
+    client, store, registry = receiver
+    container = delivery.get_container()
+    capability = {
+        "capability_id": "notes.observe", "protocol": "source.change.v1",
+        "schema_id": "notes.item", "schema_version": 1,
+        "payload_schema": {"type": "object", "required": ["text"],
+                           "properties": {"text": {"type": "string"}}, "additionalProperties": False},
+    }
+    connections = container.plugin_manager().connection_store
+    connections.collector_binding = lambda *_: "other" if fault == "owner" else "device-a"
+    container.plugin_manager = lambda: SimpleNamespace(connection_store=connections)
+    registry = PluginIngressRegistry()
+    registry.ready = True
+    container.plugin_ingress_registry = lambda: registry
+    container.source_registry = lambda: SimpleNamespace(resolve_source=lambda *_a, **_k:
+        ("notes-receiver", "notes.source", None, SimpleNamespace(metadata={"remote_collection": capability})))
+    monkeypatch.setattr(delivery, "get_container", lambda: container)
+    registry.register(CONNECTION, EPOCH, [PluginIngressHandlerRegistration(
+        "notes-receiver", "source.change.v1", Handler(), replay_safe=True,
+    )])
+    item = event()
+    item["payload"] = {
+        "kind": "source_observation", "connection_id": CONNECTION, "connection_epoch": EPOCH,
+        "source_type": "notes", **{key: capability[key] for key in CapabilityIdentity.model_fields},
+        "change": {"object_id": "note:1", "version": "r1", "payload": {"text": "Portable note"}},
+    }
+    if fault == "schema":
+        item["payload"]["schema_version"] = 2
+    elif fault == "payload":
+        item["payload"]["change"]["payload"] = {"text": 42}
+    elif fault == "resource":
+        item["payload"]["change"]["resources"] = [{"resource_id": "x", "connection_id": CONNECTION,
+            "media_type": "text/plain", "size_bytes": 1, "version": "1"}]
+    elif fault == "plugin_target":
+        item["payload"]["plugin_target"] = "arbitrary-plugin"
+    body = batch(item)
+    response = await client.post("/api/delivery/events", json=body)
+    if fault in {"resource", "plugin_target"}:
+        assert response.status_code == 422
+    else:
+        assert response.status_code == 200
+        receipt = response.json()["receipts"][0]
+        assert receipt["code"] == {None: "accepted", "schema": "unsupported_schema",
+                                   "payload": "invalid_observation", "owner": "collector_not_owner"}[fault]
+    if fault is not None:
+        assert (await store.background_delivery_status())["pending"] == 0
+        return
+    assert (await client.post("/api/delivery/events", json=body)).json() == response.json()
+    claimed = await store.claim_next_plugin_ingress_event(consumer_name="test")
+    assert claimed.plugin_target == "notes-receiver"
+    assert json.loads(claimed.payload_json)["source_change"]["payload"] == {"text": "Portable note"}
+    assert "plugin_version" not in claimed.payload_json
+    assert await store.claim_next_plugin_ingress_event(consumer_name="test") is None

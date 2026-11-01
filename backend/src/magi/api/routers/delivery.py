@@ -4,14 +4,22 @@ from __future__ import annotations
 
 import asyncio
 import json
-from ...core.persistence_errors import PersistenceConflictError, PersistenceUnavailableError
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException
+from jsonschema import ValidationError as SchemaValidationError
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from ...core.container import get_container
+from ...core.device_models import (
+    CollectorClaim,
+    CollectorScope,
+    SourceObservation,
+    collection_capability,
+    validate_observation,
+)
+from ...core.persistence_errors import PersistenceConflictError, PersistenceUnavailableError
 from ...notifications.store import get_notification_store
 from ...plugins.operation_execution import run_plugin_lifecycle_operation
 from ...runtime_trace.contracts import PluginIngressEventRecord
@@ -42,7 +50,7 @@ class BackgroundEvent(StrictModel):
     stream: Key
     sequence: Annotated[int, Field(strict=True, gt=0, le=2**63 - 1)]
     occurred_at_ms: Annotated[int, Field(strict=True, ge=0, le=2**63 - 1)]
-    payload: Annotated[PluginEvent | NotificationRead, Field(discriminator="kind")]
+    payload: Annotated[PluginEvent | NotificationRead | SourceObservation, Field(discriminator="kind")]
 
     @model_validator(mode="after")
     def bounded_payload(self) -> BackgroundEvent:
@@ -97,6 +105,29 @@ async def deliver(
         status = "accepted"
         try:
             payload = event.payload
+            if isinstance(payload, SourceObservation):
+                resolved = container.source_registry().resolve_source(payload.source_type, connection_id=payload.connection_id)
+                if resolved is None:
+                    receipts.append(EventReceipt(event_id=event.event_id, status="retry", code="connection_unavailable"))
+                    continue
+                plugin_id, _, _, spec = resolved
+                capability = collection_capability(spec.metadata)
+                identity = payload.identity()
+                if capability is None or capability.identity() != identity:
+                    receipts.append(EventReceipt(event_id=event.event_id, status="rejected", code="unsupported_schema"))
+                    continue
+                if connections.collector_binding(payload.connection_id, payload.source_type) != x_magi_client_id:
+                    receipts.append(EventReceipt(event_id=event.event_id, status="rejected", code="collector_not_owner"))
+                    continue
+                try:
+                    validate_observation(capability, identity, payload.change)
+                except (ValueError, SchemaValidationError):
+                    receipts.append(EventReceipt(event_id=event.event_id, status="rejected", code="invalid_observation"))
+                    continue
+                payload = PluginEvent(kind="plugin_event", connection_id=payload.connection_id,
+                    connection_epoch=payload.connection_epoch, plugin_target=plugin_id, event_type=payload.protocol,
+                    data={"source_type": payload.source_type, "capability": identity.model_dump(mode="json"),
+                          "source_change": payload.change.model_dump(mode="json")})
             if isinstance(payload, NotificationRead):
                 # Exact-ID, monotonic transition: replay cannot mark newer notifications read.
                 await asyncio.to_thread(
@@ -176,17 +207,12 @@ async def discard_delivery(selection: DeliverySelection) -> dict[str, bool]:
     return {"ok": True}
 
 
-class CollectorClaim(StrictModel):
-    plugin_id: Key
-    plugin_version: Annotated[str, Field(min_length=1, max_length=128)]
-
-
-@delivery_router.get("/collector/{connection_id}")
+@delivery_router.get("/collector/{connection_id}", response_model=CollectorScope)
 async def collector_scope(
     connection_id: str, x_magi_collector_source: Annotated[str, Header(min_length=1)],
-) -> dict[str, str | None]:
+) -> CollectorScope:
     """Expose only the source protocol and generations, never center settings or secrets."""
-    def read() -> dict[str, str | None]:
+    def read() -> CollectorScope:
         container = get_container()
         manager = container.plugin_manager()
         try:
@@ -197,32 +223,36 @@ async def collector_scope(
         if resolved is None or not connection.enabled:
             raise HTTPException(409, "Enable the source connection on the center first")
         plugin_id, _, _, spec = resolved
-        if spec.metadata.get("remote_collection") != "source.change.v1":
+        capability = collection_capability(spec.metadata)
+        if capability is None:
             raise HTTPException(409, "This source does not support remote collection")
         package = manager.get_package(plugin_id)
         if package is None:
             raise HTTPException(409, "Source package is unavailable")
-        return {"connection_id": connection_id, "connection_epoch": manager.connection_store.ingress_epoch(connection_id),
-                "plugin_id": plugin_id, "plugin_version": package.manifest.version, "source_type": x_magi_collector_source,
-                "claimed_by": manager.connection_store.collector_binding(connection_id, x_magi_collector_source)}
+        return CollectorScope(connection_id=connection_id, connection_epoch=manager.connection_store.ingress_epoch(connection_id),
+                source_type=x_magi_collector_source, capability=capability,
+                claimed_by=manager.connection_store.collector_binding(connection_id, x_magi_collector_source))
 
     return await run_plugin_lifecycle_operation(read)
 
 
-@delivery_router.post("/collector/{connection_id}")
+@delivery_router.post("/collector/{connection_id}", response_model=CollectorScope)
 async def claim_collector(
     connection_id: str, claim: CollectorClaim,
     x_magi_client_id: Annotated[str, Header(min_length=1)],
     x_magi_collector_source: Annotated[str, Header(min_length=1)],
-) -> dict[str, str | None]:
+) -> CollectorScope:
     scope = await collector_scope(connection_id, x_magi_collector_source)
-    if scope["plugin_version"] != claim.plugin_version or scope["plugin_id"] != claim.plugin_id:
-        raise HTTPException(409, "Install the same plugin version on the collector and center")
+    if scope.capability.identity() != claim.identity() or scope.connection_epoch != claim.connection_epoch:
+        raise HTTPException(409, "Device capability or observation schema does not match")
     try:
-        await get_container().source_scheduler_contrib().claim_collector(connection_id, x_magi_collector_source, x_magi_client_id)
+        await get_container().source_scheduler_contrib().claim_collector(
+            connection_id, x_magi_collector_source, x_magi_client_id,
+            capability=claim.identity(), connection_epoch=str(claim.connection_epoch),
+        )
     except (ValueError, PermissionError) as exc:
         raise HTTPException(409, str(exc)) from exc
-    scope["claimed_by"] = x_magi_client_id
+    scope.claimed_by = x_magi_client_id
     return scope
 
 

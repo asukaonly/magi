@@ -91,6 +91,9 @@ def main() -> None:
                 assert status == 200 and info["data"]["client_contract"]["version"] == 1
                 status, schema = call("GET", "/api/openapi.json", first)
                 assert status == 200 and "ProductEvent" in schema["components"]["schemas"]
+                observation = schema["components"]["schemas"]["SourceObservation"]
+                assert "change" in observation["properties"] and "plugin_target" not in observation["properties"]
+                assert "/api/delivery/collector/{connection_id}" in schema["paths"]
                 initial = frame(second)
                 assert initial["event_type"] == "resync_required"
                 key = uuid4().hex

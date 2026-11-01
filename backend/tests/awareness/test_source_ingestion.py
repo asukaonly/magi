@@ -351,7 +351,9 @@ async def test_connection_readiness_ignores_other_account_and_deleted_l1(tmp_pat
 async def test_remote_observation_uses_normal_l1_pipeline_and_replay_dedup(tmp_path):
     source = NotesSource(owner(), tmp_path)
     memory, contrib, bus = await setup_runtime(tmp_path, {"account-a": source})
-    spec = SourceSpec(source_id="notes.source", display_name="Notes", metadata={"remote_collection": "source.change.v1"})
+    from magi.core.device_models import CollectionCapability
+    capability = CollectionCapability.model_validate({'capability_id': 'git_activity.observe', 'protocol': 'source.change.v1', 'schema_id': 'git_activity.session', 'schema_version': 1, 'direction': 'observe', 'supports_resources': False, 'payload_schema': {'type': 'object'}})
+    spec = SourceSpec(source_id="notes.source", display_name="Notes", metadata={"remote_collection": capability.model_dump()})
     contrib._source_registry.resolve_source.side_effect = lambda *args, **kwargs: ("notes", "notes.source", source, spec)
     contrib._plugin_manager.connection_store.collector_binding.return_value = "device"
     contrib._scheduler_service.get_target_state = AsyncMock(return_value=SimpleNamespace(last_success_at=None))
@@ -360,13 +362,19 @@ async def test_remote_observation_uses_normal_l1_pipeline_and_replay_dedup(tmp_p
             await sync(contrib)
         for _ in range(2):
             await contrib.ingest_collector_change(connection_id="account-a", source_type="notes", client_id="device",
-                                                  plugin_version="0.2.0", change=source.batch.changes[0])
+                                                  capability=capability.identity(), change=source.batch.changes[0])
         assert source.collect_count == 0
         assert len(await events(memory)) == 1
         assert bus.publish.await_args_list
+        contrib._plugin_manager.connection_store.ingress_epoch.return_value = "new-epoch"
+        for identity, epoch in [(capability.identity(), "old-epoch"),
+                                 (capability.identity().model_copy(update={"schema_version": 2}), "new-epoch")]:
+            with pytest.raises(ValueError, match="changed while claiming"):
+                await contrib.claim_collector("account-a", "notes", "device", capability=identity, connection_epoch=epoch)
+        contrib._plugin_manager.connection_store.bind_collector.assert_not_called()
         with pytest.raises(PermissionError):
             await contrib.ingest_collector_change(connection_id="account-a", source_type="notes", client_id="other",
-                                                  plugin_version="0.2.0", change=source.batch.changes[0])
+                                                  capability=capability.identity(), change=source.batch.changes[0])
     finally:
         await memory.shutdown()
 

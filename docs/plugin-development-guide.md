@@ -783,10 +783,22 @@ reports processing backlog/failures; `/api/delivery/retry` retries quarantined
 work explicitly. Unsupported handlers are retained as failed producer records
 until installation/configuration is corrected and the user retries.
 
+For device data, use the separate `source_observation` envelope and declare
+`SourceSpec.metadata.remote_collection` as a capability object. The generated
+`contracts/api/frontend-device.json` describes the request and response models.
+`GET /api/delivery/collector/{connection_id}` exposes the source schema and binding;
+`POST` claims it with `capability_id`, `protocol`, `schema_id`, `schema_version`,
+and the captured `connection_epoch`.
+Package versions are never part of this agreement. The server chooses the installed
+receiver; the device cannot select a plugin target. The independent Git collector
+provides an executable example. Do not opt in a source that requires server access
+to paths on the device, resource references, or watch-only callbacks. See
+[Explicit device collection](./plugin-extension-architecture.md#explicit-device-collection).
+
 The desktop still has no general collector/plugin host. Do not assume that an
 Apple Photos plugin installed on the server can read a client's photo-library
-paths. A future client collector must send portable facts/assets and install a
-matching receiver contribution when custom processing is needed. Existing Source
+paths. A client collector sends portable facts to the declared service receiver;
+assets need a separate upload contract. Existing Source
 poll/watch implementations continue using the host's source journal/checkpoints.
 
 ## History Importer Plugins

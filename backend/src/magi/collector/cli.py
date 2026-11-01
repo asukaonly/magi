@@ -18,6 +18,7 @@ import sqlite3
 import httpx
 from typing import Iterator
 from . import output
+from ..core.device_models import collection_capability
 
 
 def parser() -> argparse.ArgumentParser:
@@ -118,8 +119,8 @@ async def initialize(args: argparse.Namespace, root: Path) -> None:
     try:
         _, process = load_plugin(config, root)
         sources = process.get_sources()
-        portable = {str(spec.metadata.get("source_type")) for _, source, spec in sources
-                    if spec.metadata.get("remote_collection") == "source.change.v1" and source.supports_pull_sync and not source.supports_watch_mode}
+        portable = {str(spec.metadata.get("source_type")): capability for _, source, spec in sources
+                    if (capability := collection_capability(spec.metadata)) is not None and source.supports_pull_sync and not source.supports_watch_mode}
         if not portable:
             raise ValueError("Plugin does not declare a portable remote source")
         code = getpass.getpass("Collector pairing code: ").strip()
@@ -132,8 +133,8 @@ async def initialize(args: argparse.Namespace, root: Path) -> None:
         # Save before claiming: a failed claim can resume without losing a consumed pairing grant.
         write_connection_json(root / "collector.json", json.dumps({"config": config, "credential": grant}, indent=2))
         transport.credential = grant
-        scope = await transport.scope(args.connection, manifest.version, manifest.plugin_id, claim=True)
-        if scope["plugin_id"] != manifest.plugin_id or scope["source_type"] not in portable:
+        scope = await transport.scope(args.connection, portable, claim=True)
+        if scope["source_type"] not in portable:
             raise ValueError("Granted source does not match the installed collector plugin")
         write_connection_json(root / "scope.json", json.dumps(scope))
         output.emit({"paired": True, "data_dir": str(root), "connection_id": args.connection},
@@ -163,16 +164,20 @@ async def run_collector(args: argparse.Namespace, root: Path, config: dict, cred
     for signum in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(signum, stopped.set)
     try:
+        sources = process.get_sources()
+        portable = {str(spec.metadata.get("source_type")): capability for _, source, spec in sources
+                    if (capability := collection_capability(spec.metadata)) is not None and source.supports_pull_sync and not source.supports_watch_mode}
         scope_path = root / "scope.json"
         if scope_path.exists():
             scope = json.loads(scope_path.read_text())
         else:
-            scope = await transport.scope(config["connection_id"], manifest.version, manifest.plugin_id, claim=True)
+            scope = await transport.scope(config["connection_id"], portable, claim=True)
             write_connection_json(scope_path, json.dumps(scope))
-        source = next((source for _, source, spec in process.get_sources()
+        source = next((source for _, source, spec in sources
                        if spec.metadata.get("source_type") == scope["source_type"]
-                       and spec.metadata.get("remote_collection") == "source.change.v1"), None)
-        if source is None or scope["plugin_id"] != manifest.plugin_id:
+                       and collection_capability(spec.metadata) is not None), None)
+        declaration = portable.get(scope["source_type"])
+        if source is None or declaration is None or scope.get("capability") != declaration.model_dump(mode="json"):
             raise ValueError("Collector source no longer matches its grant")
         identity = {**scope, "client_id": credential["client_id"],
                     "configuration": hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()}
@@ -182,7 +187,7 @@ async def run_collector(args: argparse.Namespace, root: Path, config: dict, cred
         while not stopped.is_set():
             if time.monotonic() >= next_scope_check:
                 try:
-                    current = await transport.scope(config["connection_id"], manifest.version, manifest.plugin_id)
+                    current = await transport.scope(config["connection_id"], portable)
                     if current != scope:
                         raise ValueError("Server or source content generation changed; preserve this queue and pair a new collector directory")
                 except httpx.RequestError:

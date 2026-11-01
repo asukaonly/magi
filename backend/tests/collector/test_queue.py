@@ -10,7 +10,7 @@ from magi_plugin_sdk.runtime import SourceChange, SourceChangeBatch
 
 def scope():
     return {"server_id": str(uuid4()), "data_epoch": str(uuid4()), "connection_id": "conn_" + uuid4().hex,
-            "connection_epoch": str(uuid4()), "plugin_id": "git-activity", "plugin_version": "0.3.2", "source_type": "git_activity"}
+            "connection_epoch": str(uuid4()), "capability": {'capability_id': 'git_activity.observe', 'protocol': 'source.change.v1', 'schema_id': 'git_activity.session', 'schema_version': 1, 'direction': 'observe', 'supports_resources': False, 'payload_schema': {'type': 'object'}}, "source_type": "git_activity"}
 
 
 def batch():
@@ -201,4 +201,59 @@ async def test_long_outage_remains_retryable_and_resumes_without_manual_reset(tm
         assert all(event == requests[0] for event in requests)
     finally:
         await transport.close()
+        queue.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault", [None, "identity", "schema", "claim-generation", "owner"])
+async def test_scope_negotiates_data_contract_without_package_version(fault):
+    from magi.core.device_models import CollectionCapability
+    value = scope()
+    declaration = CollectionCapability.model_validate(value["capability"])
+    transport = CollectorTransport("http://127.0.0.1:19999", {"server_id": value["server_id"], "client_id": "device"})
+    transport.session, transport.expires_at = "test", float("inf")
+    requested = []
+
+    async def serve(request):
+        requested.append(request)
+        if request.url.path == "/api/server/info":
+            return httpx.Response(200, json={"server_id": value["server_id"], "protocol_version": 3,
+                "maintenance": {"data_epoch": value["data_epoch"]}})
+        response = {key: value[key] for key in ("connection_id", "connection_epoch", "source_type", "capability")}
+        response["claimed_by"] = "other" if fault == "owner" else "device"
+        if fault == "identity":
+            response["capability"] = {**value["capability"], "schema_version": 2}
+        if fault == "schema":
+            response["capability"] = {**value["capability"], "payload_schema": {"type": "string"}}
+        if request.method == "POST":
+            assert json.loads(request.content) == {**declaration.identity().model_dump(mode="json"), "connection_epoch": value["connection_epoch"]}
+            if fault == "claim-generation":
+                response["connection_epoch"] = str(uuid4())
+        return httpx.Response(200, json=response)
+
+    await transport.client.aclose()
+    transport.client = httpx.AsyncClient(base_url="http://127.0.0.1:19999/api", transport=httpx.MockTransport(serve))
+    try:
+        if fault is None:
+            assert await transport.scope(value["connection_id"], {"git_activity": declaration}, claim=True) == value
+            assert len(requested) == 3
+        else:
+            with pytest.raises(CollectorRejected):
+                await transport.scope(value["connection_id"], {"git_activity": declaration}, claim=True)
+    finally:
+        await transport.close()
+
+
+def test_invalid_observation_keeps_checkpoint_and_entire_batch(tmp_path):
+    from jsonschema import ValidationError
+    value = scope()
+    value["capability"]["payload_schema"] = {"type": "object", "required": ["text"]}
+    queue = CollectorQueue(tmp_path / "queue.db", value)
+    try:
+        original = queue.state()["checkpoint"]
+        with pytest.raises(ValidationError):
+            queue.append(SourceChangeBatch(changes=[batch().changes[0], SourceChange(object_id="invalid", version="1")], next_cursor="lost"), value)
+        assert queue.state()["checkpoint"] == original
+        assert queue.status()["pending"] == 0
+    finally:
         queue.close()

@@ -1,0 +1,826 @@
+{
+  "components": {
+    "schemas": {
+      "BackgroundEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "occurred_at_ms": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 0.0,
+            "title": "Occurred At Ms",
+            "type": "integer"
+          },
+          "payload": {
+            "discriminator": {
+              "mapping": {
+                "notification_read": "#/components/schemas/NotificationRead",
+                "plugin_event": "#/components/schemas/PluginEvent",
+                "source_observation": "#/components/schemas/SourceObservation"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PluginEvent"
+              },
+              {
+                "$ref": "#/components/schemas/NotificationRead"
+              },
+              {
+                "$ref": "#/components/schemas/SourceObservation"
+              }
+            ],
+            "title": "Payload"
+          },
+          "sequence": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 9.223372036854776e+18,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "stream": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Stream",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "stream",
+          "sequence",
+          "occurred_at_ms",
+          "payload"
+        ],
+        "title": "BackgroundEvent",
+        "type": "object"
+      },
+      "CapabilityIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "protocol": {
+            "const": "source.change.v1",
+            "title": "Protocol",
+            "type": "string"
+          },
+          "schema_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Schema Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "capability_id",
+          "protocol",
+          "schema_id",
+          "schema_version"
+        ],
+        "title": "CapabilityIdentity",
+        "type": "object"
+      },
+      "CollectionCapability": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "direction": {
+            "const": "observe",
+            "default": "observe",
+            "title": "Direction",
+            "type": "string"
+          },
+          "payload_schema": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Payload Schema",
+            "type": "object"
+          },
+          "protocol": {
+            "const": "source.change.v1",
+            "title": "Protocol",
+            "type": "string"
+          },
+          "schema_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Schema Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "supports_resources": {
+            "const": false,
+            "default": false,
+            "title": "Supports Resources",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "capability_id",
+          "protocol",
+          "schema_id",
+          "schema_version",
+          "payload_schema"
+        ],
+        "title": "CollectionCapability",
+        "type": "object"
+      },
+      "CollectorClaim": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "connection_epoch": {
+            "format": "uuid",
+            "title": "Connection Epoch",
+            "type": "string"
+          },
+          "protocol": {
+            "const": "source.change.v1",
+            "title": "Protocol",
+            "type": "string"
+          },
+          "schema_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Schema Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "capability_id",
+          "protocol",
+          "schema_id",
+          "schema_version",
+          "connection_epoch"
+        ],
+        "title": "CollectorClaim",
+        "type": "object"
+      },
+      "CollectorScope": {
+        "additionalProperties": false,
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/CollectionCapability"
+          },
+          "claimed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claimed By"
+          },
+          "connection_epoch": {
+            "format": "uuid",
+            "title": "Connection Epoch",
+            "type": "string"
+          },
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "source_type": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection_id",
+          "connection_epoch",
+          "source_type",
+          "capability",
+          "claimed_by"
+        ],
+        "title": "CollectorScope",
+        "type": "object"
+      },
+      "DeliveryBatch": {
+        "additionalProperties": false,
+        "properties": {
+          "data_epoch": {
+            "format": "uuid",
+            "title": "Data Epoch",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/BackgroundEvent"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Events",
+            "type": "array"
+          },
+          "producer_id": {
+            "format": "uuid",
+            "title": "Producer Id",
+            "type": "string"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id",
+          "data_epoch",
+          "producer_id",
+          "events"
+        ],
+        "title": "DeliveryBatch",
+        "type": "object"
+      },
+      "DeliveryReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "data_epoch": {
+            "format": "uuid",
+            "title": "Data Epoch",
+            "type": "string"
+          },
+          "receipts": {
+            "items": {
+              "$ref": "#/components/schemas/EventReceipt"
+            },
+            "title": "Receipts",
+            "type": "array"
+          },
+          "server_id": {
+            "format": "uuid",
+            "title": "Server Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id",
+          "data_epoch",
+          "receipts"
+        ],
+        "title": "DeliveryReceipt",
+        "type": "object"
+      },
+      "EventReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "retry",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "status",
+          "code"
+        ],
+        "title": "EventReceipt",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "JsonValue": {},
+      "NotificationRead": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "notification_read",
+            "title": "Kind",
+            "type": "string"
+          },
+          "notification_id": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 9007199254740991.0,
+            "title": "Notification Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "notification_id"
+        ],
+        "title": "NotificationRead",
+        "type": "object"
+      },
+      "ObservationChange": {
+        "additionalProperties": false,
+        "properties": {
+          "object_id": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Object Id",
+            "type": "string"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "operation": {
+            "default": "upsert",
+            "enum": [
+              "upsert",
+              "delete"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Payload",
+            "type": "object"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceRef"
+            },
+            "maxItems": 0,
+            "title": "Resources",
+            "type": "array"
+          },
+          "version": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "object_id",
+          "version"
+        ],
+        "title": "ObservationChange",
+        "type": "object"
+      },
+      "PluginEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "connection_epoch": {
+            "format": "uuid",
+            "title": "Connection Epoch",
+            "type": "string"
+          },
+          "connection_id": {
+            "pattern": "^conn_[0-9a-f]{32}$",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "data": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Data",
+            "type": "object"
+          },
+          "event_type": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "kind": {
+            "const": "plugin_event",
+            "title": "Kind",
+            "type": "string"
+          },
+          "plugin_target": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Plugin Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "connection_id",
+          "connection_epoch",
+          "plugin_target",
+          "event_type",
+          "data"
+        ],
+        "title": "PluginEvent",
+        "type": "object"
+      },
+      "ResourceRef": {
+        "additionalProperties": false,
+        "description": "Opaque, revocable reference to host-managed content.",
+        "properties": {
+          "connection_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "display_name": {
+            "default": "",
+            "maxLength": 512,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "media_type": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Media Type",
+            "type": "string"
+          },
+          "resource_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "minimum": 0.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "version": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource_id",
+          "connection_id",
+          "media_type",
+          "size_bytes",
+          "version"
+        ],
+        "title": "ResourceRef",
+        "type": "object"
+      },
+      "SourceObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "change": {
+            "$ref": "#/components/schemas/ObservationChange"
+          },
+          "connection_epoch": {
+            "format": "uuid",
+            "title": "Connection Epoch",
+            "type": "string"
+          },
+          "connection_id": {
+            "pattern": "^conn_[0-9a-f]{32}$",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "source_observation",
+            "title": "Kind",
+            "type": "string"
+          },
+          "protocol": {
+            "const": "source.change.v1",
+            "title": "Protocol",
+            "type": "string"
+          },
+          "schema_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Schema Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source_type": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "protocol",
+          "schema_id",
+          "schema_version",
+          "kind",
+          "connection_id",
+          "connection_epoch",
+          "source_type",
+          "change"
+        ],
+        "title": "SourceObservation",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Magi device capability contracts",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/delivery/collector/{connection_id}": {
+      "get": {
+        "description": "Expose only the source protocol and generations, never center settings or secrets.",
+        "operationId": "collector_scope_collector__connection_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-magi-collector-source",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "X-Magi-Collector-Source",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectorScope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Collector Scope"
+      },
+      "post": {
+        "operationId": "claim_collector_collector__connection_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-magi-client-id",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "X-Magi-Client-Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-magi-collector-source",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "X-Magi-Collector-Source",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectorClaim"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectorScope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Claim Collector"
+      }
+    },
+    "/api/delivery/events": {
+      "post": {
+        "description": "ACK each fact only after its durable admission or idempotent materialization.",
+        "operationId": "deliver_events_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-magi-client-id",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "X-Magi-Client-Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeliveryBatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Deliver"
+      }
+    }
+  }
+}

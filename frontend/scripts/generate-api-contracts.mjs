@@ -40,6 +40,7 @@ async function generate(domain, names) {
 
 await generate('config', ['ConfigResponse', 'OnboardingStatusResponse', 'OnboardingTemplateResponse', 'ToolConfigResponse', 'ToolsListResponse', 'CodeAgentSettingsResponse', 'CodeAgentProbeResponse']);
 await generate('client', ['TurnSnapshot', 'SendConfirmation', 'SendConfirmationRequest']);
+await generate('device', ['CollectionCapability', 'CollectorScope', 'CollectorClaim', 'CapabilityIdentity', 'SourceObservation', 'DeliveryBatch', 'DeliveryReceipt']);
 await generate('product-events', ['ProductEvent']);
 await generate('tts', ['SynthesisJob', 'TTSConfiguration', 'TTSModelStatus']);
 await generate('plugins', ['PluginConnectionResponse', 'PluginConnectionsResponse', 'PluginPackageResponse', 'PluginInstallCandidateResponse', 'PluginInstallJobSnapshot', 'PluginRegistryResponse', 'PluginInstallPlanResponse', 'PluginSettingsActionRunResponse', 'PluginSettingsResourceResponse', 'PluginsListResponse', 'SourceCatalogResponse']);

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 from ..core.container import get_container
+from ..core.device_models import CapabilityIdentity, collection_capability, validate_observation
 from ..i18n import get_preferred_language
 from ..core.logger import get_logger
 from ..plugins.i18n import get_current_language as get_plugin_current_language
@@ -394,18 +395,17 @@ class SourceSchedulerContrib:
         )
 
     async def ingest_collector_change(self, *, connection_id: str, source_type: str,
-                                      client_id: str, plugin_version: str, change: SourceChange) -> None:
+                                      client_id: str, capability: CapabilityIdentity, change: SourceChange) -> None:
         """Materialize a remote observation through the normal source checkpoint pipeline."""
         from magi_plugin_sdk.ingress import IngressProcessingError
 
         lock = self._source_locks.setdefault((connection_id, source_type), asyncio.Lock())
         async with plugin_runtime_operation(), lock:
             target = self._resolve_source_sync_target(source_type, connection_id=connection_id, require_pull=False)
-            package = self._plugin_manager.get_package(target.plugin_id)
-            if package is None or package.manifest.version != plugin_version:
+            declaration = collection_capability(target.spec.metadata)
+            if declaration is None or declaration.identity() != capability:
                 raise IngressProcessingError("unsupported_schema")
-            if target.spec.metadata.get("remote_collection") != "source.change.v1" or change.resources:
-                raise IngressProcessingError("unsupported_schema")
+            validate_observation(declaration, capability, change)
             if self._plugin_manager.connection_store.collector_binding(connection_id, source_type) != client_id:
                 raise PermissionError("Collector no longer owns this source")
             target_key = build_source_target_key(connection_id, source_type)
@@ -418,13 +418,18 @@ class SourceSchedulerContrib:
             if not result.success:
                 raise RuntimeError("Collector ingestion did not complete")
 
-    async def claim_collector(self, connection_id: str, source_type: str, client_id: str | None) -> None:
+    async def claim_collector(self, connection_id: str, source_type: str, client_id: str | None, *,
+                              capability: CapabilityIdentity | None = None, connection_epoch: str | None = None) -> None:
         """Drain the source before changing which machine is allowed to collect it."""
         lock = self._source_locks.setdefault((connection_id, source_type), asyncio.Lock())
         async with plugin_runtime_operation(), lock:
             target = self._resolve_source_sync_target(source_type, connection_id=connection_id, require_pull=False)
-            if target.spec.metadata.get("remote_collection") != "source.change.v1" or bool(getattr(target.source, "supports_watch_mode", False)):
+            declaration = collection_capability(target.spec.metadata)
+            if declaration is None or bool(getattr(target.source, "supports_watch_mode", False)):
                 raise ValueError("Source does not support remote pull collection")
+            if client_id is not None and (declaration.identity() != capability
+                    or self._plugin_manager.connection_store.ingress_epoch(connection_id) != connection_epoch):
+                raise ValueError("Source capability or generation changed while claiming")
             self._source_sync_settings(connection=target.source.connection, source_type=source_type, spec=target.spec)
             if self._plugin_manager.connection_store.collector_binding(connection_id, source_type) == client_id:
                 return

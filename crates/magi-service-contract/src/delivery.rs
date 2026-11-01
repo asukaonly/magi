@@ -10,6 +10,16 @@ pub const MAX_BATCH_BYTES: usize = MAX_BATCH_EVENTS * (MAX_EVENT_BYTES + 1024);
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BackgroundPayload {
+    SourceObservation {
+        connection_id: String,
+        connection_epoch: String,
+        source_type: String,
+        capability_id: String,
+        protocol: String,
+        schema_id: String,
+        schema_version: u32,
+        change: Value,
+    },
     PluginEvent {
         connection_id: String,
         connection_epoch: String,
@@ -25,6 +35,15 @@ pub enum BackgroundPayload {
 impl BackgroundPayload {
     pub fn validate(&self) -> Result<(), String> {
         match self {
+            Self::SourceObservation { connection_id, connection_epoch, source_type, capability_id, protocol, schema_id, schema_version, change } => {
+                if !valid_connection_id(connection_id) || !valid_id(connection_epoch)
+                    || !valid_key(source_type) || !valid_key(capability_id) || !valid_key(schema_id)
+                    || protocol != "source.change.v1" || *schema_version == 0 || *schema_version > i32::MAX as u32
+                    || !change.is_object()
+                {
+                    return Err("Invalid device observation".into());
+                }
+            }
             Self::PluginEvent {
                 connection_id,
                 connection_epoch,

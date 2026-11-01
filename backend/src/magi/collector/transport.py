@@ -9,6 +9,7 @@ from uuid import UUID
 import httpx
 
 from .queue import CollectorQueue
+from ..core.device_models import CollectionCapability, CollectorScope
 
 
 class CollectorRejected(RuntimeError):
@@ -76,27 +77,31 @@ class CollectorTransport:
             raise ValueError("Expected a 64-character hexadecimal collector pairing code")
         return await self.request("POST", "/auth/pair", token=code, body={"name": name})
 
-    async def scope(self, connection_id: str, plugin_version: str, plugin_id: str, *, claim: bool = False) -> dict[str, str]:
+    async def scope(self, connection_id: str, capabilities: dict[str, CollectionCapability], *, claim: bool = False) -> dict:
         info = await self.request("GET", "/server/info")
         if info.get("server_id") != self.credential["server_id"] or info.get("protocol_version") != 3:
             raise CollectorRejected("Collector server identity or protocol changed")
         maintenance = info.get("maintenance")
         if not isinstance(maintenance, dict) or not isinstance(maintenance.get("data_epoch"), str):
             raise ValueError("Server did not supply a collection generation")
-        value = await self.request("POST" if claim else "GET", f"/delivery/collector/{connection_id}",
-                                   body={"plugin_id": plugin_id, "plugin_version": plugin_version} if claim else None)
-        keys = ("connection_id", "connection_epoch", "plugin_id", "plugin_version", "source_type")
-        if not all(isinstance(value.get(key), str) and value[key] for key in keys):
-            raise ValueError("Invalid source scope response")
-        if value["connection_id"] != connection_id or value["plugin_version"] != plugin_version or value["plugin_id"] != plugin_id:
-            raise CollectorRejected("Collector connection or plugin version changed")
-        if value.get("claimed_by") != self.credential["client_id"]:
+        value = CollectorScope.model_validate(await self.request("GET", f"/delivery/collector/{connection_id}"))
+        expected = capabilities.get(value.source_type)
+        if value.connection_id != connection_id or expected is None or value.capability != expected:
+            raise CollectorRejected("Collector capability or observation schema changed")
+        if claim:
+            claimed = CollectorScope.model_validate(await self.request(
+                "POST", f"/delivery/collector/{connection_id}",
+                body={**expected.identity().model_dump(mode="json"), "connection_epoch": str(value.connection_epoch)},
+            ))
+            if claimed.connection_id != connection_id or claimed.capability != expected or claimed.connection_epoch != value.connection_epoch or claimed.source_type != value.source_type:
+                raise CollectorRejected("Collector source changed while claiming")
+            value = claimed
+        if value.claimed_by != self.credential["client_id"]:
             raise CollectorRejected("Collector no longer owns this source; check collection settings on the center")
-        UUID(value["connection_epoch"])
         UUID(maintenance["data_epoch"])
-        return {**{key: value[key] for key in keys}, "data_epoch": maintenance["data_epoch"], "server_id": info["server_id"]}
+        return {**value.model_dump(mode="json", exclude={"claimed_by"}), "data_epoch": maintenance["data_epoch"], "server_id": info["server_id"]}
 
-    async def deliver(self, queue: CollectorQueue, scope: dict[str, str]) -> bool:
+    async def deliver(self, queue: CollectorQueue, scope: dict) -> bool:
         row = queue.head()
         if row is None:
             return False
@@ -117,7 +122,7 @@ class CollectorTransport:
             if receipt.get("status") not in {"retry", "rejected"}:
                 raise ValueError("Invalid delivery receipt status")
             code = receipt.get("code")
-            safe_codes = {"inbox_full", "receipt_capacity", "processor_unavailable", "storage_unavailable", "connection_unavailable", "connection_epoch_changed", "handler_unavailable", "stream_sequence_conflict", "event_identity_conflict", "handler_not_replay_safe"}
+            safe_codes = {"inbox_full", "receipt_capacity", "processor_unavailable", "storage_unavailable", "connection_unavailable", "connection_epoch_changed", "handler_unavailable", "stream_sequence_conflict", "event_identity_conflict", "handler_not_replay_safe", "unsupported_schema", "invalid_observation", "collector_not_owner"}
             queue.fail(row["sequence"], code if code in safe_codes else "delivery_rejected", terminal=receipt["status"] == "rejected")
             if code == "connection_epoch_changed":
                 raise CollectorRejected("Source content was cleared; old observations remain quarantined")

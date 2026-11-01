@@ -673,6 +673,23 @@ def build_client_contract() -> dict:
     return result
 
 
+def build_device_contract() -> dict:
+    from fastapi.openapi.utils import get_openapi
+    from magi.api.routers.delivery import delivery_router
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+    from magi.core.device_models import CapabilityIdentity
+
+    public = _build_public_router(delivery_router, _PUBLIC_ROUTE_METHODS["delivery"])
+    operations = {("/events", "POST"), ("/collector/{connection_id}", "GET"), ("/collector/{connection_id}", "POST")}
+    routes = [route for route in public.routes if any((route.path, method) in operations for method in route.methods)]
+    if {(route.path, method) for route in routes for method in route.methods} != operations:
+        raise RuntimeError("Device contracts must be public-router reachable")
+    result = get_openapi(title="Magi device capability contracts", version="1", routes=routes)
+    result["components"]["schemas"]["CapabilityIdentity"] = CapabilityIdentity.model_json_schema()
+    result["paths"] = {"/api/delivery" + path: value for path, value in result["paths"].items()}
+    return result
+
+
 def build_product_event_contract() -> dict:
     from magi.core.client_events import ProductEvent
 
@@ -719,6 +736,7 @@ def main() -> int:
             "client-surface.json": build_client_surface(),
             "frontend-product-events.json": build_product_event_contract(),
             "frontend-client.json": build_client_contract(),
+            "frontend-device.json": build_device_contract(),
             "frontend-tts.json": build_tts_contract(),
             "frontend-asr.json": build_asr_contract(),
             "frontend-model-download.json": build_model_download_contract(),

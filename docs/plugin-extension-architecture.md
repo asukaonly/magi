@@ -1728,16 +1728,30 @@ collector host: a private transport queue and one trusted plugin worker family,
 without a gateway, agent loop, models or memory databases. Its trusted worker
 supervisors retain the same directory lease as the collector host, so a replacement
 cannot reopen plugin state before an exiting predecessor releases ownership. The first verified
-package is Git Activity 0.3.2 on macOS.
+package is Git Activity 0.3.7 on macOS.
 
-A pull source opts in through `SourceSpec.metadata.remote_collection =
-"source.change.v1"`. This is a protocol promise: its collected `SourceChange`
-payload is portable, and its center-side `fetch_item`, `build_output` and
-`extract_metadata` need only that payload. They must not interpret client paths
-as center filesystem access. Resource references, watch-only sources, shared
-plugin dependencies and plugin credentials are outside this first protocol.
-Photo collection needs a separate resource upload contract before opting in.
-The center and device must install the same plugin version.
+A pull source opts in through a `SourceSpec.metadata.remote_collection` object
+containing `capability_id`, `protocol: source.change.v1`, `schema_id`, an integer
+`schema_version`, `direction: observe`, `supports_resources: false`, and a
+`payload_schema` (JSON Schema 2020-12). Schemas are bounded and may reference only
+local definitions. Its collected `SourceChange` payload is portable, and its
+center-side `fetch_item`, `build_output` and `extract_metadata` need only that
+payload. They must not interpret client paths as center filesystem access.
+Resource references, watch-only sources, shared plugin dependencies and plugin
+credentials are outside this protocol. Photo collection needs a separate resource
+upload contract before opting in.
+
+The package version is independent of the observation schema version. Devices
+negotiate the capability identity, then send `kind: source_observation` with
+connection/source scope, capability identity and `change`; no plugin target or
+package version is accepted in that envelope. The center resolves the receiver
+from its registered source and validates upsert payloads before durable admission
+and again before processing. Delete observations carry an object revision without
+requiring an upsert body. Breaking data changes require a new schema version;
+queued observations are never translated or relabeled implicitly. The existing
+collector additionally checks the exact declared schema on startup and heartbeat.
+A native client can implement this data contract without installing a Python plugin.
+See [Client–Server Contract](./client-server-contract.md) for negotiation and receipts.
 
 The center uses its normal connection trust/enable flow and keeps its plugin for
 processing and presentation. A dedicated connection should represent one device

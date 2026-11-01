@@ -76,7 +76,7 @@ async def test_plugin_reads_keep_public_routes_responsive_during_startup(
     source_registry = SimpleNamespace(
         list_contributions=lambda: [],
         resolve_source=lambda *_args, **_kwargs: (
-            "sample", None, None, SimpleNamespace(metadata={"remote_collection": "source.change.v1"})
+            "sample", None, None, SimpleNamespace(metadata={"remote_collection": {'capability_id': 'git_activity.observe', 'protocol': 'source.change.v1', 'schema_id': 'git_activity.session', 'schema_version': 1, 'direction': 'observe', 'supports_resources': False, 'payload_schema': {'type': 'object'}}})
         ),
     )
     monkeypatch.setattr("magi.api.routers.sources.resolve_plugin_manager", lambda: manager)

@@ -95,5 +95,61 @@ URL and authenticated fetch function; it imports no Tauri runtime. Desktop
 composition supplies its existing credential storage and connection lifecycle.
 Other platforms can implement these contracts in their own language and share
 the JSON schemas and protocol scenarios without importing React or desktop launch
-details. Plugins still execute on the service; clients render declared product
-metadata and controls rather than loading Python plugin packages.
+details. Service plugins own processing and product metadata; clients render
+declared controls. Optional device collection has an explicit host boundary below.
+
+
+## Device observation capabilities
+
+`contracts/api/frontend-device.json` exports reachable operations and their
+production schemas. Swift, Kotlin, Rust and TypeScript clients use the same wire
+contract; a client does not need the Python SDK or a copy of a server plugin.
+
+| Responsibility | Owner |
+| --- | --- |
+| Local system permissions, reading device data, durable offline queue | Device adapter |
+| Capability/schema declaration, data validation, source-to-plugin resolution | Service |
+| Normalization, source checkpointing, memory/timeline processing | Service source plugin |
+| Server launch and local plugin worker lifecycle, when explicitly enabled | Platform host; never the product transport layer |
+
+An owner creates a source-scoped collector grant for a configured, enabled source
+connection. The device pairs and renews its own revocable credential. Then:
+
+1. Read `/api/server/info` for server identity and data generation, and
+   `GET /api/delivery/collector/{connection_id}` for `CollectorScope`.
+2. Match the capability (`capability_id`, `protocol`, `schema_id`, `schema_version`)
+   against a locally implemented adapter. `payload_schema` describes the portable
+   upsert body; never execute code from this descriptor. Version 1 supports only
+   `direction: observe`, `protocol: source.change.v1`, `supports_resources: false`.
+3. POST the capability identity and the captured `connection_epoch` to the same
+   collector path to claim collection.
+   The service checks the declaration and connection generation under the source
+   execution lock before changing ownership. The response contains `claimed_by`;
+   local collection starts only for that device's authenticated client identity.
+4. Persist observations before advancing the local collection checkpoint. Submit
+   a `DeliveryBatch` to `/api/delivery/events`, with stable producer/event/stream/
+   sequence identifiers and `kind: source_observation`. Its payload contains the
+   captured connection generation, source type, capability identity and a `change`
+   (object identity, revision, operation, observation time, portable body).
+5. Remove local work only after an exact accepted receipt for the same server,
+   data generation and event. Acceptance means durably admitted, not processed.
+   Unknown outcomes retry the original event. Revocation, generation changes or
+   unsupported schemas keep old work quarantined for explicit recovery.
+
+The gateway injects authenticated device/source identity; caller-supplied identity
+headers do not confer authority. Collector credentials cannot read chats/settings,
+subscribe to SSE, execute tools, install plugins or send arbitrary `plugin_event`
+messages. The service resolves the receiver from the bound source and validates the
+schema before durable admission. Processing validates it again so an upgrade cannot
+reinterpret previously accepted data. Connection content clears retire old epochs.
+
+Plugin package versions may differ across device and service. The Git adapter is
+validated with different package versions and the same observation schema. The
+Python collector is an optional adapter host; native mobile adapters may produce
+the same envelopes directly. New data formats require an explicit schema revision;
+there is no fallback to the former package-version-based collector protocol.
+
+This protocol does not advertise device actions, remote tool execution, uploaded
+resource references or a general mobile plugin loader. Those require their own
+capability, authorization and result contracts before being enabled. Device
+observation schemas must not embed secrets or service filesystem configuration.

@@ -156,7 +156,7 @@ async fn collectors_can_only_deliver_to_their_granted_source() {
         .auth
         .renew(&device.client_credential)
         .unwrap();
-    let body = serde_json::json!({"server_id":state.security.auth.server_id,"data_epoch":epoch,"producer_id":"3007493b-03c1-4d1f-9caf-02371927a35a","events":[{"event_id":"8cf20514-7fbd-43d1-b579-72e31482bc82","stream":"git","sequence":1,"occurred_at_ms":1,"payload":{"kind":"plugin_event","connection_id":connection,"connection_epoch":epoch,"plugin_target":"git-activity","event_type":"source.change.v1","data":{"source_type":"git_activity"}}}]});
+    let body = serde_json::json!({"server_id":state.security.auth.server_id,"data_epoch":epoch,"producer_id":"3007493b-03c1-4d1f-9caf-02371927a35a","events":[{"event_id":"8cf20514-7fbd-43d1-b579-72e31482bc82","stream":"git","sequence":1,"occurred_at_ms":1,"payload":{"kind":"source_observation","connection_id":connection,"connection_epoch":epoch,"source_type":"git_activity","capability_id":"git_activity.observe","protocol":"source.change.v1","schema_id":"git_activity.session","schema_version":1,"change":{"object_id":"commit:1","version":"1","payload":{}}}}]});
     let router = api::build_router(state);
     for (method, path) in [
         ("GET", "/api/config"),
@@ -181,11 +181,16 @@ async fn collectors_can_only_deliver_to_their_granted_source() {
             .unwrap();
         assert_eq!(response.status(), 403, "{path}");
     }
-    for allowed in [false, true] {
+    for scenario in ["source", "connection", "plugin", "notification", "allowed"] {
         let mut data = body.clone();
-        if !allowed {
-            data["events"][0]["payload"]["data"]["source_type"] = serde_json::json!("photos");
+        match scenario {
+            "source" => data["events"][0]["payload"]["source_type"] = serde_json::json!("photos"),
+            "connection" => data["events"][0]["payload"]["connection_id"] = serde_json::json!("conn_22222222222222222222222222222222"),
+            "plugin" => data["events"][0]["payload"] = serde_json::json!({"kind":"plugin_event","connection_id":connection,"connection_epoch":epoch,"plugin_target":"git-activity","event_type":"source.change.v1","data":{"source_type":"git_activity"}}),
+            "notification" => data["events"][0]["payload"] = serde_json::json!({"kind":"notification_read","notification_id":1}),
+            _ => {},
         }
+        let allowed = scenario == "allowed";
         let response = router
             .clone()
             .oneshot(
@@ -2324,8 +2329,8 @@ async fn python_collector_uses_live_gateway_auth_and_delivery() {
     .unwrap();
     let input = serde_json::json!({"address":address,"pairing_token":grant.pairing_token,
         "event":{"event_id":event_id,"stream":"git_activity","sequence":1,"occurred_at_ms":1,
-        "payload":{"kind":"plugin_event","connection_id":connection,"connection_epoch":epoch,
-        "plugin_target":"git-activity","event_type":"source.change.v1","data":{"source_type":"git_activity"}}}});
+        "payload":{"kind":"source_observation","connection_id":connection,"connection_epoch":epoch,
+        "source_type":"git_activity","capability_id":"git_activity.observe","protocol":"source.change.v1","schema_id":"git_activity.session","schema_version":1,"change":{"object_id":"commit:1","version":"1","payload":{}}}}});
     let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(input.to_string().as_bytes()).await.unwrap();
     drop(stdin);
