@@ -26,6 +26,12 @@ catalog, not a replacement for gateway authorization. Some existing management
 responses remain dynamic; their presence in OpenAPI does not make them core
 client obligations.
 
+`contracts/api/client-product.json` combines the reachable product operations,
+authentication, service identity and product event schemas for native client
+generation. It is exported from the public Python routers and the native gateway
+contract, including request bodies and HTTP methods. Independent clients pin the
+source commit and synchronize this file; they do not maintain a second wire schema.
+
 ## Exact send confirmation and turn state
 
 `contracts/api/frontend-client.json` is generated from production public routes.

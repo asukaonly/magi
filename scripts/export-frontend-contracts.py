@@ -690,6 +690,49 @@ def build_device_contract() -> dict:
     return result
 
 
+def build_product_client_contract() -> dict:
+    """Publish the reachable product boundary for independently built clients."""
+    from fastapi import FastAPI
+    from magi.api.routes import register_api_routes
+
+    app = FastAPI()
+    register_api_routes(app)
+    document = app.openapi()
+    native = json.loads((ROOT / "contracts/api/gateway_openapi.json").read_text())
+    document["paths"].update(native["paths"])
+    document["components"]["schemas"].update(native["components"]["schemas"])
+    events = build_product_event_contract()
+    for name, schema in events["components"]["schemas"].items():
+        document["components"]["schemas"].setdefault(name, schema)
+    paths = {
+        path: operations for path, operations in document["paths"].items()
+        if (path.startswith(("/api/messages", "/api/personal-tasks", "/api/notifications"))
+            and "/trace" not in path and "/workspace" not in path)
+        or path in {"/api/auth/pair", "/api/auth/session", "/api/server/info", "/api/events"}
+        or (path.startswith("/api/control/") and (path.endswith(("/ask", "/permissions", "/respond"))))
+    }
+    schemas = {}
+
+    def collect(value):
+        if isinstance(value, dict):
+            reference = value.get("$ref", "")
+            if reference.startswith("#/components/schemas/"):
+                name = reference.rsplit("/", 1)[1]
+                if name not in schemas:
+                    schemas[name] = document["components"]["schemas"][name]
+                    collect(schemas[name])
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    collect(paths)
+    collect({"$ref": "#/components/schemas/ProductEvent"})
+    return {"openapi": "3.1.0", "info": {"title": "Magi product client API", "version": "3"},
+            "paths": paths, "components": {"schemas": schemas}}
+
+
 def build_product_event_contract() -> dict:
     from magi.core.client_events import ProductEvent
 
@@ -737,6 +780,7 @@ def main() -> int:
             "frontend-product-events.json": build_product_event_contract(),
             "frontend-client.json": build_client_contract(),
             "frontend-device.json": build_device_contract(),
+            "client-product.json": build_product_client_contract(),
             "frontend-tts.json": build_tts_contract(),
             "frontend-asr.json": build_asr_contract(),
             "frontend-model-download.json": build_model_download_contract(),
