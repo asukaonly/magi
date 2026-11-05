@@ -11,7 +11,7 @@
  * was stored (entries created before Phase B-2).
  */
 
-import { generateHTML } from '@tiptap/html';
+import { generateHTML } from '@tiptap/core';
 
 import { richTextExtensions, docFromPlainText } from './richTextExtensions';
 
