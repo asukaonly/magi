@@ -108,7 +108,7 @@ async def initialize(args: argparse.Namespace, root: Path) -> None:
         raise ValueError("A previous package snapshot exists; use a new collector directory")
     shutil.copytree(source_package, package, symlinks=True,
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache", ".git"))
-    manifest = load_plugin_manifest(package / "plugin.toml", source="external")
+    load_plugin_manifest(package / "plugin.toml", source="external")
     settings = json.loads(args.settings_file.read_text())
     if not isinstance(settings, dict):
         raise ValueError("Collector settings must be an object")
