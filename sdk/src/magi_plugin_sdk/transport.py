@@ -7,18 +7,18 @@ an import, construct an arbitrary Python class, or serialize executable objects.
 from __future__ import annotations
 
 import base64
+import json
+import math
+import struct
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
 from datetime import datetime
 from enum import Enum
-import json
-import math
 from pathlib import Path
-import struct
 from typing import Any, BinaryIO
 
 from pydantic import BaseModel
-from .worker_values import WorkerIngressRecord
+
 from . import (
     audio,
     channels,
@@ -28,14 +28,15 @@ from . import (
     delivery,
     endpoints,
     history_imports,
+    hooks,
+    providers,
     runtime,
-    sources,
     source_query,
+    sources,
     tools,
     user_content,
-    providers,
-    hooks,
 )
+from .worker_values import WorkerIngressRecord
 
 MAX_FRAME_BYTES = 4 * 1024 * 1024
 MAX_DEPTH = 48
@@ -60,7 +61,7 @@ class WorkerRuntimePaths:
 _TYPE_NAMES = {
     endpoints: "EndpointRef IngressContext",
     audio: "AudioClip AudioOutputTarget AudioTargetInfo AudioPlaybackReceipt AudioPlaybackState",
-    contracts: "PluginManifest ExtensionFieldOption ExtensionFieldSpec ActivationFirstContextSpec ActivationFlowSpec SettingsUIBlockSpec PluginSettingsActionSpec PluginSettingsActionResult PluginSettingsResourceSpec PluginSettingsResourcePayload TemporalSummaryFeatureBudget TemporalSummarySourceFeatures DerivedAssertionRuleSpec ExtractionProfileSpec SummaryProfileSpec ContributionType PluginCapability PluginPermissions LocalizedText Triggers SuggestionSurfaceSpec SuggestionSurfacesSpec SuggestionDescriptor PluginDisplayGroupSpec LocalRequirementFileExists LocalRequirementExecutableInPath LocalRequirementAppInstalled",
+    contracts: "PluginManifest DeviceCollectorSpec ExtensionFieldOption ExtensionFieldSpec ActivationFirstContextSpec ActivationFlowSpec SettingsUIBlockSpec PluginSettingsActionSpec PluginSettingsActionResult PluginSettingsResourceSpec PluginSettingsResourcePayload TemporalSummaryFeatureBudget TemporalSummarySourceFeatures DerivedAssertionRuleSpec ExtractionProfileSpec SummaryProfileSpec ContributionType PluginCapability PluginPermissions LocalizedText Triggers SuggestionSurfaceSpec SuggestionSurfacesSpec SuggestionDescriptor PluginDisplayGroupSpec LocalRequirementFileExists LocalRequirementExecutableInPath LocalRequirementAppInstalled",
     sources: "SourceSpec ContentBlock ActivityFacet SourceActivity SourceNarration TimelinePresentation SourceMemoryPolicy SourceOutput SourceOutputMetadata SourceSyncContext L2BatchPolicy",
     tools: "ParameterType ToolErrorCode ToolParameter ToolSchema ToolExecutionContext ToolResult ToolConfigSpec",
     channels: "ChannelTarget ChannelInboundClearStrategy ChannelProviderTimeEvidence ChannelCursorClearProof ChannelInboundClearRequest InboundMessage ChannelInboundRejectionReason ChannelInboundContext OutboundContent ChannelSessionMapping ChannelConfig ChannelMessageDispatchOutcome ChannelControlCommandResult",

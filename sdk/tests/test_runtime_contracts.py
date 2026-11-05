@@ -143,13 +143,13 @@ def test_scoped_clear_cannot_impersonate_a_global_generation(tmp_path):
 
 
 def test_native_collector_declaration_separates_service_platforms():
+    import pytest
     from magi_plugin_sdk import DeviceCollectorSpec, PluginRegistryEntry
     from pydantic import ValidationError
-    import pytest
 
-    collector = dict(source_type="apple_health", capability_id="apple_health.observe",
-                     protocol="source.change.v1", schema_id="apple_health.record",
-                     schema_version=1, platforms=["ios"])
+    collector = {"source_type": "apple_health", "capability_id": "apple_health.observe",
+                     "protocol": "source.change.v1", "schema_id": "apple_health.record",
+                     "schema_version": 1, "platforms": ["ios"]}
     manifest = PluginManifest(id="apple-health", name="Apple Health", version="0.1.0",
                               platforms=["macos", "linux", "windows"], device_collectors=[collector])
     assert manifest.device_collectors[0].platforms == ["ios"]
@@ -161,3 +161,14 @@ def test_native_collector_declaration_separates_service_platforms():
                     {"protocol": "python.execute"}, {"source_type": "../health"}):
         with pytest.raises(ValidationError):
             DeviceCollectorSpec.model_validate({**collector, **invalid})
+
+
+def test_native_collector_manifest_round_trips_worker_transport():
+    from magi_plugin_sdk.contracts import DeviceCollectorSpec, PluginManifest
+    from magi_plugin_sdk.transport import decode, encode, pack
+
+    manifest = PluginManifest(id="health", name="Health", version="1.0.0",
+        device_collectors=[DeviceCollectorSpec(source_type="apple_health", capability_id="apple_health.observe",
+            protocol="source.change.v1", schema_id="apple_health.record", schema_version=1, platforms=["ios"])])
+    assert pack({"manifest": manifest})
+    assert decode(encode(manifest)) == manifest
