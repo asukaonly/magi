@@ -708,7 +708,12 @@ def build_product_client_contract() -> dict:
         path: operations for path, operations in document["paths"].items()
         if (path.startswith(("/api/messages", "/api/personal-tasks", "/api/notifications"))
             and "/trace" not in path and "/workspace" not in path)
-        or path in {"/api/auth/pair", "/api/auth/session", "/api/server/info", "/api/events"}
+        or path in {"/api/auth/pair", "/api/auth/session", "/api/server/info", "/api/events",
+                    "/api/server/collector-grants", "/api/server/clients", "/api/server/clients/{client_id}",
+                    "/api/memory/library", "/api/memory/library/evidence/{event_id}",
+                    "/api/memory/l2/corrections", "/api/memory/l1/events/{event_id}",
+                    "/api/memory/stories/{summary_id}/evidence", "/api/memory/stories/{summary_id}/review"}
+        or path.startswith(("/api/plugins", "/api/delivery"))
         or (path.startswith("/api/control/") and (path.endswith(("/ask", "/permissions", "/respond"))))
     }
     schemas = {}
@@ -753,6 +758,8 @@ def build_client_surface() -> dict:
     def surface(path: str) -> str:
         if path.startswith("/api/delivery"):
             return "device"
+        if path.startswith(("/api/memory/library", "/api/memory/l2/corrections", "/api/memory/stories")) or path == "/api/memory/l1/events/{event_id}":
+            return "product"
         if path.startswith(("/api/messages", "/api/personal-tasks", "/api/timeline", "/api/notifications")):
             return "management" if "/trace" in path or "/workspaces" in path else "product"
         if path.startswith(("/api/control/ask/", "/api/control/permission/")) or path.endswith(("/ask", "/permissions")):

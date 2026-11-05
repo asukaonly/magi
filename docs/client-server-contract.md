@@ -9,8 +9,13 @@ HTTP product boundary; a desktop's local service launcher is not part of that bo
 
 - Product contracts cover sessions, messages, turn status, interactions, personal
   tasks, timeline entries, attachments and notifications.
+- Memory browsing, search, evidence, correction and user-directed forgetting are
+  product surfaces. `/api/memory/library` provides a compact, governed projection
+  of the existing portrait, event, story and retrieval owners; it never exposes
+  embeddings or raw storage metadata. Exact evidence reads use the same visible
+  event scope and forgetting filters as the desktop memory browser.
 - Management contracts cover server settings, plugin installation/configuration,
-  memory operations and diagnostics. A client implements only the management
+  memory maintenance and diagnostics. A client implements only the management
   surfaces it presents. It does not reproduce worker bootstrap or plugin loading.
 - Device collection is a separately authorized contribution to a source. It does
   not grant configuration, arbitrary tool execution or plugin installation rights.
@@ -31,6 +36,9 @@ authentication, service identity and product event schemas for native client
 generation. It is exported from the public Python routers and the native gateway
 contract, including request bodies and HTTP methods. Independent clients pin the
 source commit and synchronize this file; they do not maintain a second wire schema.
+The export also contains optional plugin management and device observation
+operations for clients presenting those surfaces. Inclusion is not a permission
+grant: collector credentials retain their existing source-only restrictions.
 
 ## Exact send confirmation and turn state
 

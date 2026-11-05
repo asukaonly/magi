@@ -629,7 +629,7 @@
     {
       "method": "DELETE",
       "path": "/api/memory/l1/events/{event_id}",
-      "surface": "management"
+      "surface": "product"
     },
     {
       "method": "GET",
@@ -669,17 +669,17 @@
     {
       "method": "GET",
       "path": "/api/memory/l2/corrections",
-      "surface": "management"
+      "surface": "product"
     },
     {
       "method": "POST",
       "path": "/api/memory/l2/corrections",
-      "surface": "management"
+      "surface": "product"
     },
     {
       "method": "POST",
       "path": "/api/memory/l2/corrections/{correction_id}/revert",
-      "surface": "management"
+      "surface": "product"
     },
     {
       "method": "GET",
@@ -908,6 +908,16 @@
     },
     {
       "method": "GET",
+      "path": "/api/memory/library",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/library/evidence/{event_id}",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
       "path": "/api/memory/maintenance/tasks",
       "surface": "management"
     },
@@ -1024,17 +1034,17 @@
     {
       "method": "GET",
       "path": "/api/memory/stories",
-      "surface": "management"
+      "surface": "product"
     },
     {
       "method": "GET",
       "path": "/api/memory/stories/{summary_id}/evidence",
-      "surface": "management"
+      "surface": "product"
     },
     {
       "method": "PATCH",
       "path": "/api/memory/stories/{summary_id}/review",
-      "surface": "management"
+      "surface": "product"
     },
     {
       "method": "GET",

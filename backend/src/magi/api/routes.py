@@ -111,6 +111,8 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/embeddings/rebuild/{job_id}": {"GET"},
         "/embeddings/rebuild/{job_id}/cancel": {"POST"},
         "/search": {"POST"},
+        "/library": {"GET"},
+        "/library/evidence/{event_id}": {"GET"},
         "/procedures": {"GET"},
         "/tom/{entity_id}": {"GET"},
         "/portrait": {"GET"},
