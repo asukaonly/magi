@@ -65,7 +65,7 @@ async def test_plugin_reads_keep_public_routes_responsive_during_startup(
         protocol_version=2, min_sdk_version="0.2.0", execution_mode="trusted_process",
         settings_fields=[], activation_flow=None, settings_actions=[], settings_resources=[],
         settings_ui_blocks=[], homepage="", repository="", path="sample", capabilities=[],
-        display_group=None,
+        device_collectors=[], display_group=None,
     )
     registry = SimpleNamespace(fetch_snapshot=AsyncMock(return_value=SimpleNamespace(
         index=SimpleNamespace(plugins=[entry], registry_version="4"),

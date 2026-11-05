@@ -50,6 +50,7 @@ class _FakeManager:
                         # permission payload.
                         "kind": "plugin",
                         "capabilities": [],
+                        "device_collectors": [],
                     },
                 )(),
                 "enabled": True,

@@ -92,7 +92,7 @@ def _registry_icon_entry(
         repository="",
         path="plugins/icon-test",
         capabilities=[],
-        display_group=display_group,
+        device_collectors=[], display_group=display_group,
     )
 
 
