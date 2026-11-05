@@ -158,3 +158,15 @@ def test_registry_group_artwork_is_bound_to_packaged_bytes(tmp_path: Path) -> No
     asset.write_text('<svg xmlns="http://www.w3.org/2000/svg"><circle r="3"/></svg>')
     with pytest.raises(ValueError, match="display_group"):
         validate_registry_package(entry, manifest)
+
+
+def test_registry_binds_native_collector_requirements() -> None:
+    from magi_plugin_sdk import DeviceCollectorSpec
+
+    spec = DeviceCollectorSpec(source_type="health", capability_id="health.observe",
+                               protocol="source.change.v1", schema_id="health.record",
+                               schema_version=1, platforms=["ios"])
+    manifest = _manifest().model_copy(update={"device_collectors": [spec]})
+    with pytest.raises(ValueError, match="device_collectors"):
+        validate_registry_package(_entry(), manifest)
+    validate_registry_package(_entry().model_copy(update={"device_collectors": [spec]}), manifest)

@@ -22,7 +22,7 @@ from pydantic import (
 
 from .versioning import PLUGIN_PROTOCOL_VERSION, PluginVersion
 
-SDK_VERSION = "0.2.5"
+SDK_VERSION = "0.2.6"
 RuntimeIdentifier = Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$")]
 
 

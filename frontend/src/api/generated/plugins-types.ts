@@ -140,6 +140,27 @@ export interface components {
          */
         ContributionType: "operation" | "provider" | "tool" | "source" | "channel" | "skill" | "hook" | "history_importer";
         /**
+         * DeviceCollectorSpec
+         * @description Static native collector requirement; this does not grant device access.
+         */
+        DeviceCollectorSpec: {
+            /** Capability Id */
+            capability_id: string;
+            /** Platforms */
+            platforms: ("ios" | "android" | "macos" | "windows" | "linux")[];
+            /**
+             * Protocol
+             * @constant
+             */
+            protocol: "source.change.v1";
+            /** Schema Id */
+            schema_id: string;
+            /** Schema Version */
+            schema_version: number;
+            /** Source Type */
+            source_type: string;
+        };
+        /**
          * ExtensionFieldOption
          * @description Option for a select-like plugin field.
          */
@@ -686,6 +707,8 @@ export interface components {
             contribution_types: string[];
             /** Description */
             description: string;
+            /** Device Collectors */
+            device_collectors: components["schemas"]["DeviceCollectorSpec"][];
             /** @default null */
             display_group: components["schemas"]["PluginDisplayGroupSpec"] | null;
             /**
@@ -793,6 +816,8 @@ export interface components {
             description_i18n: {
                 [key: string]: string;
             };
+            /** Device Collectors */
+            device_collectors: components["schemas"]["DeviceCollectorSpec"][];
             /** @default null */
             display_group: components["schemas"]["PluginDisplayGroupSpec"] | null;
             /**
@@ -824,7 +849,7 @@ export interface components {
             kind: "plugin" | "library";
             /**
              * Min Sdk Version
-             * @default 0.2.5
+             * @default 0.2.6
              */
             min_sdk_version: string;
             /** Name */
@@ -905,6 +930,8 @@ export interface components {
             description_i18n: {
                 [key: string]: string;
             };
+            /** Device Collectors */
+            device_collectors: components["schemas"]["DeviceCollectorSpec"][];
             /** @default null */
             display_group: components["schemas"]["PluginDisplayGroupSpec"] | null;
             /**

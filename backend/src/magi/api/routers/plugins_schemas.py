@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ...plugins.contracts import (
     ExtensionFieldOption,
+    DeviceCollectorSpec,
     ActivationFlowSpec,
     ExtensionFieldSpec,
     PluginCapability,
@@ -71,6 +72,7 @@ class PluginSettingsActionRunResponse(BaseModel):
 class PluginManifestResponse(BaseModel):
     protocol_version: Literal[2]
     min_sdk_version: str
+    device_collectors: list[DeviceCollectorSpec] = Field(default_factory=list)
     execution_mode: Literal["restricted_process", "trusted_process"]
     settings_fields: list[ExtensionFieldResponse]
     activation_flow: ActivationFlowResponse | None = None
@@ -128,6 +130,7 @@ class PluginRegistryEntryResponse(BaseModel):
     protocol_version: Literal[2]
     execution_mode: Literal["restricted_process", "trusted_process"]
     min_sdk_version: str
+    device_collectors: list[DeviceCollectorSpec] = Field(default_factory=list)
     settings_fields: list[ExtensionFieldSpec] = Field(default_factory=list)
     activation_flow: ActivationFlowSpec | None = None
     settings_actions: list[PluginSettingsActionSpec] = Field(default_factory=list)

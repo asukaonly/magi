@@ -465,6 +465,24 @@ def _validate_direct_plugin_dependencies(
         raise ValueError("Plugin package cannot depend on itself")
 
 
+class DeviceCollectorSpec(PluginContract):
+    """Static native collector requirement; this does not grant device access."""
+
+    source_type: str = Field(min_length=1, max_length=128, pattern=r"^[a-z][a-z0-9_]*$")
+    capability_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    protocol: Literal["source.change.v1"]
+    schema_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    schema_version: int = Field(strict=True, ge=1, le=2**31 - 1)
+    platforms: list[Literal["ios", "android", "macos", "windows", "linux"]] = Field(min_length=1, max_length=5)
+
+    @field_validator("platforms")
+    @classmethod
+    def distinct_platforms(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("Collector platforms must be distinct")
+        return value
+
+
 class PluginManifest(PluginContract):
     """Parsed manifest for a plugin package.
 
@@ -517,6 +535,7 @@ class PluginManifest(PluginContract):
     settings_resources: list[PluginSettingsResourceSpec] = Field(default_factory=list, max_length=128)
     settings_ui_blocks: list[SettingsUIBlockSpec] = Field(default_factory=list, max_length=128)
     platforms: list[str] = Field(default_factory=list)
+    device_collectors: list[DeviceCollectorSpec] = Field(default_factory=list, max_length=32)
     homepage: str = ""
     repository: str = ""
     plugin_dir: str = ""
@@ -628,6 +647,7 @@ class PluginRegistryEntry(PluginContract):
     depends_on: list[_PluginIdentifier] = Field(default_factory=list, max_length=8)
     """Library registry entries this package imports from (plugin_ids)."""
     platforms: list[str] = Field(default_factory=list)
+    device_collectors: list[DeviceCollectorSpec] = Field(default_factory=list, max_length=32)
     protocol_version: Literal[2] = 2
     min_sdk_version: PluginVersion = SDK_VERSION
     execution_mode: Literal["restricted_process", "trusted_process"] = "restricted_process"

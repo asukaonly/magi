@@ -1730,6 +1730,18 @@ supervisors retain the same directory lease as the collector host, so a replacem
 cannot reopen plugin state before an exiting predecessor releases ownership. The first verified
 package is Git Activity 0.3.7 on macOS.
 
+For native clients, `plugin.device_collectors` is the static marketplace declaration
+of required device capabilities: `source_type`, `capability_id`, `protocol`,
+`schema_id`, `schema_version`, and device `platforms`. Package `platforms` still
+describes the service's Python runtime. Install inspection and registry integrity
+checks preserve this distinction. This declaration is discoverable before loading
+Python and grants no access: a native client must have a matching bundled adapter,
+obtain device permission and explicit upload consent, then negotiate the live
+source capability and a separately scoped collector credential. An unavailable
+adapter requires an app update; the marketplace never downloads native executable
+code. New packages can reuse an existing compatible capability without an app
+update. The native client must reject a mismatching identity at claim and delivery.
+
 A pull source opts in through a `SourceSpec.metadata.remote_collection` object
 containing `capability_id`, `protocol: source.change.v1`, `schema_id`, an integer
 `schema_version`, `direction: observe`, `supports_resources: false`, and a

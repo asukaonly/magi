@@ -97,6 +97,7 @@ def _serialize_manifest(
     return PluginManifestResponse(
         protocol_version=manifest.protocol_version,
         min_sdk_version=manifest.min_sdk_version,
+        device_collectors=manifest.device_collectors,
         execution_mode=manifest.execution_mode,
         activation_flow=_serialize_activation_flow(manifest.activation_flow.model_dump(), i18n, manifest.plugin_id) if manifest.activation_flow else None,
         settings_actions=[_serialize_settings_action(item.model_dump(), i18n, manifest.plugin_id) for item in manifest.settings_actions],
@@ -481,6 +482,7 @@ def _serialize_package_lightweight(
         manifest=PluginManifestResponse(
             protocol_version=manifest.protocol_version,
             min_sdk_version=manifest.min_sdk_version,
+            device_collectors=manifest.device_collectors,
             execution_mode=manifest.execution_mode,
             settings_fields=[{**item.model_dump(), **({"default": ""} if item.type == "secret" else {})} for item in manifest.settings_fields],
             activation_flow=manifest.activation_flow.model_dump() if manifest.activation_flow else None,

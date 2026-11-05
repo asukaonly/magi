@@ -303,6 +303,70 @@
         "title": "ContributionType",
         "type": "string"
       },
+      "DeviceCollectorSpec": {
+        "additionalProperties": false,
+        "description": "Static native collector requirement; this does not grant device access.",
+        "properties": {
+          "capability_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "platforms": {
+            "items": {
+              "enum": [
+                "ios",
+                "android",
+                "macos",
+                "windows",
+                "linux"
+              ],
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Platforms",
+            "type": "array"
+          },
+          "protocol": {
+            "const": "source.change.v1",
+            "title": "Protocol",
+            "type": "string"
+          },
+          "schema_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Schema Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source_type": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_type",
+          "capability_id",
+          "protocol",
+          "schema_id",
+          "schema_version",
+          "platforms"
+        ],
+        "title": "DeviceCollectorSpec",
+        "type": "object"
+      },
       "ExtensionFieldOption": {
         "additionalProperties": false,
         "description": "Option for a select-like plugin field.",
@@ -1546,6 +1610,13 @@
             "title": "Description",
             "type": "string"
           },
+          "device_collectors": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceCollectorSpec"
+            },
+            "title": "Device Collectors",
+            "type": "array"
+          },
           "display_group": {
             "anyOf": [
               {
@@ -1639,6 +1710,7 @@
         "required": [
           "protocol_version",
           "min_sdk_version",
+          "device_collectors",
           "execution_mode",
           "settings_fields",
           "activation_flow",
@@ -1812,6 +1884,14 @@
             "title": "Description I18N",
             "type": "object"
           },
+          "device_collectors": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceCollectorSpec"
+            },
+            "maxItems": 32,
+            "title": "Device Collectors",
+            "type": "array"
+          },
           "display_group": {
             "anyOf": [
               {
@@ -1857,7 +1937,7 @@
             "type": "string"
           },
           "min_sdk_version": {
-            "default": "0.2.5",
+            "default": "0.2.6",
             "maxLength": 32,
             "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
             "title": "Min Sdk Version",
@@ -1991,6 +2071,7 @@
           "contribution_types",
           "depends_on",
           "platforms",
+          "device_collectors",
           "protocol_version",
           "min_sdk_version",
           "execution_mode",
@@ -2057,6 +2138,13 @@
             },
             "title": "Description I18N",
             "type": "object"
+          },
+          "device_collectors": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceCollectorSpec"
+            },
+            "title": "Device Collectors",
+            "type": "array"
           },
           "display_group": {
             "anyOf": [
@@ -2192,6 +2280,7 @@
           "protocol_version",
           "execution_mode",
           "min_sdk_version",
+          "device_collectors",
           "settings_fields",
           "activation_flow",
           "settings_actions",

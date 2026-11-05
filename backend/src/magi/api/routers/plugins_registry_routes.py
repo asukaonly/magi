@@ -152,6 +152,7 @@ async def list_registry_plugins(
                     contribution_types=entry.contribution_types,
                     platforms=entry.platforms,
                     min_sdk_version=entry.min_sdk_version,
+                    device_collectors=entry.device_collectors,
                     homepage=entry.homepage,
                     repository=entry.repository,
                     path=entry.path,

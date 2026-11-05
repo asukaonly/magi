@@ -9,6 +9,7 @@ from magi_plugin_sdk.contracts import (  # noqa: F401
     ActivationFlowSpec,
     ActivationFirstContextSpec,
     ContributionType,
+    DeviceCollectorSpec,
     ExtractionProfileSpec,
     ExtensionFieldOption,
     ExtensionFieldSpec,
