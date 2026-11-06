@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..openai_transport import create_completion
+
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, cast
 
@@ -246,7 +248,7 @@ class ProviderBridgeRequestMixin:
             request_type="openai_chat_completions",
             request=chat_kwargs,
         )
-        response = await host.llm._client.chat.completions.create(**chat_kwargs)
+        response = await create_completion(host.llm._client,**chat_kwargs)
 
         RawProviderResponseLogger(host.llm, request.event_context).log_response(response)
         raw_response_summary = _summarize_raw_provider_response(response)
@@ -398,6 +400,6 @@ class ProviderBridgeRequestMixin:
         kwargs = host._apply_provider_options(kwargs, thinking_depth)
         kwargs = host._apply_cache_routing(kwargs, event_context)
 
-        response = await host.llm._client.chat.completions.create(**kwargs)
+        response = await create_completion(host.llm._client,**kwargs)
         RawProviderResponseLogger(host.llm, event_context).log_response(response)
         return host._parse_openai_response(response)

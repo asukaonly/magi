@@ -368,6 +368,8 @@ class ProviderBridgeResponseMixin:
                     "tool_calls": raw_tool_calls,
                     **({"reasoning_content": message.reasoning_content}
                        if getattr(message, "reasoning_content", None) else {}),
+                    **({"responses_reasoning": message.responses_reasoning}
+                       if getattr(message, "responses_reasoning", None) else {}),
                 },
                 metadata=self._build_openai_metadata(choice, message, raw_tool_calls),
                 usage=self._extract_openai_usage(response),
@@ -395,6 +397,7 @@ class ProviderBridgeResponseMixin:
         if hasattr(message, "model_dump"):
             try:
                 dumped = message.model_dump()
+                dumped.pop("responses_reasoning", None)
                 metadata["raw_message"] = dumped
             except Exception:
                 pass

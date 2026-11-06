@@ -7,6 +7,7 @@ from functools import lru_cache
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, TypeVar, cast
 
 from ..anthropic import AnthropicAdapter
+from ..openai_transport import uses_responses_api, responses_effort
 from ..base import LLMAdapter
 from ..cache_observability import build_cache_observation
 from .cache_routing import (
@@ -156,6 +157,8 @@ class ProviderBridgeOptionsMixin:
             if requested in {ThinkingDepth.NONE, ThinkingDepth.LOW}:
                 return ThinkingDepth.LOW
             return ThinkingDepth.MAX if requested is ThinkingDepth.MAX else ThinkingDepth.HIGH
+        if dialect is ReasoningDialect.OPENAI_EFFORT and uses_responses_api(model_id):
+            return ThinkingDepth(responses_effort(model_id, requested.value))
         if dialect is ReasoningDialect.NONE:
             return ThinkingDepth.NONE
         if dialect is ReasoningDialect.OPENAI_EFFORT:
@@ -241,6 +244,9 @@ class ProviderBridgeOptionsMixin:
         # reasoning capability. Other dialects (DashScope toggle, GLM
         # toggle) are always meaningful when the user asks for a thinking
         # depth, so we don't gate them on capability.
+        if dialect is ReasoningDialect.OPENAI_EFFORT and uses_responses_api(self.llm.model_name):
+            kwargs["reasoning_effort"] = responses_effort(self.llm.model_name, thinking_depth.value)
+            return kwargs
         if dialect == ReasoningDialect.OPENAI_EFFORT and not self._model_supports_reasoning():
             return kwargs
 

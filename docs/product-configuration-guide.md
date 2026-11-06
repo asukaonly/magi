@@ -914,6 +914,7 @@ Current product expectations:
 - each selected model can expose a capability profile such as vision, reasoning, tool calling, and embedding support
 - reasoning settings are translated by model generation: adaptive-only Anthropic models receive effort controls without token budgets or sampling parameters; models that require thinking use their lowest effort when off is requested; GLM 5.3 uses enabled thinking with low/high/max effort
 - assistant reasoning returned alongside tool calls is retained in model history for the next provider request, including streaming calls
+- GPT-6 family calls use the native Responses API for text, images in prompts, structured output, and tool execution; requests remain stateless (`store: false`), with encrypted reasoning retained locally for tool continuation; failed, incomplete, or disconnected streams must not execute partial tool calls
 - model metadata can include provider-published cost values; chat models use input/output token pricing, embedding models use input token pricing, and image generation models use per-image pricing when the provider bills successful generations by count
 - fixed-fee coding plans should not inherit pay-as-you-go token rates unless the provider publishes plan-specific token pricing; usage accounting may retain the plan source metadata while leaving calculated cost empty
 - provider account quotas and rate limits must not be represented as fixed model metadata because they vary by account, tier, region, and live provider policy

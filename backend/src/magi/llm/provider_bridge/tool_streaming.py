@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+from contextlib import aclosing
+
+from ..openai_transport import create_completion
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol, cast
 
@@ -46,6 +50,7 @@ class _OpenAIToolStreamState:
     tool_calls_by_index: Dict[int, Dict[str, Any]] = field(default_factory=dict)
     content_parts: List[str] = field(default_factory=list)
     reasoning_parts: List[str] = field(default_factory=list)
+    responses_reasoning: List[Dict[str, Any]] = field(default_factory=list)
     has_tool_calls: bool = False
     chunks_emitted: int = 0
     usage_data: Any = None
@@ -406,13 +411,14 @@ class ProviderBridgeToolStreamingMixin:
             timeout_seconds=timeout_seconds,
             event_context=event_context,
         )
-        stream = await host.llm._client.chat.completions.create(**kwargs)
+        stream = await create_completion(host.llm._client,**kwargs)
         state = _OpenAIToolStreamState()
         raw_logger = RawProviderResponseLogger(host.llm, event_context)
 
-        async for chunk in stream:
-            raw_logger.log_chunk(chunk)
-            await self._handle_openai_tool_stream_chunk(chunk, state)
+        async with aclosing(stream):
+            async for chunk in stream:
+                raw_logger.log_chunk(chunk)
+                await self._handle_openai_tool_stream_chunk(chunk, state)
 
         await self._flush_openai_tool_scrubber(state)
         return await self._build_openai_tool_stream_result(host, state)
@@ -460,6 +466,8 @@ class ProviderBridgeToolStreamingMixin:
                 state.usage_data = chunk.usage
             return
         delta = chunk.choices[0].delta
+        if getattr(delta, "responses_reasoning", None):
+            state.responses_reasoning = delta.responses_reasoning
 
         if hasattr(delta, "tool_calls") and delta.tool_calls:
             await self._handle_openai_tool_call_deltas(delta.tool_calls, state)
@@ -644,6 +652,8 @@ class ProviderBridgeToolStreamingMixin:
                     "tool_calls": raw_tool_calls,
                     **({"reasoning_content": "".join(state.reasoning_parts)}
                        if state.reasoning_parts else {}),
+                    **({"responses_reasoning": state.responses_reasoning}
+                       if state.responses_reasoning else {}),
                 },
                 usage=usage,
             )
