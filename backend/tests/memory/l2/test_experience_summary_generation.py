@@ -80,6 +80,7 @@ async def test_existing_review_backwrites_generated_fields_and_preserves_user_fi
     l1_store = MagicMock()
     experience = {
         "experience_id": "exp-review",
+        "status": "active",
         "title": title,
         "intent": intent,
         "outcome": outcome,
@@ -110,7 +111,7 @@ async def test_existing_review_backwrites_generated_fields_and_preserves_user_fi
     result = await generate_missing_experience_summaries(
         l1_store=l1_store, l2_store=l2_store, l3_store=l3_store
     )
-    assert result == {"generated": 0, "errors": []}
+    assert result == {"generated": 0, "errors": [], "attempted": 0, "deferred": 0}
     l3_store.generate_experience_summary.assert_not_awaited()
     l2_store.list_experience_members.assert_not_awaited()
     l2_store.update_experience.assert_awaited_once_with(
@@ -146,7 +147,7 @@ async def test_each_invalid_review_field_independently_triggers_refresh_and_back
     from magi.memory.l2.experiences.summary_generation import generate_missing_experience_summaries
 
     l1_store = MagicMock()
-    experience = {"experience_id": "exp-review", "title": "Search repair"}
+    experience = {"experience_id": "exp-review", "status": "active", "title": "Search repair"}
     members = [{"event_id": "event-evidence", "member_role": "core"}]
     existing = {
         "summary_id": "sum-old",
@@ -186,7 +187,7 @@ async def test_each_invalid_review_field_independently_triggers_refresh_and_back
     result = await generate_missing_experience_summaries(
         l1_store=l1_store, l2_store=l2_store, l3_store=l3_store, experience_ids=["exp-review"]
     )
-    assert result == {"generated": 1, "errors": []}
+    assert result == {"generated": 1, "errors": [], "attempted": 1, "deferred": 0}
     l3_store.get_episodic_summary_by_experience_id.assert_awaited_once_with("exp-review")
     l2_store.get_experience.assert_awaited_once_with(experience_id="exp-review")
     l2_store.list_experience_members.assert_awaited_once_with(experience_id="exp-review")
@@ -199,3 +200,21 @@ async def test_each_invalid_review_field_independently_triggers_refresh_and_back
         title="Review search repair",
         magi_interpretation="Repaired review persistence and search indexing.",
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("inactive_status", ["invalidated", None])
+async def test_experience_budget_deduplicates_defers_and_skips_inactive(inactive_status):
+    from magi.memory.l2.experiences.summary_generation import generate_missing_experience_summaries
+
+    l2 = MagicMock()
+    l2.get_experience = AsyncMock(side_effect=lambda **kwargs: {"experience_id": kwargs["experience_id"],
+        "status": inactive_status if kwargs["experience_id"] == "deleted" else "active"})
+    l2.list_experience_members = AsyncMock(return_value=[])
+    l3 = MagicMock()
+    l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
+    l3.generate_experience_summary = AsyncMock(side_effect=RuntimeError("timeout"))
+    result = await generate_missing_experience_summaries(l1_store=MagicMock(), l2_store=l2, l3_store=l3,
+        experience_ids=["a", "a", "deleted", "b"], max_generations=1)
+    assert result == {"generated": 0, "attempted": 1, "deferred": 1, "errors": ["a: timeout"]}
+    l3.generate_experience_summary.assert_awaited_once()

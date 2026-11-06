@@ -112,7 +112,7 @@ def _review_needs_refresh(summary: dict[str, Any]) -> bool:
 
 async def _get_experience_ids(l2_store: Any, experience_ids: list[str] | None, limit: int) -> list[str]:
     if experience_ids is not None:
-        return [str(item).strip() for item in experience_ids if str(item).strip()]
+        return list(dict.fromkeys(str(item).strip() for item in experience_ids if str(item).strip()))[:max(0, limit)]
     list_experiences = getattr(l2_store, "list_experiences", None)
     if not callable(list_experiences):
         return []
@@ -131,24 +131,26 @@ async def generate_missing_experience_summaries(
     l3_store: Any,
     experience_ids: list[str] | None = None,
     limit: int = 500,
+    max_generations: int = 8,
 ) -> dict[str, Any]:
     """Generate L3 review summaries for active experiences lacking one."""
     if l1_store is None or l2_store is None or l3_store is None:
-        return {"generated": 0, "errors": []}
+        return {"generated": 0, "errors": [], "attempted": 0, "deferred": 0}
     generate_review = getattr(l3_store, "generate_experience_summary", None)
     get_review = getattr(l3_store, "get_episodic_summary_by_experience_id", None)
     get_experience = getattr(l2_store, "get_experience", None)
     list_members = getattr(l2_store, "list_experience_members", None)
     if not callable(generate_review) or not callable(get_experience) or not callable(list_members):
-        return {"generated": 0, "errors": []}
+        return {"generated": 0, "errors": [], "attempted": 0, "deferred": 0}
 
     generated = 0
     errors: list[str] = []
+    attempted = deferred = 0
     for experience_id in await _get_experience_ids(l2_store, experience_ids, limit):
         try:
             existing_review = await get_review(experience_id) if callable(get_review) else None
             experience = await get_experience(experience_id=experience_id)
-            if not experience:
+            if not experience or experience.get("status") != "active":
                 continue
             if existing_review is not None and not _review_needs_refresh(existing_review):
                 await backwrite_experience_review(
@@ -157,7 +159,11 @@ async def generate_missing_experience_summaries(
                     summary=existing_review,
                 )
                 continue
+            if attempted >= max(0, max_generations):
+                deferred += 1
+                continue
             members = await list_members(experience_id=experience_id)
+            attempted += 1
             result = await generate_review(
                 l1_store=l1_store,
                 l2_store=l2_store,
@@ -173,7 +179,7 @@ async def generate_missing_experience_summaries(
                 generated += 1
         except Exception as exc:  # noqa: BLE001 - batch generation should keep going.
             errors.append(f"{experience_id}: {exc}")
-    return {"generated": generated, "errors": errors}
+    return {"generated": generated, "errors": errors, "attempted": attempted, "deferred": deferred}
 
 
 __all__ = ["generate_missing_experience_summaries"]

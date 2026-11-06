@@ -90,9 +90,12 @@ async def test_consolidation_handler_promotes_episodes_experiences_and_summaries
     from magi.memory.l2.consolidation_schedule import handle_l2_consolidation
 
     l2_store = MagicMock()
+    l2_store.list_episodes = AsyncMock(return_value=[{"episode_id": "ep-deferred"}])
+    l2_store.list_experiences = AsyncMock(return_value=[{"experience_id": "exp-a"}])
     l2_store.get_experience = AsyncMock(
         return_value={
             "experience_id": "exp-a",
+            "status": "active",
             "title": "Launch week",
             "time_start": 1,
             "time_end": 2,
@@ -165,7 +168,7 @@ async def test_consolidation_handler_promotes_episodes_experiences_and_summaries
     call_kwargs = l3_store.generate_missing_episodic_summaries.await_args.kwargs
     assert call_kwargs["l1_store"] is l1_store
     assert call_kwargs["l2_store"] is l2_store
-    assert call_kwargs["episode_ids"] == ["ep-a", "ep-b"]
+    assert call_kwargs["episode_ids"] == ["ep-a", "ep-b", "ep-deferred"]
     l3_store.generate_experience_summary.assert_awaited_once()
     assert result.stats["episodes_promoted"] == 2
     assert result.stats["episodic_summaries_generated"] == 2
@@ -191,3 +194,33 @@ async def test_consolidation_handler_respects_config_gate():
     assert result.success is True
     assert result.message == "l2_consolidation_disabled_skip"
     resolve_memory.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_scheduled_backfill_resumes_without_new_promotions(tmp_path):
+    from magi.memory.l2.consolidation_schedule import (
+        _generate_episodic_summaries, _L2ConsolidationStores,
+    )
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    episodes = [{"episode_id": f"ep-{index}", "status": "active", "label": "Saved", "summary": "Saved"}
+                for index in range(10)]
+    l2 = MagicMock(
+        list_episodes=AsyncMock(return_value=episodes),
+        get_episode=AsyncMock(side_effect=lambda **kwargs: next(row for row in episodes if row["episode_id"] == kwargs["episode_id"])),
+        list_episode_events=AsyncMock(return_value=[{"event_id": "source"}]),
+    )
+    l3 = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    completed = {}
+    async def generate(**kwargs):
+        key = kwargs["episode"]["episode_id"]
+        completed[key] = {"summary_id": key}
+        return completed[key]
+    l3.get_episodic_summary_by_episode_id = AsyncMock(side_effect=lambda key: completed.get(key))
+    l3.generate_episodic_summary = AsyncMock(side_effect=generate)
+    stores = _L2ConsolidationStores(unified=None, cognition_store=l2, l1_store=MagicMock(), l3_store=l3)
+    first = await _generate_episodic_summaries(stores=stores, promoted_episode_ids=[])
+    assert (first.generated, first.attempted, first.deferred) == (8, 8, 2)
+    second = await _generate_episodic_summaries(stores=stores, promoted_episode_ids=[])
+    assert (second.generated, second.attempted, second.deferred) == (2, 2, 0)
+    assert l3.generate_episodic_summary.await_count == 10

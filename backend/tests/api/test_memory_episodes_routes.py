@@ -1120,6 +1120,7 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
     l2.get_experience = AsyncMock(
         return_value={
             "experience_id": "exp_need",
+            "status": "active",
             "title": "Launch week",
             "time_start": 1,
             "time_end": 2,
@@ -1224,6 +1225,7 @@ def test_reconsolidate_refreshes_placeholder_experience_reviews(app_with_mock_me
     l2.get_experience = AsyncMock(
         return_value={
             "experience_id": "exp-bad",
+            "status": "active",
             "title": "Untitled experience / Untitled exper",
             "time_start": 1,
             "time_end": 2,

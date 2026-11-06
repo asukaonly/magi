@@ -277,3 +277,40 @@ async def test_existing_summary_does_not_overwrite_populated_episode_row(tmp_pat
     assert result["generated"] == 0
     assert l2.updates == []
     assert l2.fts_writes == []
+
+
+@pytest.mark.asyncio
+async def test_generation_budget_defers_work_and_counts_failed_attempts(tmp_path):
+    store = _build_store(tmp_path)
+    store.get_episodic_summary_by_episode_id = AsyncMock(return_value=None)
+    store.generate_episodic_summary = AsyncMock(side_effect=[RuntimeError("timeout"), None])
+    l2 = _FakeL2(episodes={key: {"episode_id": key} for key in ["a", "b", "c"]},
+                 events={key: [{"event_id": key}] for key in ["a", "b", "c"]})
+    result = await store.generate_missing_episodic_summaries(
+        l1_store=AsyncMock(), l2_store=l2, episode_ids=["a", "a", "b", "c"], max_generations=2)
+    assert result == {"generated": 0, "attempted": 2, "deferred": 1, "errors": ["a: timeout"]}
+    assert store.generate_episodic_summary.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_deferred_summaries_resume_without_regenerating_finished_or_deleted(tmp_path):
+    store = _build_store(tmp_path)
+    completed = {}
+    store.get_episodic_summary_by_episode_id = AsyncMock(side_effect=lambda key: completed.get(key))
+
+    async def generate(**kwargs):
+        key = kwargs["episode"]["episode_id"]
+        completed[key] = {"summary_id": key}
+        return completed[key]
+
+    store.generate_episodic_summary = AsyncMock(side_effect=generate)
+    l2 = _FakeL2(episodes={key: {"episode_id": key, "label": key, "summary": key} for key in ["a", "b", "c"]},
+                 events={key: [{"event_id": key}] for key in ["a", "b", "c"]})
+    first = await store.generate_missing_episodic_summaries(
+        l1_store=AsyncMock(), l2_store=l2, episode_ids=["a", "b", "c"], max_generations=1)
+    assert first["deferred"] == 2
+    l2._episodes["b"]["status"] = "invalidated"
+    second = await store.generate_missing_episodic_summaries(
+        l1_store=AsyncMock(), l2_store=l2, episode_ids=["a", "b", "c"], max_generations=1)
+    assert second == {"generated": 1, "attempted": 1, "deferred": 0, "errors": []}
+    assert set(completed) == {"a", "c"}

@@ -1054,6 +1054,7 @@ class L3SummaryStore(
         l1_store: L1EventStore,
         l2_store: Any,
         episode_ids: List[str],
+        max_generations: int = 8,
     ) -> Dict[str, Any]:
         """Eagerly generate L3 episodic summaries for episodes that lack one.
 
@@ -1073,9 +1074,11 @@ class L3SummaryStore(
         maintenance scheduler) invoke this after consolidation. Keeping it on L3
         preserves L2-purity — ``episode_formation`` must not depend on L3.
 
-        Returns ``{"generated": int, "errors": list[str]}``.
+        Returns generated, attempted, deferred and errors. Failed generation
+        attempts consume the per-call budget; deduplicated summaries do not.
         """
         generated = 0
+        attempted = deferred = 0
         errors: List[str] = []
         seen: set[str] = set()
         for raw_id in episode_ids:
@@ -1105,6 +1108,10 @@ class L3SummaryStore(
                 ]
                 if not event_ids:
                     continue
+                if attempted >= max(0, max_generations):
+                    deferred += 1
+                    continue
+                attempted += 1
                 summary = await self.generate_episodic_summary(
                     l1_store=l1_store,
                     l2_store=l2_store,
@@ -1117,7 +1124,7 @@ class L3SummaryStore(
                         episode=episode,
                         summary=summary,
                     )
-                generated += 1
+                    generated += 1
             except Exception as exc:  # non-blocking: log + continue
                 logger.warning(
                     "Eager episodic summary generation failed for %s: %s",
@@ -1125,7 +1132,7 @@ class L3SummaryStore(
                     exc,
                 )
                 errors.append(f"{episode_id}: {exc}")
-        return {"generated": generated, "errors": errors}
+        return {"generated": generated, "errors": errors, "attempted": attempted, "deferred": deferred}
 
     async def generate_experience_summary(
         self,

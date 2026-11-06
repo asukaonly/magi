@@ -34,6 +34,8 @@ class _L2ConsolidationStores:
 @dataclass(slots=True)
 class _EpisodicSummaryStats:
     generated: int = 0
+    attempted: int = 0
+    deferred: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -44,6 +46,8 @@ class _ExperienceConsolidationStats:
     duplicates: int = 0
     rejected: int = 0
     summaries_generated: int = 0
+    summary_attempted: int = 0
+    summary_deferred: int = 0
     summary_errors: list[str] = field(default_factory=list)
     deferred: int = 0
     selector_diagnostics: dict[str, int] = field(default_factory=dict)
@@ -151,15 +155,20 @@ async def _generate_episodic_summaries(
     promoted_episode_ids: list[str],
 ) -> _EpisodicSummaryStats:
     stats = _EpisodicSummaryStats()
-    if not promoted_episode_ids or stores.l1_store is None or stores.l3_store is None:
+    if stores.l1_store is None or stores.l3_store is None:
         return stats
     try:
+        # shortcut: backfill uses the latest 500 active records; add paging for deeper history.
+        active = await stores.cognition_store.list_episodes(status="active", limit=500)
+        episode_ids = list(dict.fromkeys([*promoted_episode_ids, *(str(item["episode_id"]) for item in active)]))
         summary_result = await stores.l3_store.generate_missing_episodic_summaries(
             l1_store=stores.l1_store,
             l2_store=stores.cognition_store,
-            episode_ids=promoted_episode_ids,
+            episode_ids=episode_ids,
         )
         stats.generated = int(summary_result.get("generated") or 0)
+        stats.attempted = int(summary_result.get("attempted") or 0)
+        stats.deferred = int(summary_result.get("deferred") or 0)
         stats.errors = list(summary_result.get("errors") or [])
     except Exception as exc:
         logger.warning("L2 episodic summary generation failed", error=str(exc))
@@ -202,9 +211,11 @@ async def _promote_experiences_and_summaries(
                 l1_store=stores.l1_store,
                 l2_store=stores.cognition_store,
                 l3_store=stores.l3_store,
-                experience_ids=experience_stats.promoted_experience_ids,
+                experience_ids=None,
             )
             stats.summaries_generated = int(summary_result.get("generated") or 0)
+            stats.summary_attempted = int(summary_result.get("attempted") or 0)
+            stats.summary_deferred = int(summary_result.get("deferred") or 0)
             stats.summary_errors = list(summary_result.get("errors") or [])
     except Exception as exc:
         logger.warning("L2 experience promotion failed", error=str(exc))
@@ -236,6 +247,8 @@ def _l2_consolidation_success_result(
             "episodes_invalidated": int(episode_stats.invalidated),
             "episodic_summaries_generated": episodic_summary_stats.generated,
             "episodic_summary_errors": episodic_summary_stats.errors,
+            "summary_attempted": episodic_summary_stats.attempted + experience_stats.summary_attempted,
+            "summary_deferred": episodic_summary_stats.deferred + experience_stats.summary_deferred,
             "experience_candidates": experience_stats.candidates,
             "experiences_promoted": experience_stats.promoted,
             "experience_duplicates": experience_stats.duplicates,
