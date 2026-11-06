@@ -2722,10 +2722,13 @@ and completed actions, and must not infer life priorities, mood, productivity
 or unresolved tasks from missing records or activity counts. Retrieval metadata
 is optional and must not dictate a report outline.
 
-Temporal LLM generation normally uses two calls over the same evidence-prefix
-prompt. The first produces the user-facing draft. The second checks its factual
-claims against source events and extracts an `essence_prose` card preview plus
-optional retrieval fields. Unsupported claims must quote the draft and reference
+Temporal LLM generation normally uses two calls over the same raw source
+evidence. The first produces the user-facing draft. The second checks its factual
+claims with previous/child summaries excluded, so old interpretations cannot
+corroborate the draft. It selects an exact `essence_prose` excerpt and topic labels;
+the compact review does not require timelines, entity lists or trend metadata.
+Review calls have an 8,192-token output ceiling (prose calls use 4,096) to avoid
+truncating factual issues behind optional report fields. Unsupported claims must quote the draft and reference
 only supplied event IDs. When a review flags an overclaim, the runtime allows
 one repair and one fresh review, for at most four calls. A still-flagged repair,
 an unavailable second review, or a malformed claim review produces an internal
@@ -2810,13 +2813,14 @@ Rule fallback is a user-facing lower bound, not a debug dump. It should describe
 
 Temporal summaries preserve the specific names and details needed to recognize
 an experience later, while omitting routine noise and repeated observations.
-The optional `essence_prose` is a concrete card preview, not another generic
-headline. The structured `change_and_pattern` payload remains available for
-retrieval, including timelines, source observations, explicit actions and open
-intentions when supported. Unsupported arrays stay empty; numeric psychological
-or productivity measurements must not be invented. L3 FTS and vector text
-include both readable content and structured anchors without requiring all
-retrieval detail to appear in the visible recap.
+The optional temporal `essence_prose` must be an exact excerpt of accepted prose.
+A model-written paraphrase is discarded without losing the reviewed body or
+topics; the story projection then derives its preview from the body. This avoids
+silently upgrading observation verbs in a second piece of prose. The store and
+retrieval contract can still carry `change_and_pattern` from other summary
+producers; the temporal review no longer asks the model to fill its categories.
+L3 FTS and vector text include readable content and available structured anchors
+without requiring all retrieval detail to appear in the visible recap.
 
 #### Plugin Temporal Features
 

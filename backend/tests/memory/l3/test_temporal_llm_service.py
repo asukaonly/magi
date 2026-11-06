@@ -348,7 +348,7 @@ async def test_generate_temporal_candidate_keeps_essence_from_structure_output(
     )
 
     async def _prose_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
-        return "## 要点\n本周主要修复 Magi 总结页，让首页更好读，详情继续保留完整内容。"
+        return "## 要点\n本周主要修复 Magi 总结页，让首页更好读。详情继续保留完整内容。"
 
     async def _structure_call(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
         assert prose_content.startswith("## 要点")
@@ -487,6 +487,7 @@ async def test_period_and_timeout_override_reach_both_model_requests(
     ]
     for call in calls:
         assert call["timeout_seconds"] == (default_timeout if override is None else override)
+        assert call["max_tokens"] == (8192 if call["json_mode"] else 4096)
         assert call["disable_thinking"] is disable_thinking
         assert call["cache_system"] is True
         assert call["priority"] is LLMRequestPriority.LOW
@@ -521,7 +522,7 @@ def test_temporal_service_uses_memory_summarizer_scenario() -> None:
         (None, "en", "English"),
     ],
 )
-async def test_live_temporal_requests_share_exact_evidence_and_resolve_language_precedence(
+async def test_temporal_review_uses_same_sources_without_old_summary_claims(
     monkeypatch, current, preferred, label
 ):
     import json
@@ -609,16 +610,22 @@ async def test_live_temporal_requests_share_exact_evidence_and_resolve_language_
         ],
     }
     contexts = []
-    for call in calls:
+    for index, call in enumerate(calls):
         assert f"Target language: {label}" in call["system_prompt"]
         assert len(call["messages"]) == 1 and call["messages"][0]["role"] == "user"
         prompt = call["messages"][0]["content"]
         assert f"The target language is {label}" in prompt
         offset = prompt.index("Evidence Pack:\n") + len("Evidence Pack:\n")
         payload, end = json.JSONDecoder().raw_decode(prompt[offset:])
-        assert payload == expected
+        expected_payload = dict(expected)
+        if index == 1:
+            expected_payload.pop("previous_period_summaries")
+            expected_payload.pop("child_period_summaries")
+        assert payload == expected_payload
         contexts.append(prompt[: offset + end])
-    assert contexts[0] == contexts[1]
+    assert "Earlier period only." in contexts[0]
+    assert "Earlier period only." not in contexts[1]
+    assert "A distinct child summary." not in contexts[1]
     assert (
         f"Draft User-Facing Summary (review before accepting):\n{prose}"
         in calls[1]["messages"][0]["content"]

@@ -214,6 +214,11 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
                 summary_overrides.update(
                     self.parse_structure_output(payload, pack=pack, content=prose_content)
                 )
+                preview = summary_overrides.get("essence_prose")
+                if isinstance(preview, str) and preview not in prose_content:
+                    # A selected excerpt cannot introduce stronger activity verbs.
+                    # The story projection already supplies a prose-based preview.
+                    summary_overrides.pop("essence_prose", None)
             except Exception as exc:
                 logger.warning(
                     "L3 temporal structure output rejected",

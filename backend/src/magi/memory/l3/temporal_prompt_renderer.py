@@ -57,8 +57,16 @@ class TemporalPromptRenderer:
             ],
         }
 
-    def render_context_prompt(self, pack: TemporalEvidencePack) -> str:
+    def render_context_prompt(
+        self,
+        pack: TemporalEvidencePack,
+        *,
+        include_summary_context: bool = True,
+    ) -> str:
         payload = self.prompt_payload(pack)
+        if not include_summary_context:
+            payload.pop("previous_period_summaries")
+            payload.pop("child_period_summaries")
         evidence = json.dumps(payload, ensure_ascii=False, indent=2)
         period_focus = self._policy.focus_instruction(pack.summary_category)
         period_structure = self._policy.structure_instruction(pack.summary_category)
@@ -102,7 +110,7 @@ class TemporalPromptRenderer:
     ) -> str:
         schema = json.dumps(TEMPORAL_SUMMARY_OUTPUT_SCHEMA, ensure_ascii=False, indent=2)
         return (
-            self.render_context_prompt(pack)
+            self.render_context_prompt(pack, include_summary_context=False)
             + "\nDraft User-Facing Summary (review before accepting):\n"
             f"{prose_content.strip()}\n\n"
             "Extraction Task / 提取结构化字段:\n"
@@ -112,9 +120,10 @@ class TemporalPromptRenderer:
             "- User-only transcripts cannot establish assistant execution results. Browser titles cannot establish watching, learning, maintaining services, or completed tool use. Flag these verbs individually.\n"
             "- Extract optional structured fields from the same evidence and draft.\n"
             "- Do not rewrite the draft during this stage.\n"
-            "- Write `essence_prose` as a short card preview: 1-2 natural sentences, grounded in the accepted summary and evidence, with no section headings.\n"
+            "- Select `essence_prose` as a short EXACT excerpt from the draft, without headings or bullet markers. Do not rewrite its verbs or add facts. Omit it if no useful short excerpt exists.\n"
+            "- Keep each issue reason to one sentence and cite at most 3 representative event ids. No more than 12 issues.\n"
+            "- Return only the compact fields shown below. Extra timelines, entity lists and report sections are unnecessary.\n"
             "- Extract retrieval anchors without making the recap more comprehensive. Do not add facts, motives, pending tasks or psychological measurements.\n"
-            "- Leave sentiment_summary null unless the user explicitly described their feelings. Counts and missing records do not establish trends.\n"
             "- Return one JSON object only.\n"
             "- `content` is optional here; when present it must exactly match the accepted summary.\n"
             "- Use empty lists or nulls when a field has no support; never fabricate metrics.\n\n"

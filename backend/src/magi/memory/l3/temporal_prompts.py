@@ -36,31 +36,8 @@ TEMPORAL_SUMMARY_OUTPUT_SCHEMA = {
             ],
         }
     ],
-    "essence_prose": "One or two short sentences naming the most memorable concrete details in the accepted recap. No generic overview, headings, added interpretation or list of categories. Usually 40-100 Chinese characters; shorter is fine.",
+    "essence_prose": "A short exact excerpt selected from the draft, usually 40-100 Chinese characters. Preserve its words and verbs; do not paraphrase. Omit when unsuitable.",
     "key_topics": ["specific topic or project actually present in the evidence"],
-    "key_entities": [
-        {"entity_id": "only an id supplied in evidence", "entity_type": "supplied type"}
-    ],
-    "sentiment_summary": None,
-    "change_and_pattern": {
-        "headline": "A concrete sentence from the recap, with the same evidence strength. No required section heading.",
-        "timeline": ["a meaningful sequence only when dates and order are supported"],
-        "source_signals": ["observed source behavior, not inferred preferences or priorities"],
-        "decisions_and_actions": [
-            "explicit action or decision; preserve requested/planned/completed distinctions"
-        ],
-        "changes": ["a concrete supported change, not a change in sampled event volume"],
-        "patterns": ["repeated distinct observations, not repeated versions or summaries"],
-        "open_threads": [
-            "an explicitly pending intention or question; never inferred from missing results"
-        ],
-        "trend_shifts": {
-            "rising": [],
-            "falling": [],
-            "new": [],
-            "persisting": [],
-        },
-    },
 }
 
 __all__ = ["TEMPORAL_SUMMARY_OUTPUT_SCHEMA", "TEMPORAL_SUMMARY_SYSTEM_PROMPT"]

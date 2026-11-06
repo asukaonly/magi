@@ -177,6 +177,7 @@ class TemporalSummaryModelClient:
                 system_prompt=render_temporal_summary_system_prompt(),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
+                max_tokens=8192 if json_mode else 4096,
                 json_mode=json_mode,
                 disable_thinking=resolved_disable_thinking,
                 cache_system=True,

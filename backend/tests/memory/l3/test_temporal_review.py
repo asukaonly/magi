@@ -129,3 +129,27 @@ async def test_missing_review_is_not_an_implicit_pass(monkeypatch, review):
     monkeypatch.setattr(service, "_call_temporal_structure_model", AsyncMock(return_value=review))
     result = await service.generate_temporal_candidate(_pack(), fallback_summary="Fallback")
     assert result.used_fallback
+
+
+@pytest.mark.asyncio
+async def test_preview_cannot_strengthen_browsing_into_viewing(monkeypatch):
+    service = TemporalSummaryLLMService()
+    monkeypatch.setattr(
+        service, "_call_temporal_prose_model", AsyncMock(return_value="浏览了比赛直播页面。")
+    )
+    monkeypatch.setattr(
+        service,
+        "_call_temporal_structure_model",
+        AsyncMock(
+            return_value={
+                "unsupported_claims": [],
+                "essence_prose": "看完了比赛直播。",
+                "key_topics": ["比赛"],
+            }
+        ),
+    )
+    result = await service.generate_temporal_candidate(_pack(), fallback_summary="Fallback")
+    assert not result.used_fallback
+    assert result.candidate.content == "浏览了比赛直播页面。"
+    assert "essence_prose" not in result.summary_overrides
+    assert result.summary_overrides["key_topics"] == ["比赛"]
