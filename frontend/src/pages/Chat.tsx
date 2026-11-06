@@ -29,6 +29,7 @@ import { SystemSuggestionSideCard } from '@/components/chat/SystemSuggestionSide
 import { useSystemSuggestions } from '@/hooks/useSystemSuggestions';
 import type { SuggestionProposal } from '@/api/modules/systemSuggestions';
 import { ComposerAskQuickReplies } from '@/components/chat/ComposerAskQuickReplies';
+import { FirstContextMemoryPreview } from '@/components/chat/FirstContextMemoryPreview';
 import { FirstContextContinuationCard } from '@/components/chat/FirstContextContinuationCard';
 import { ChatPageOverlays } from '@/components/chat/ChatPageOverlays';
 import { ChatTimelinePane } from '@/components/chat/ChatTimelinePane';
@@ -71,6 +72,7 @@ import {
 } from '@/domain/chat/reasoning';
 import {
   answeredFirstContextQuestionIds,
+  readFirstContextQuestionId,
   canOfferFirstContextContinuation,
   chooseAlternativeFirstContextQuestion,
   chooseNextFirstContextQuestion,
@@ -1407,11 +1409,21 @@ export const ChatPage: React.FC = () => {
         ) : !recallFeedbackDraft
           && firstContextSelection?.mode !== 'dismissed'
           && canOfferFirstContextContinuation(messages, waitingForReply) ? (
-          <FirstContextContinuationCard
-            mode="offer"
-            onContinue={handleContinueFirstContext}
-            onDismiss={handleDismissFirstContext}
-          />
+          <div>
+            {currentSessionId && <FirstContextMemoryPreview
+              sessionId={currentSessionId}
+              sourceMessageIds={messages.filter((message) => readFirstContextQuestionId(message)).map((message) => message.messageId ?? message.id)}
+              onAsk={(question) => {
+                handleInputChangeWithMentions(inputValue.trim() ? `${inputValue}\n${question}` : question);
+                composerTextareaRef.current?.focus();
+              }}
+            />}
+            <FirstContextContinuationCard
+              mode="offer"
+              onContinue={handleContinueFirstContext}
+              onDismiss={handleDismissFirstContext}
+            />
+          </div>
         ) : undefined}
         pickerSlot={
           recallFeedbackDraft || activePendingAsk || activeFirstContextQuestion

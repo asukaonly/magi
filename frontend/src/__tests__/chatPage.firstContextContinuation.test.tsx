@@ -3,7 +3,13 @@ import {
 } from "@/test/chatPageHarness";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, it } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
+import { memoryApi } from "@/api/modules/memory";
+import { memoryPortraitSelfApi } from "@/api/modules/memoryPortraitSelf";
+import { firstContextEvent, firstContextItem, firstContextPortrait } from "./fixtures/firstContextMemory";
+
+vi.mock("@/api/modules/memory", () => ({ memoryApi: { getL1Events: vi.fn() } }));
+vi.mock("@/api/modules/memoryPortraitSelf", () => ({ memoryPortraitSelfApi: { get: vi.fn() } }));
 import { ChatPage } from "@/pages/Chat";
 import { useConversationStore } from "@/stores/conversation-store";
 import { normalizeHistoryMessages } from "@/domain/chat/state";
@@ -44,6 +50,25 @@ const seedFirstContextConversation = () => {
 };
 
 defineChatPageSuite("ChatPage first-context continuation", () => {
+  beforeEach(() => {
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue({ items: [firstContextEvent], total: 1, limit: 1, offset: 0 });
+    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue(firstContextPortrait());
+  });
+
+  it("preserves a draft when asking about a supported memory without sending", async () => {
+    window.localStorage.clear();
+    seedFirstContextConversation();
+    const user = userEvent.setup();
+    render(<ChatPage />);
+    await screen.findByText(firstContextItem.text);
+    const input = screen.getByRole('textbox');
+    await user.type(input, 'Existing draft');
+    await user.click(screen.getByRole('button', { name: 'chat.firstContextMemory.tryRecall' }));
+    expect(input).toHaveValue('Existing draft\nchat.firstContextMemory.question');
+    expect(messagesApi.sendMessage).not.toHaveBeenCalled();
+    expect(memoryApi.getL1Events).toHaveBeenCalledWith(expect.objectContaining({ source_item_id: 'first-context-name' }));
+  });
+
   it("offers one next question and sends the answer through the same chat", async () => {
     window.localStorage.clear();
     seedFirstContextConversation();

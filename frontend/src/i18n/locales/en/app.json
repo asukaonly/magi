@@ -981,6 +981,17 @@
     "connected": "Connected",
     "disconnected": "Disconnected",
     "clear": "Clear Chat",
+    "firstContextMemory": {
+      "processing": "Checking what is available from your answers…",
+      "ready": "From what you just shared",
+      "pending": "No usable memory is available yet. You can check again later.",
+      "error": "Could not check this memory. Please try again.",
+      "refresh": "Check again",
+      "recent": "Recent context · not a lasting trait",
+      "tryRecall": "Ask about this",
+      "question": "What do you remember about “{{value}}”?",
+      "viewAll": "View what Magi knows about you"
+    },
     "firstContextContinuation": {
       "title": "Let Magi get to know you a little more?",
       "body": "You can answer one more easy question or start chatting right away.",

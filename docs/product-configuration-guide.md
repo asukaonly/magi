@@ -395,6 +395,16 @@ If the remote marketplace and its local cache are both unavailable, the first-co
 
 The pre-context persistence described above must use the scoped onboarding save rather than replace the full configuration document.
 
+After a first-context answer and its assistant reply, the continuation offer
+shows at most two complete, current portrait items supported by that answer's
+chat event IDs. It excludes stale portraits, review candidates, unrelated facts
+and inferred traits; recent context is labeled separately from lasting traits.
+The preview checks at most six times automatically, then offers an explicit
+refresh without claiming that low-signal input became durable memory. Existing
+evidence and correction controls remain the owners of source inspection and
+editing. Follow-up actions only append a question to the composer and preserve
+any existing draft; they never send a message automatically.
+
 After the user enters the main application for the first time, the post-onboarding first-context dialog is only a fallback for older installs, interrupted onboarding, or other states where `product_tour_completed` is still false. It should offer optional data-source connection cards, make skipping clear, and hand off to the shared plugin install/connect panel when the user chooses a source. Skipping the prompt or completing the connect flow should mark the prompt complete so the initial persona bootstrap can continue. It should not repeat vector-model setup; missing vector-model guidance belongs in first-run model setup and the first-context step as a non-blocking warning.
 
 Source connection errors must remain actionable. A permission denial ends the

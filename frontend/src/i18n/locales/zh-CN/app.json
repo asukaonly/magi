@@ -981,6 +981,17 @@
     "connected": "已连接",
     "disconnected": "未连接",
     "clear": "清空对话",
+    "firstContextMemory": {
+      "processing": "正在查看刚才的回答形成了哪些记忆…",
+      "ready": "从你刚才分享的内容中整理到",
+      "pending": "暂未形成可核对的记忆，可以稍后再查看。",
+      "error": "暂时无法读取这些记忆，请重试。",
+      "refresh": "再查看一次",
+      "recent": "近期情况 · 不代表长期特征",
+      "tryRecall": "围绕这条聊聊",
+      "question": "关于“{{value}}”，你记得哪些内容？",
+      "viewAll": "查看关于你的内容"
+    },
     "firstContextContinuation": {
       "title": "再让 Magi 认识你一点？",
       "body": "还可以回答一个轻松问题，也可以直接开始聊天。",
