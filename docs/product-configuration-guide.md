@@ -749,7 +749,21 @@ so display identity does not depend on optional persona runtime initialization.
 An absent active persona reports not-ready rather than a successful default
 identity. Avatar image completion is logged separately from identity data.
 
-When the desktop backend cannot finish startup, the frontend should show a diagnosis-oriented failure screen instead of only a generic retry prompt. The screen should include the concrete startup error, the backend log path, and a bounded tail of the latest backend log output.
+When the desktop cannot finish startup, its failure screen includes the failed
+stage, start/failure times, duration, app/system version, connection mode and,
+for an owned local service, process ID and exit code when available. Each connect
+or automatic recovery owns an independent attempt; late results cannot replace a
+newer attempt's report. Frontend failures after native readiness retain their own
+stage and timing, including maintenance recovery and readiness timeouts.
+
+Local service log excerpts start at the byte boundary captured immediately before
+spawning the child (or reusing it on retry), after the predecessor has drained.
+Reads include at most 64 KiB. Rotation or truncation that invalidates the boundary
+is explicitly labeled as a fallback tail; an empty current attempt never falls
+back to older startup output. Remote reports never read local service logs.
+Displayed and copied reports use the shared credential redaction rules and mask
+common macOS, Linux and Windows home-directory paths. Arbitrary log content is
+not guaranteed to be anonymous; review a report before sharing it publicly.
 
 Startup loading, data-clear recovery, and diagnostic failure surfaces must keep the standard desktop title bar available so the frameless window remains draggable and exposes platform-appropriate window controls before the routed application shell mounts.
 

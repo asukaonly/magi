@@ -30,13 +30,18 @@ const sessionSchema = z.object({
   access_token: z.string().min(32).max(256), expires_at_ms: z.number().int(),
 });
 const diagnosticsSchema = z.object({
-  logPath: z.string().nullish(), logExcerpt: z.string().nullish(), logReadError: z.string().nullish(),
+  attemptId: z.string().uuid(), appVersion: z.string().min(1),
+  osName: z.string().min(1), osVersion: z.string().nullable(), architecture: z.string().min(1),
+  mode: z.enum(['local', 'remote']).nullable(),
+  phase: z.enum(['connecting', 'preparing_service', 'waiting_for_previous_service', 'spawning',
+    'waiting_for_listener', 'authenticating', 'waiting_for_worker', 'recovering_maintenance', 'ready']),
+  startedAtMs: z.number().int().nonnegative().max(8.64e15), failedAtMs: z.number().int().nonnegative().max(8.64e15).nullable(),
+  durationMs: z.number().int().nonnegative().safe(), processId: z.number().int().positive().nullable(),
+  exitCode: z.number().int().nullable(), failureMessage: z.string().nullable(),
+  logPath: z.string().nullable(), logExcerpt: z.string().nullable(), logReadError: z.string().nullable(),
+  logExcerptScope: z.enum(['current_attempt', 'fallback_tail']).nullable(), logExcerptTruncated: z.boolean(),
 });
-export interface ConnectionStartupDiagnostics {
-  logPath?: string;
-  logExcerpt?: string;
-  logReadError?: string;
-}
+export type ConnectionStartupDiagnostics = z.infer<typeof diagnosticsSchema>;
 export type StartupPhase = 'waiting_for_worker' | 'connecting' | 'recovering_maintenance' | 'ready' | 'error';
 export type StartupProgressCallback = (phase: StartupPhase) => void;
 
@@ -56,8 +61,7 @@ export function isTauriRuntime(): boolean {
 export async function readConnectionStartupDiagnostics(): Promise<ConnectionStartupDiagnostics | null> {
   if (!isTauriRuntime()) return null;
   try {
-    const result = diagnosticsSchema.parse(await invoke<unknown>('read_connection_startup_diagnostics'));
-    return { logPath: result.logPath ?? undefined, logExcerpt: result.logExcerpt ?? undefined, logReadError: result.logReadError ?? undefined };
+    return diagnosticsSchema.nullable().parse(await invoke<unknown>('read_connection_startup_diagnostics'));
   } catch { return null; }
 }
 

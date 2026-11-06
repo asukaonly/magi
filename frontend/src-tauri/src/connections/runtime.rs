@@ -5,14 +5,15 @@ use super::{
     protocol::{CenterClient, CenterError},
     Profile,
 };
+use crate::startup_diagnostics::{StartupAttempt, StartupReport};
 use crate::{connections, service_host};
 use magi_service_contract::config::ServerConfig;
 use serde::Serialize;
+#[cfg(test)]
 use std::fs;
-use std::io::{Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
 
 mod recovery;
@@ -24,7 +25,7 @@ pub struct ConnectionRuntime {
     shutting_down: AtomicBool,
     active: Mutex<Option<ActiveConnection>>,
     pub(crate) operation: tokio::sync::Mutex<()>,
-    last_log: Mutex<Option<PathBuf>>,
+    startup: Mutex<Option<Arc<StartupAttempt>>>,
     offline_attempt: Mutex<Option<(u64, Profile)>>,
     offline_revision: AtomicU64,
 }
@@ -74,14 +75,6 @@ pub fn read_connection_snapshot(
     state: State<'_, ConnectionRuntime>,
 ) -> Result<Option<ConnectionSnapshot>, String> {
     state.connection_snapshot()
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConnectionStartupDiagnostics {
-    log_path: Option<String>,
-    log_excerpt: Option<String>,
-    log_read_error: Option<String>,
 }
 
 impl ConnectionRuntime {
@@ -148,6 +141,7 @@ async fn reuse_local_connection(
     state: &ConnectionRuntime,
     connections: &connections::Connections,
     profile_id: &str,
+    attempt: Arc<StartupAttempt>,
 ) -> Result<Option<ConnectionInfo>, CenterError> {
     let generation = state.generation.load(Ordering::Acquire);
     let snapshot = {
@@ -167,6 +161,7 @@ async fn reuse_local_connection(
         if !service.running()? {
             return Ok(None);
         }
+        service.observe_startup(attempt);
         active.response.clone()
     };
     let info = CenterClient::local(&snapshot.base_url)?
@@ -199,7 +194,22 @@ pub async fn connect_active_profile(
     state: State<'_, ConnectionRuntime>,
     connections: State<'_, connections::Connections>,
 ) -> Result<ConnectionInfo, String> {
+    let attempt = Arc::new(StartupAttempt::new(None));
+    let result = connect_profile(app, &state, &connections, attempt.clone()).await;
+    if let Err(error) = &result {
+        attempt.fail(error);
+    }
+    result
+}
+
+async fn connect_profile(
+    app: AppHandle,
+    state: &ConnectionRuntime,
+    connections: &connections::Connections,
+    attempt: Arc<StartupAttempt>,
+) -> Result<ConnectionInfo, String> {
     let _operation = state.operation.lock().await;
+    *state.startup.lock().unwrap_or_else(|e| e.into_inner()) = Some(attempt.clone());
     if state.shutting_down.load(Ordering::Acquire) {
         return Err("Desktop is stopping".into());
     }
@@ -213,6 +223,11 @@ pub async fn connect_active_profile(
         .lock()
         .map_err(|_| "Offline state unavailable")? = None;
     let expected = connections.profile(&profile_id)?;
+    attempt.mode(if matches!(expected, Profile::Local { .. }) {
+        "local"
+    } else {
+        "remote"
+    });
     let previous_generation = state.generation.load(Ordering::Acquire);
     drop(_operation);
     if let Some(response) = inspect_connection_result(
@@ -220,10 +235,11 @@ pub async fn connect_active_profile(
         &connections,
         &expected,
         previous_generation,
-        reuse_local_connection(&state, &connections, &profile_id).await,
+        reuse_local_connection(state, connections, &profile_id, attempt.clone()).await,
     )
     .await?
     {
+        attempt.phase("waiting_for_worker");
         return Ok(response);
     }
     let operation = state.operation.lock().await;
@@ -238,6 +254,7 @@ pub async fn connect_active_profile(
     drop(operation);
     let (service, base_url, token, expiry, mode, expected_id) = match profile {
         Profile::Local { .. } => {
+            attempt.phase("preparing_service");
             let data = service_host::local_data_root()?;
             let (binary, mut config) = if cfg!(debug_assertions) {
                 let project = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -278,12 +295,15 @@ pub async fn connect_active_profile(
                 .app_log_dir()
                 .map_err(|e| e.to_string())?
                 .join("service.log");
-            *state
-                .last_log
-                .lock()
-                .map_err(|_| "Service diagnostics lock failed")? = Some(log_path.clone());
+            let launch_attempt = attempt.clone();
             let service = tokio::task::spawn_blocking(move || {
-                service_host::LocalService::start(&binary, &config, &config_path, log_path)
+                service_host::LocalService::start(
+                    &binary,
+                    &config,
+                    &config_path,
+                    log_path,
+                    launch_attempt,
+                )
             })
             .await
             .map_err(|_| "Service launch failed")??;
@@ -296,10 +316,7 @@ pub async fn connect_active_profile(
             server_id,
             ..
         } => {
-            *state
-                .last_log
-                .lock()
-                .map_err(|_| "Service diagnostics lock failed")? = None;
+            attempt.phase("authenticating");
             let session = inspect_connection_result(
                 &state,
                 &connections,
@@ -318,6 +335,7 @@ pub async fn connect_active_profile(
             )
         }
     };
+    attempt.phase("connecting");
     let client = if mode == "local" {
         CenterClient::local(&base_url)?
     } else {
@@ -369,6 +387,7 @@ pub async fn connect_active_profile(
         response: response.clone(),
         recovery: Default::default(),
     });
+    attempt.phase("waiting_for_worker");
     Ok(response)
 }
 
@@ -381,6 +400,25 @@ pub async fn poll_connection_startup(
 }
 
 async fn poll_startup(
+    state: &ConnectionRuntime,
+    connections: &connections::Connections,
+) -> Result<PollStartupResponse, String> {
+    let attempt = state
+        .startup
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let result = poll_startup_inner(state, connections).await;
+    if let Some(attempt) = attempt {
+        match &result {
+            Ok(response) => attempt.phase(&response.phase),
+            Err(error) => attempt.fail(error),
+        }
+    }
+    result
+}
+
+async fn poll_startup_inner(
     state: &ConnectionRuntime,
     connections: &connections::Connections,
 ) -> Result<PollStartupResponse, String> {
@@ -669,31 +707,13 @@ pub async fn complete_client_reset(
 #[tauri::command]
 pub fn read_connection_startup_diagnostics(
     state: State<'_, ConnectionRuntime>,
-) -> ConnectionStartupDiagnostics {
-    let log_path = state
-        .last_log
+) -> Option<StartupReport> {
+    let attempt = state
+        .startup
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
-    let excerpt = log_path.as_ref().map(|path| {
-        let mut file = fs::File::open(path).map_err(|e| e.to_string())?;
-        let length = file.metadata().map_err(|e| e.to_string())?.len();
-        file.seek(SeekFrom::Start(length.saturating_sub(65536)))
-            .map_err(|e| e.to_string())?;
-        let mut bytes = Vec::new();
-        file.take(65536)
-            .read_to_end(&mut bytes)
-            .map_err(|e| e.to_string())?;
-        Ok::<String, String>(String::from_utf8_lossy(&bytes).into_owned())
-    });
-    ConnectionStartupDiagnostics {
-        log_path: log_path.map(|path| path.display().to_string()),
-        log_excerpt: excerpt
-            .as_ref()
-            .and_then(|result| result.as_ref().ok())
-            .cloned(),
-        log_read_error: excerpt.and_then(Result::err),
-    }
+    attempt.map(|attempt| attempt.report())
 }
 
 #[tauri::command]
@@ -996,6 +1016,8 @@ mod tests {
             )
             .await
             .unwrap();
+        let attempt = Arc::new(StartupAttempt::new(Some("remote")));
+        *state.startup.lock().unwrap() = Some(attempt.clone());
         assert!(read_offline(&state, &connections).await.unwrap().is_none());
         // Windows may retry refused loopback connections for more than two seconds.
         // Keep this test's deadline outside the client's 20-second request deadline.
@@ -1008,6 +1030,12 @@ mod tests {
         .err()
         .unwrap();
         assert_eq!(error, "center_network_unavailable");
+        assert_eq!(
+            attempt.report().failure_message.as_deref(),
+            Some("center_network_unavailable")
+        );
+        assert!(attempt.report().failed_at_ms.is_some());
+        assert!(attempt.report().log_path.is_none());
         assert_eq!(
             read_offline(&state, &connections).await.unwrap(),
             Some(descriptor.clone())
@@ -1033,6 +1061,39 @@ mod tests {
         *state.offline_attempt.lock().unwrap() = Some((1, profile.clone()));
         connections.activate("local".into()).await.unwrap();
         assert!(read_offline(&state, &connections).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn late_startup_poll_cannot_overwrite_a_new_attempt() {
+        let root = tempfile::tempdir().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (connections, state, _, _) = offline_fixture(
+            root.path(),
+            format!("http://{}/api", listener.local_addr().unwrap()),
+        );
+        let old = Arc::new(StartupAttempt::new(Some("remote")));
+        *state.startup.lock().unwrap() = Some(old.clone());
+        let replacement = Arc::new(StartupAttempt::new(Some("local")));
+        replacement.phase("spawning");
+        let serve = async {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 4096];
+            socket.read(&mut request).await.unwrap();
+            *state.startup.lock().unwrap() = Some(replacement.clone());
+            socket
+                .write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+        };
+        let (result, ()) = tokio::join!(poll_startup(&state, &connections), serve);
+        assert!(result.is_err());
+        assert!(old.report().failed_at_ms.is_some());
+        let current = state.startup.lock().unwrap().as_ref().unwrap().report();
+        assert_eq!(current.attempt_id, replacement.report().attempt_id);
+        assert_eq!(current.phase, "spawning");
+        assert!(current.failed_at_ms.is_none());
     }
 
     #[tokio::test]
@@ -1353,11 +1414,16 @@ mod tests {
         let connections = connections::Connections::open(root.path()).unwrap();
         let state = ConnectionRuntime::default();
         assert!(state.snapshot().is_err());
-        assert!(reuse_local_connection(&state, &connections, "local")
-            .await
-            .unwrap()
-            .is_none());
-        assert!(state.last_log.lock().unwrap().is_none());
+        assert!(reuse_local_connection(
+            &state,
+            &connections,
+            "local",
+            Arc::new(StartupAttempt::new(Some("local")))
+        )
+        .await
+        .unwrap()
+        .is_none());
+        assert!(state.startup.lock().unwrap().is_none());
         state.disconnect().unwrap();
         assert!(state.snapshot().is_err());
     }
@@ -1372,10 +1438,15 @@ mod tests {
             service: None,
             response: connection_info("remote"),
         });
-        assert!(reuse_local_connection(&state, &connections, "remote")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(reuse_local_connection(
+            &state,
+            &connections,
+            "remote",
+            Arc::new(StartupAttempt::new(Some("remote")))
+        )
+        .await
+        .unwrap()
+        .is_none());
         let (generation, info) = state.snapshot().unwrap();
         assert!(info.local_service_pid.is_none());
         assert!(state.is_current(generation));
@@ -1408,6 +1479,9 @@ mod tests {
             &ServerConfig::for_development(&root, root.join("data")),
             &root.join("config.json"),
             root.join("service.log"),
+            Arc::new(crate::startup_diagnostics::StartupAttempt::new(Some(
+                "local",
+            ))),
         )
         .unwrap();
         let pid = service.pid();
@@ -1440,10 +1514,15 @@ mod tests {
             },
         });
         let connections = connections::Connections::open(&root.join("connections")).unwrap();
-        let response = reuse_local_connection(&state, &connections, "local")
-            .await
-            .unwrap()
-            .unwrap();
+        let response = reuse_local_connection(
+            &state,
+            &connections,
+            "local",
+            Arc::new(StartupAttempt::new(Some("local"))),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert_eq!(response.data_epoch, "new-epoch");
         assert_eq!(response.local_service_pid, Some(pid));
         assert_eq!(

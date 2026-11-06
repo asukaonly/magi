@@ -136,23 +136,29 @@ impl ConnectionRuntime {
                 unresponsive,
             )
         };
+        let attempt = Arc::new(crate::startup_diagnostics::StartupAttempt::new(Some(
+            "local",
+        )));
+        *self.startup.lock().unwrap_or_else(|e| e.into_inner()) = Some(attempt.clone());
         // User intent may invalidate this attempt while startup is in flight.
         drop(_operation);
         let previous_pid = previous.pid();
         let launch_cancelled = cancelled.clone();
+        let launch_attempt = attempt.clone();
         let (previous, replacement) = tokio::task::spawn_blocking(move || {
             let mut previous = previous;
             if unresponsive && !launch_cancelled.load(Ordering::Acquire) {
                 log::warn!("Replacing an unresponsive owned service");
                 previous.terminate_unresponsive();
             }
-            let replacement = previous.restart(&launch_cancelled);
+            let replacement = previous.restart(&launch_cancelled, launch_attempt);
             (previous, replacement)
         })
         .await
         .map_err(|_| "Local service recovery task failed")?;
         let replacement = match replacement {
             Ok(service) => {
+                attempt.phase("connecting");
                 let info = tokio::select! {
                     biased;
                     _ = wait_for_cancellation(&cancelled) => Err("Service recovery cancelled".to_owned()),
@@ -219,6 +225,11 @@ impl ConnectionRuntime {
         tokio::task::spawn_blocking(move || drop((previous, replacement)))
             .await
             .map_err(|_| "Service cleanup failed")?;
+        match &outcome {
+            Ok(Some(_)) => attempt.phase("waiting_for_worker"),
+            Err(error) => attempt.fail(error),
+            _ => {}
+        }
         outcome
     }
 }
@@ -318,6 +329,9 @@ mod tests {
                 &config,
                 &root.join("config.json"),
                 root.join("service.log"),
+                Arc::new(crate::startup_diagnostics::StartupAttempt::new(Some(
+                    "local",
+                ))),
             )
             .unwrap();
             let original_pid = service.pid();

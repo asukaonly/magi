@@ -107,7 +107,7 @@
     "retry": "Retry",
     "starting": "Connecting to Magi...",
     "initializeFailedFallback": "Failed to initialize runtime",
-    "diagnosticsHint": "Magi could not finish starting. The details below include the startup error and the latest backend log output.",
+    "diagnosticsHint": "Check the failed stage and startup log below. Copied reports mask common credentials and home-directory paths.",
     "summaryLabel": "Error summary",
     "logPathLabel": "Log file",
     "recentLogLabel": "Recent backend log",
@@ -119,7 +119,35 @@
       "waiting_for_worker": "Initializing runtime...",
       "connecting": "Establishing connection...",
       "recovering_maintenance": "Checking center maintenance...",
-      "ready": "Almost ready..."
+      "ready": "Almost ready...",
+      "profiles": "Reading connection profiles…",
+      "preparing_service": "Preparing local service…",
+      "waiting_for_previous_service": "Waiting for previous service to stop…",
+      "spawning": "Starting local service…",
+      "waiting_for_listener": "Waiting for service listener…",
+      "authenticating": "Authenticating connection…",
+      "offline_snapshot": "Checking offline snapshot…",
+      "config": "Loading configuration…"
+    },
+    "currentLogLabel": "Log from this startup attempt",
+    "fallbackLogLabel": "Log tail (startup boundary unavailable)",
+    "logTruncated": "Only the last 64 KiB are included.",
+    "mode": {
+      "local": "Local service",
+      "remote": "Remote service"
+    },
+    "report": {
+      "phase": "Failed stage",
+      "startedAt": "Started at",
+      "failedAt": "Failed at",
+      "duration": "Duration",
+      "attempt": "Attempt",
+      "version": "App version",
+      "system": "System",
+      "mode": "Connection",
+      "process": "Process ID",
+      "exitCode": "Exit code",
+      "nativeError": "Native error"
     }
   },
   "common": {

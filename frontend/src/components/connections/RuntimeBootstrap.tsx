@@ -32,6 +32,7 @@ import { useFullDataClearInteractionGate } from '@/hooks/useFullDataClearInterac
 import { PreAppWindowFrame } from '@/components/layout/PreAppWindowFrame';
 import { getErrorMessage } from '@/utils/error-handler';
 import { measureStartupStep, startStartupSpan } from '@/runtime/startup-diagnostics';
+import { buildStartupReport, type StartupFailure } from '@/runtime/startup-report';
 
 export const RuntimeBootstrap: React.FC = () => {
   const { t } = useTranslation('app');
@@ -41,6 +42,7 @@ export const RuntimeBootstrap: React.FC = () => {
   const errorKey = error ? connectionErrorKey(error) : null;
   const displayedError = errorKey ? t(errorKey) : error;
   const [diagnostics, setDiagnostics] = useState<ConnectionStartupDiagnostics | null>(null);
+  const [failure, setFailure] = useState<StartupFailure | null>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
   const [phase, setPhase] = useState<StartupPhase>('connecting');
   const [offline, setOffline] = useState<{ descriptor: OfflineConnection; name: string; address: string } | null>(null);
@@ -53,23 +55,10 @@ export const RuntimeBootstrap: React.FC = () => {
     useFullDataClearInteractionGate()
   );
 
-  const diagnosticText = useMemo(() => {
-    if (!displayedError) {
-      return '';
-    }
-
-    const sections = [`${t('bootstrap.summaryLabel')}\n${displayedError}`];
-    if (diagnostics?.logPath) {
-      sections.push(`${t('bootstrap.logPathLabel')}\n${diagnostics.logPath}`);
-    }
-    if (diagnostics?.logExcerpt) {
-      sections.push(`${t('bootstrap.recentLogLabel')}\n${diagnostics.logExcerpt}`);
-    }
-    if (diagnostics?.logReadError) {
-      sections.push(`${t('bootstrap.logReadError', { error: diagnostics.logReadError })}`);
-    }
-    return sections.join('\n\n');
-  }, [diagnostics, displayedError, t]);
+  const report = useMemo(() => displayedError && failure
+    ? buildStartupReport(t, displayedError, diagnostics, failure) : null,
+  [diagnostics, displayedError, failure, t]);
+  const diagnosticText = report?.text ?? '';
 
   const copyDiagnostics = useCallback(async () => {
     if (!diagnosticText || !navigator.clipboard) {
@@ -91,9 +80,14 @@ export const RuntimeBootstrap: React.FC = () => {
     const owner = ++bootstrapGeneration.current;
     const current = () => owner === bootstrapGeneration.current;
     const finishStartup = startStartupSpan('desktop.bootstrap');
+    const startedAtMs = Date.now();
+    const started = performance.now();
+    let failurePhase = 'profiles';
+    let connectionStarted = false;
     let startupOutcome: 'ready' | 'failed' | 'cancelled' = 'cancelled';
     setError(null);
     setDiagnostics(null);
+    setFailure(null);
     setDiagnosticsCopied(false);
     setReady(false);
     setConnecting(true);
@@ -106,11 +100,14 @@ export const RuntimeBootstrap: React.FC = () => {
       profile = profiles.state.profiles.find((item) => item.id === profiles.state.active_profile_id);
       if (!profile) throw new Error('Active connection profile is missing');
       setConnectionEntry(null);
-      const runtime = await measureStartupStep('desktop.connection', () => initializeRuntime((p) => { if (current()) setPhase(p); }));
+      failurePhase = 'connecting';
+      connectionStarted = true;
+      const runtime = await measureStartupStep('desktop.connection', () => initializeRuntime((p) => { if (current()) { failurePhase = p; setPhase(p); } }));
       if (!current()) return;
       if (!runtime.serverId || !runtime.contentEpoch) throw new Error('Center identity is missing');
       setOfflineOpen(false);
       setOffline(null);
+      failurePhase = 'offline_snapshot';
       await invalidateOfflineConnection();
       if (!current()) return;
       setCenterStorageScope(runtime.serverId, runtime.contentEpoch);
@@ -118,10 +115,12 @@ export const RuntimeBootstrap: React.FC = () => {
         baseUrl: runtime.apiBaseUrl,
         sessionToken: runtime.sessionToken,
       });
+      failurePhase = 'recovering_maintenance';
       await measureStartupStep('desktop.maintenance', () => finishPendingCenterMaintenanceBeforeAppReady((nextPhase) => { if (current()) setPhase(nextPhase); }, {
         releaseInteractionGateWhenNotPending,
       }));
       if (!current()) return;
+      failurePhase = 'offline_snapshot';
       try {
         await measureStartupStep('desktop.offline_snapshot', confirmOfflineConnection);
       } catch (failure) {
@@ -130,6 +129,7 @@ export const RuntimeBootstrap: React.FC = () => {
       }
       if (!current()) return;
       setPhase('connecting');
+      failurePhase = 'config';
       try {
         const response = await measureStartupStep('desktop.config', () => configApi.get());
         if (!current()) return;
@@ -171,7 +171,14 @@ export const RuntimeBootstrap: React.FC = () => {
       startupOutcome = 'failed';
       const message = getErrorMessage(err)
         ?? (typeof err === 'string' ? err : i18n.t('bootstrap.initializeFailedFallback', { ns: 'app' }));
+      const failedAtMs = Date.now();
+      setFailure({ phase: failurePhase, startedAtMs, failedAtMs, durationMs: Math.round(performance.now() - started) });
       setError(message);
+      const detail = connectionStarted ? await readConnectionStartupDiagnostics() : null;
+      if (!current()) return;
+      // A recovery or profile switch may have started another native attempt meanwhile.
+      setDiagnostics(detail && detail.startedAtMs >= startedAtMs && detail.startedAtMs <= failedAtMs
+        && detail.mode === profile?.mode ? detail : null);
       let saved: OfflineConnection | null = null;
       if (profile) {
         try { saved = await readOfflineConnection(profile); }
@@ -190,8 +197,6 @@ export const RuntimeBootstrap: React.FC = () => {
         setOffline(null);
         setOfflineOpen(false);
       }
-      const detail = await readConnectionStartupDiagnostics();
-      if (current()) setDiagnostics(detail);
     } finally {
       finishStartup(startupOutcome);
       if (current()) { setConnecting(false); retryPending.current = false; }
@@ -270,7 +275,7 @@ export const RuntimeBootstrap: React.FC = () => {
   }
 
   if (error) {
-    const hasLogExcerpt = Boolean(diagnostics?.logExcerpt?.trim());
+    const hasLogExcerpt = Boolean(report?.logExcerpt.trim());
     const recoveringMaintenance = phase === 'recovering_maintenance';
 
     return (
@@ -321,37 +326,43 @@ export const RuntimeBootstrap: React.FC = () => {
                   {t('bootstrap.summaryLabel')}
                 </p>
                 <pre className="m-0 whitespace-pre-wrap wrap-break-word rounded-md border border-destructive/30 bg-destructive/5 p-3 font-mono text-xs leading-5 text-destructive">
-                  {displayedError}
+                  {report?.summary}
                 </pre>
               </div>
 
-              {diagnostics?.logPath ? (
+              {report && <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-xs sm:grid-cols-2">
+                {report.metadata.map(([label, value]) => <div key={label} className="min-w-0">
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd className="mt-1 break-all font-mono">{value}</dd>
+                </div>)}
+              </dl>}
+
+              {report?.logPath ? (
                 <div className="space-y-2">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {t('bootstrap.logPathLabel')}
                   </p>
                   <p className="break-all rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
-                    {diagnostics.logPath}
+                    {report.logPath}
                   </p>
                 </div>
               ) : null}
 
               <div className="space-y-2">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  {t('bootstrap.recentLogLabel')}
+                  {report?.logLabel}
                 </p>
+                {report?.logNotice && <p className="text-xs text-muted-foreground">{report.logNotice}</p>}
                 {hasLogExcerpt ? (
                   <pre
                     ref={logExcerptRef}
                     className="m-0 max-h-[48vh] overflow-auto whitespace-pre-wrap wrap-break-word rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-5 text-muted-foreground"
                   >
-                    {diagnostics?.logExcerpt}
+                    {report?.logExcerpt}
                   </pre>
                 ) : (
                   <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                    {diagnostics?.logReadError
-                      ? t('bootstrap.logReadError', { error: diagnostics.logReadError })
-                      : t('bootstrap.noLogAvailable')}
+                    {report?.logReadError || t('bootstrap.noLogAvailable')}
                   </p>
                 )}
               </div>
