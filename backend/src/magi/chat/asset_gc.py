@@ -26,8 +26,7 @@ logger = get_logger(__name__)
 _MIN_UNOWNED_FILE_GRACE_HOURS = 25
 
 
-class ChatAssetDeletionError(RuntimeError):
-    """Raised when a user-requested managed asset deletion is incomplete."""
+from magi_plugin_sdk.storage_models.chat_asset_errors import ChatAssetDeletionError
 
 
 class ChatAssetGC:

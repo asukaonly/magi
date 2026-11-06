@@ -49,6 +49,8 @@ class StorageCall(StorageContract):
 class StorageResult(StorageContract):
     value: JsonValue = None
     error: Literal["conflict", "unavailable", "invalid", "not_found", "outcome_unknown"] | None = None
+    domain_error: str | None = Field(default=None, max_length=64)
+    detail: str | None = Field(default=None, max_length=512)
 
 
 class StorageProvider(Protocol):

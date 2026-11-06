@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import inspect
 import json
+import asyncio
 from collections.abc import Callable, Mapping
 from typing import Any, get_type_hints
 
 from pydantic import ConfigDict, TypeAdapter, ValidationError, create_model
 
 from .storage import StorageCall, StorageResult
+from .async_cleanup import finish_cleanup
 from .storage_ports.channels import ChannelSessionRepository, ChannelBindingSettingsRepository, DeliveryReceiptsRepository
 from .storage_ports.outreach import OutreachOutboxRepository, OutreachDeliveryLogRepository
 from .storage_ports.events import EventStorageOperations
+from .storage_ports.chat import ChatRepository
+from .storage_ports.chat_reads import ChatStorageReads
+from .storage_errors import DOMAIN_ERRORS, domain_failure
 
 CHANNEL_REPOSITORY_CONTRACTS = {
     "sessions": ChannelSessionRepository, "receipts": DeliveryReceiptsRepository,
@@ -20,6 +25,15 @@ CHANNEL_REPOSITORY_CONTRACTS = {
     "delivery_log": OutreachDeliveryLogRepository,
 }
 EVENT_REPOSITORY_CONTRACTS = {"events": EventStorageOperations}
+CHAT_REPOSITORY_CONTRACTS = {"chat": ChatRepository, "reads": ChatStorageReads}
+CHAT_REPOSITORY_METHODS = {
+    repository: tuple(dict.fromkeys(
+        name for base in reversed(contract.__mro__) for name, method in vars(base).items()
+        if not name.startswith("_") and inspect.isfunction(method)
+        and name != "set_assistant_memory_outbox_waker"
+    ))
+    for repository, contract in CHAT_REPOSITORY_CONTRACTS.items()
+}
 
 
 CHANNEL_REPOSITORY_METHODS = {
@@ -81,9 +95,16 @@ class RepositoryDispatcher:
             values = arguments.model_validate_json(json.dumps(request.arguments), strict=True)
         except ValidationError:
             return StorageResult(error="invalid")
-        result = function(**{key: getattr(values, key) for key in type(values).model_fields})
-        if inspect.isawaitable(result):
-            result = await result
+        keywords = {key: getattr(values, key) for key in type(values).model_fields}
+        try:
+            if inspect.iscoroutinefunction(function):
+                result = await function(**keywords)
+            else:
+                result = await finish_cleanup(asyncio.to_thread(function, **keywords))
+                if inspect.isawaitable(result):
+                    result = await result
+        except tuple(DOMAIN_ERRORS.values()) as exc:
+            return domain_failure(exc)
         result = result_type.validate_python(result)
         return StorageResult(value=result_type.dump_python(result, mode="json"))
 

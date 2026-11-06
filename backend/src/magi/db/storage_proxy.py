@@ -9,6 +9,7 @@ from typing import Any, get_type_hints
 from pydantic import TypeAdapter
 
 from magi_plugin_sdk.storage import StorageCall, StorageProvider
+from magi_plugin_sdk.storage_errors import raise_domain_failure
 
 from ..core.persistence_errors import PersistenceConflictError, PersistenceUnavailableError
 
@@ -42,6 +43,7 @@ class RepositoryProxy:
                 session_id=self._session_id, repository=self._repository,
                 operation=name, arguments=arguments,
             ))
+            raise_domain_failure(reply)
             if reply.error in {"unavailable", "outcome_unknown"}:
                 raise PersistenceUnavailableError("Storage operation could not be confirmed")
             if reply.error == "conflict":

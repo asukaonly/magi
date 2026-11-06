@@ -1890,3 +1890,13 @@ Mail is a semantic domain. External `mail_core` provides shared contracts and
 source normalization, while provider plugins own OAuth, API translation and sync.
 Each mailbox is a separate connection with its own scoped credentials and cursor.
 Neither the agent nor memory core imports the Gmail implementation.
+
+Chat storage shares its relational workflows and portable values through
+`magi_plugin_sdk.storage_chat` and `storage_models`. Database drivers remain
+provider-owned. The composition root supplies host effects for attachment
+validation, workspace identity claims, cleanup inventory and trace enrichment.
+External workers can request these effects only inside the originating repository
+invocation and only for its exact user, session, attachment payload and workspace.
+Asset mutation serialization and outbox wakeups remain host-owned; connection
+handles and SQL are never sent over the storage protocol. Read connections and
+blocking cleanup are drained before cancellation releases their owner.

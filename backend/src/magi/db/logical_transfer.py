@@ -22,14 +22,7 @@ class LogicalStateTransfer(Protocol[State]):
     async def import_state(self, snapshot: State, *, replace: bool = False) -> None: ...
 
 
-def snapshot_digest(snapshot: LogicalSnapshot) -> str:
-    payload = snapshot.model_dump(mode="json")
-    for records in payload.values():
-        if isinstance(records, list):
-            records.sort(key=lambda value: json.dumps(value, sort_keys=True, ensure_ascii=False))
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
-    ).hexdigest()
+from magi_plugin_sdk.storage_digest import snapshot_digest
 
 
 async def cutover_logical_state(

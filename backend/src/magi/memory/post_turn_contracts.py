@@ -3,20 +3,14 @@
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-
-@dataclass(frozen=True, slots=True)
-class PostTurnBatchLease:
-    batch_id: str
-    token: str
-    outcome_ids: tuple[str, ...]
-    attempt_count: int
-    analysis: dict[str, Any] | None
-    settled: frozenset[str]
-    persona_id: str
+from magi_plugin_sdk.storage_models.post_turn import (
+    PostTurnBatchLease,
+    PostTurnLeaseLost,
+)
 
 
-class PostTurnLeaseLost(RuntimeError):
-    """Durable post-turn ownership ended during analysis or settlement."""
+
+
 
 
 class PostTurnOutbox(Protocol):
