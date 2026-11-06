@@ -110,6 +110,31 @@ class SemanticRouteDecision:
     def can_project_graph(self) -> bool:
         return ProjectionTarget.GRAPH in self.projection_targets and bool(self.target_entity_id)
 
+    def outcome_details(
+        self,
+        *,
+        subject_resolution_version: int,
+        object_resolution_version: int,
+    ) -> dict[str, Any]:
+        """Serialize route evidence consistently for initial and repeated projection."""
+        return {
+            "semantic_route_id": self.semantic_route_id,
+            "family": self.family,
+            "trait_code": self.trait_code,
+            "object_role": self.object_role.value,
+            "projection_targets": sorted(target.value for target in self.projection_targets),
+            "value_fingerprint": self.value_fingerprint,
+            "semantic_target_key": self.semantic_target_key,
+            "object_surface": self.object_surface,
+            "normalized_target_text": self.normalized_target_text,
+            "target_entity_type": self.target_entity_type,
+            "goal_lineage_key": self.goal_lineage_key,
+            "target_window_key": self.target_window_key,
+            "scope_key": self.scope_key,
+            "subject_resolution_version": max(0, int(subject_resolution_version)),
+            "object_resolution_version": max(0, int(object_resolution_version)),
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class _RouteSpec:

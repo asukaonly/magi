@@ -130,8 +130,7 @@ async def reproject_claim_route(
                 target_slot_key=decision.slot_key,
                 outcome=decision.disposition.value,
                 reason_code=decision.reason_code,
-                details=_route_outcome_details(
-                    decision,
+                details=decision.outcome_details(
                     subject_resolution_version=int(
                         candidate.get("subject_resolution_version") or 0
                     ),
@@ -380,31 +379,6 @@ def _reprojection_attempt_key(candidate: Mapping[str, Any]) -> str:
         f"route-reproject:v{ROUTE_CONTRACT_VERSION}:"
         f"{resolution_key}:{str(candidate['claim_id'])}"
     )
-
-
-def _route_outcome_details(
-    decision: SemanticRouteDecision,
-    *,
-    subject_resolution_version: int,
-    object_resolution_version: int,
-) -> dict[str, Any]:
-    return {
-        "semantic_route_id": decision.semantic_route_id,
-        "family": decision.family,
-        "trait_code": decision.trait_code,
-        "object_role": decision.object_role.value,
-        "projection_targets": sorted(target.value for target in decision.projection_targets),
-        "value_fingerprint": decision.value_fingerprint,
-        "semantic_target_key": decision.semantic_target_key,
-        "object_surface": decision.object_surface,
-        "normalized_target_text": decision.normalized_target_text,
-        "target_entity_type": decision.target_entity_type,
-        "goal_lineage_key": decision.goal_lineage_key,
-        "target_window_key": decision.target_window_key,
-        "scope_key": decision.scope_key,
-        "subject_resolution_version": max(0, int(subject_resolution_version)),
-        "object_resolution_version": max(0, int(object_resolution_version)),
-    }
 
 
 async def _outcome_exists(db: aiosqlite.Connection, outcome_id: str) -> bool:
