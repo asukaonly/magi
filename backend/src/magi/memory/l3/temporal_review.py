@@ -13,6 +13,21 @@ class TemporalStructureReview:
     invalid: bool = False
 
 
+def _draft_quote(claim: str, content: str) -> str | None:
+    """Resolve an exact quotation even when inline Markdown markers were omitted."""
+    if claim in content:
+        return claim
+    positions = [index for index, char in enumerate(content) if char not in "`*"]
+    plain = "".join(content[index] for index in positions)
+    needle = "".join(char for char in claim if char not in "`*")
+    if not needle.strip():
+        return None
+    start = plain.find(needle)
+    if start < 0:
+        return None
+    return content[positions[start] : positions[start + len(needle) - 1] + 1]
+
+
 def parse_prose_issues(
     payload: dict[str, object],
     *,
@@ -31,12 +46,10 @@ def parse_prose_issues(
         if not isinstance(issue, dict):
             raise ValueError("Temporal evidence review issue must be an object")
         claim, reason, refs = issue.get("claim"), issue.get("reason"), issue.get("event_ids")
-        if (
-            not isinstance(claim, str)
-            or not claim.strip()
-            or len(claim) > 2000
-            or claim not in content
-        ):
+        if not isinstance(claim, str) or not claim.strip() or len(claim) > 2000:
+            raise ValueError("Temporal evidence review must quote the draft")
+        quote = _draft_quote(claim, content)
+        if quote is None:
             raise ValueError("Temporal evidence review must quote the draft")
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 1200:
             raise ValueError("Temporal evidence review requires a bounded reason")
@@ -44,5 +57,5 @@ def parse_prose_issues(
             not isinstance(ref, str) or ref not in known_ids for ref in refs
         ):
             raise ValueError("Temporal evidence review references unknown events")
-        issues.append({"claim": claim, "reason": reason, "event_ids": list(dict.fromkeys(refs))})
+        issues.append({"claim": quote, "reason": reason, "event_ids": list(dict.fromkeys(refs))})
     return issues, True

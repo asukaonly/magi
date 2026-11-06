@@ -85,6 +85,24 @@ def test_review_cannot_inject_quotes_or_evidence(issue):
         )
 
 
+def test_review_quotes_preserve_draft_markup_without_requiring_it_from_model():
+    issues, checked = parse_prose_issues(
+        {
+            "unsupported_claims": [
+                {
+                    "claim": "处理 crm 项目的 Issue #29 修复",
+                    "reason": "Only a request is present.",
+                    "event_ids": ["request"],
+                }
+            ]
+        },
+        content="同时处理 `crm` 项目的 Issue #29 修复，并排查依赖问题。",
+        event_ids=["request"],
+    )
+    assert checked
+    assert issues[0]["claim"] == "处理 `crm` 项目的 Issue #29 修复"
+
+
 @pytest.mark.asyncio
 async def test_malformed_review_does_not_silently_accept_the_draft(monkeypatch):
     service = TemporalSummaryLLMService()

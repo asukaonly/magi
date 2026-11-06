@@ -2728,7 +2728,9 @@ claims with previous/child summaries excluded, so old interpretations cannot
 corroborate the draft. It selects an exact `essence_prose` excerpt and topic labels;
 the compact review does not require timelines, entity lists or trend metadata.
 Review calls have an 8,192-token output ceiling (prose calls use 4,096) to avoid
-truncating factual issues behind optional report fields. Unsupported claims must quote the draft and reference
+truncating factual issues behind optional report fields. Unsupported claims must
+resolve to an exact draft span (omitted inline Markdown markers may be restored)
+and reference
 only supplied event IDs. When a review flags an overclaim, the runtime allows
 one repair and one fresh review, for at most four calls. A still-flagged repair,
 an unavailable second review, or a malformed claim review produces an internal
