@@ -33,7 +33,10 @@ from .source_status_projection import (
     _serialize_source_sync_activity,
 )
 
+from .shared_data import shared_data_router
+
 sources_router = APIRouter()
+sources_router.include_router(shared_data_router)
 
 logger = logging.getLogger(__name__)
 

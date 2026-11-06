@@ -161,6 +161,7 @@ async def deliver(
                                     plugin_target=payload.plugin_target, event_type=payload.event_type,
                                     occurred_at_ms=event.occurred_at_ms,
                                     payload_json=json.dumps(payload.data, ensure_ascii=False),
+                                    source_type=event.payload.source_type if isinstance(event.payload, SourceObservation) else None,
                                 ),
                             )
                             status = "accepted" if code == "accepted" else "retry" if code in {"inbox_full", "receipt_capacity"} else "rejected"

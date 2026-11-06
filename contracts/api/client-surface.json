@@ -1608,6 +1608,26 @@
     },
     {
       "method": "GET",
+      "path": "/api/sources/shared",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sources/shared/{connection_id}/{source_id}/history",
+      "surface": "product"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sources/shared/{connection_id}/{source_id}/history/{delivery_id}/retry",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sources/shared/{connection_id}/{source_id}/records",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
       "path": "/api/sources/status",
       "surface": "management"
     },

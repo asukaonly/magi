@@ -2407,3 +2407,13 @@ Chroma namespace rejects a different remote endpoint identity instead of silentl
 leaving its existing data behind. Remote access can fail independently of source
 persistence: failed projection operations remain durable and are retried. The
 storage adapter filters obsolete revisions before returning search results.
+
+### Native shared-data view
+
+The iOS sidebar exposes Data beside Memory. Data shows what the selected source
+currently retains and recent device-observation receipts; Memory remains the
+place for derived facts and their evidence. Apple Health details link to this
+same view. Health type/date filters operate over service records, not only the
+currently loaded page. Accepted delivery is shown separately from processing;
+no delivery status claims that a memory has been generated. Local pending sends
+remain visible with explicit retry, and cached reads remain useful offline.

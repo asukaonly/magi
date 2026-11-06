@@ -149,3 +149,4 @@ class PluginIngressEventRecord:
     processed_at_ms: int | None = None
     last_error: str | None = None
     created_at_ms: int = 0
+    source_type: str | None = None

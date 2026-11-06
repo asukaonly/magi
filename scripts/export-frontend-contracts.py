@@ -713,7 +713,7 @@ def build_product_client_contract() -> dict:
                     "/api/memory/library", "/api/memory/library/evidence/{event_id}",
                     "/api/memory/l2/corrections", "/api/memory/l1/events/{event_id}",
                     "/api/memory/stories/{summary_id}/evidence", "/api/memory/stories/{summary_id}/review"}
-        or path.startswith(("/api/plugins", "/api/delivery"))
+        or path.startswith(("/api/plugins", "/api/delivery", "/api/sources/shared"))
         or (path.startswith("/api/control/") and (path.endswith(("/ask", "/permissions", "/respond"))))
     }
     schemas = {}
@@ -756,6 +756,8 @@ def build_client_surface() -> dict:
     native = json.loads((ROOT / "contracts/api/gateway_openapi.json").read_text())
     paths.update(native["paths"])
     def surface(path: str) -> str:
+        if path.startswith("/api/sources/shared"):
+            return "product"
         if path.startswith("/api/delivery"):
             return "device"
         if path.startswith(("/api/memory/library", "/api/memory/l2/corrections", "/api/memory/stories")) or path == "/api/memory/l1/events/{event_id}":

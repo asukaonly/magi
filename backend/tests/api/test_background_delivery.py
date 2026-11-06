@@ -560,6 +560,7 @@ async def test_observation_is_validated_and_routed_by_server(receiver, monkeypat
     assert (await client.post("/api/delivery/events", json=body)).json() == response.json()
     claimed = await store.claim_next_plugin_ingress_event(consumer_name="test")
     assert claimed.plugin_target == "notes-receiver"
+    assert claimed.source_type == "notes"
     assert json.loads(claimed.payload_json)["source_change"]["payload"] == {"text": "Portable note"}
     assert "plugin_version" not in claimed.payload_json
     assert await store.claim_next_plugin_ingress_event(consumer_name="test") is None

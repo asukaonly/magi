@@ -1671,3 +1671,13 @@ If external cleanup fails, durable references remain for exact retry. The storag
 adapter has no trace or filesystem deletion capability; its asset inventory port
 only discovers candidate references, filtered against database ownership. The
 composition contract aggregates capabilities solely for assembly and lifecycle.
+
+### Shared-data receipt projection
+
+Runtime trace migration v13 adds nullable `source_type` metadata and a scoped
+index to `plugin_ingress_events`. The delivery boundary assigns it only to
+validated device source observations. It survives completed payload erasure but
+shares the existing 1,000-completed-row retention, epoch retirement, connection
+clear and full-clear lifecycle. No additional health payload journal is created.
+The shared-data browser reads current revisions from `plugin_sources.db` and
+checks governed L1 visibility before returning their existing evidence payload.

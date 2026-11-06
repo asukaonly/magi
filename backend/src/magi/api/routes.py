@@ -206,6 +206,10 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/cover": {"POST"},
     },
     "sources": {
+        "/shared": {"GET"},
+        "/shared/{connection_id}/{source_id}/records": {"GET"},
+        "/shared/{connection_id}/{source_id}/history": {"GET"},
+        "/shared/{connection_id}/{source_id}/history/{delivery_id}/retry": {"POST"},
         "/status": {"GET"},
         "/today-summary": {"GET"},
         "/{source_name}/memory-readiness": {"GET"},

@@ -167,3 +167,25 @@ This protocol does not advertise device actions, remote tool execution, uploaded
 resource references or a general mobile plugin loader. Those require their own
 capability, authorization and result contracts before being enabled. Device
 observation schemas must not embed secrets or service filesystem configuration.
+
+### Shared source data browsing
+
+Owner clients use `/api/sources/shared` and its connection/source-scoped `records`
+and `history` routes. Collector credentials cannot use these product reads.
+The catalog includes retained source connections and currently registered device
+collectors, so another paired client can browse data without claiming collection.
+Records project only current accepted source revisions and recheck their L1
+receipt visibility. Staged, deleted, governed-skipped and forgotten records are
+not exposed. Opaque descending revision cursors paginate records; optional
+top-level JSON field/date selectors are validated and bound by the source store.
+
+History is a recent, per-observation receipt view, not a complete archival audit
+or proof of a generated memory. `pending` means received, `claimed` processing,
+`completed` processed, and `failed` requires retry. It retains no extra source
+payload, uses the existing global 1,000-completed-delivery bound, and does not
+count HTTP retries as new sends. The scoped retry route requeues only the selected
+failed observation. Source clear/disconnect and full data clear erase the same
+existing owners; these reads introduce no separate content store. Clients may
+cache reads under server/client/data-epoch identity and must invalidate that cache
+after local clear or forgetting. Local unsent observations remain owned by the
+collector journal and must not be presented as service receipts.

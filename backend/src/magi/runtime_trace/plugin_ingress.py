@@ -231,10 +231,10 @@ class PluginIngressPersistenceMixin:
                 await db.execute("""
                     INSERT INTO plugin_ingress_events
                     (connection_id, connection_epoch, source_kind, producer, plugin_target, event_type, occurred_at_ms,
-                     payload_json, cursor_key, status, created_at_ms, delivery_epoch)
-                    VALUES (?,?,'background_delivery',?,?,?,?,?,?,'pending',?,?)
+                     payload_json, cursor_key, status, created_at_ms, delivery_epoch, source_type)
+                    VALUES (?,?,'background_delivery',?,?,?,?,?,?,'pending',?,?,?)
                 """, (record.connection_id, record.connection_epoch, producer_id, record.plugin_target, record.event_type, record.occurred_at_ms,
-                      record.payload_json, stream, self._now_ms(), data_epoch))
+                      record.payload_json, stream, self._now_ms(), data_epoch, record.source_type))
                 await db.commit()
                 return "accepted"
 
@@ -291,6 +291,33 @@ class PluginIngressPersistenceMixin:
                     last_error=?
                 WHERE event_id=?""", (self._now_ms(), code, event_id))
             await db.commit()
+
+    async def retry_source_delivery(self, *, connection_id: str, source_type: str, delivery_id: int) -> None:
+        """Retry only the selected failed observation under the current source scope."""
+        async with self.plugin_ingress_operation():
+            await self.initialize()
+            async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+                await db.execute(
+                    "UPDATE plugin_ingress_events SET status='pending', attempts=0, next_attempt_at_ms=0, "
+                    "last_error=NULL, processed_at_ms=NULL WHERE event_id=? AND connection_id=? "
+                    "AND source_type=? AND source_kind='background_delivery' AND status='failed'",
+                    (delivery_id, connection_id, source_type),
+                )
+                await db.commit()
+
+    async def source_delivery_history(self, *, connection_id: str, source_type: str,
+                                      before: int | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        """Read bounded receipt metadata; never expose producer credentials or payloads."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            rows = await db.execute_fetchall(
+                "SELECT event_id AS id, status, created_at_ms AS received_at_ms, processed_at_ms "
+                "FROM plugin_ingress_events WHERE source_kind='background_delivery' "
+                "AND connection_id=? AND source_type=? AND (? IS NULL OR event_id < ?) "
+                "ORDER BY event_id DESC LIMIT ?",
+                (connection_id, source_type, before, before, limit),
+            )
+            return [dict(row) for row in rows]
 
     async def background_delivery_status(self) -> dict[str, Any]:
         await self.initialize()

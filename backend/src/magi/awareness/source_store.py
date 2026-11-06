@@ -429,6 +429,51 @@ class SourceStore:
             )
             return dict(rows[0]) if rows else None
 
+    async def shared_sources(self) -> list[dict[str, Any]]:
+        """Enumerate retained sources even when their collector is offline."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            rows = await db.execute_fetchall(
+                "SELECT c.connection_id, c.source_id, c.source_type, owner.plugin_id "
+                "FROM source_checkpoints c JOIN source_connections owner USING(connection_id) "
+                "WHERE owner.disconnected=0 ORDER BY c.connection_id, c.source_id"
+            )
+            return [dict(row) for row in rows]
+
+    async def shared_records(self, *, connection_id: str, source_id: str, before: int | None,
+                             limit: int, field: str | None = None, value: str | None = None,
+                             date_field: str | None = None, since: float | None = None,
+                             until: float | None = None) -> list[dict[str, Any]]:
+        """Read current retained revisions, never staged, deleted or governed omissions.
+
+        Top-level JSON selectors are bound parameters. The API validates selectors
+        and checks each receipt against governed memory visibility before display.
+        """
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            rows = await db.execute_fetchall(
+                "SELECT v.rowid AS id, v.object_id, v.version, r.content, "
+                "json_extract(v.receipt_json, '$.event_id') AS memory_event_id "
+                "FROM source_objects o JOIN source_versions v "
+                "ON v.connection_id=o.connection_id AND v.source_id=o.source_id "
+                "AND v.object_id=o.object_id AND v.version=o.version "
+                "JOIN source_resources r ON r.resource_id=v.evidence_id "
+                "JOIN source_connections owner ON owner.connection_id=o.connection_id "
+                "WHERE o.connection_id=? AND o.source_id=? AND o.deleted=0 AND owner.disconnected=0 "
+                "AND v.accepted=1 AND json_extract(v.receipt_json, '$.outcome') IN ('persisted','duplicate') "
+                "AND (? IS NULL OR v.rowid < ?) "
+                "AND (? IS NULL OR CAST(json_extract(CAST(r.content AS TEXT), ?) AS TEXT)=?) "
+                "AND (? IS NULL OR json_extract(CAST(r.content AS TEXT), ?) >= ?) "
+                "AND (? IS NULL OR json_extract(CAST(r.content AS TEXT), ?) < ?) "
+                "ORDER BY v.rowid DESC LIMIT ?",
+                (connection_id, source_id, before, before, field,
+                 '$.' + field if field else None, value, since,
+                 '$.' + date_field if date_field else None, since, until,
+                 '$.' + date_field if date_field else None, until, limit),
+            )
+            return [{"id": row["id"], "object_id": row["object_id"], "version": row["version"],
+                     "payload": json.loads(row["content"]), "memory_event_id": row["memory_event_id"]} for row in rows]
+
     async def accepted_memory_event_ids(self, *, connection_id: str, source_type: str) -> list[str]:
         """Read receipt identities; callers must still apply memory visibility."""
         await self.initialize()
