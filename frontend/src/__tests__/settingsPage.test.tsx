@@ -891,12 +891,25 @@ describe('settings page draft saving', () => {
     expect(screen.getByRole('switch', { name: 'settings.closeToTrayLabel' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'settings.fields.language' })).not.toBeInTheDocument();
     expect(screen.queryByText('settings.updates.currentVersionLabel')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'connections.notifications.title' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'connections.delivery.title' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.connections' }));
+    expect(screen.getByRole('heading', { name: 'connections.access.title' })).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-main-footer')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'connections.notifications.title' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'connections.delivery.title' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.tabs.network' }));
     expect(screen.getByRole('button', { name: 'settings.fields.networkProxy' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.tabs.diagnostics' }));
     expect(screen.getByRole('switch', { name: 'settings.diagnostics.fullContentLoggingLabel' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'connections.delivery.title' })).toBeInTheDocument();
+    await user.click(screen.getByRole('switch', { name: 'settings.diagnostics.fullContentLoggingLabel' }));
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.connections' }));
+    expect(screen.getByTestId('settings-main-footer')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled();
 
     await user.click(screen.getByRole('button', { name: 'settings.tabs.about' }));
     expect(screen.getByRole('heading', { name: 'settings.tabs.about' })).toBeInTheDocument();

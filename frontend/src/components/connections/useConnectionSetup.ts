@@ -72,5 +72,5 @@ export function useConnectionSetup() {
     setRevision((value) => value + 1);
     await activateConnection(profile.id);
   });
-  return { profiles, draft, setDraft, busy, error, retry, connect, pair };
+  return { profiles, draft, setDraft, busy, error, clearError: () => setError(null), retry, connect, pair };
 }

@@ -1,7 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { clients, revoke, pairing, profiles, runtime, t } = vi.hoisted(() => ({ clients: vi.fn(), revoke: vi.fn(), pairing: vi.fn(), profiles: vi.fn(), runtime: { profileId: 'local', apiBaseUrl: 'http://127.0.0.1:54321/api' }, t: (key: string) => key }));
-vi.mock('@/components/connections/CenterNotificationPolicy', () => ({ CenterNotificationPolicy: () => null }));
 vi.mock('@/api/modules/server', () => ({ serverApi: { clients, revoke, pairingGrant: pairing } }));
 vi.mock('@/runtime/connections', () => ({ listConnectionProfiles: profiles }));
 vi.mock('@/runtime/config', () => ({ getRuntimeConfig: () => runtime, resetRuntimeInitialization: vi.fn() }));
@@ -28,14 +27,16 @@ describe('center device access', () => {
     await waitFor(() => expect(revoke).toHaveBeenCalledWith('device-a'));
     expect(await screen.findByText('connections.access.empty')).toBeInTheDocument();
   });
-  it('creates a masked short-lived code on demand without persisting it', async () => {
+  it('shows a complete readable short-lived code in a focused dialog without persisting it', async () => {
     render(<CenterAccessPanel />);
     await screen.findByText('Living room');
     expect(pairing).not.toHaveBeenCalled();
     pairing.mockResolvedValue({ pairing_token: 'temporary-private-code', expires_at_ms: Date.now() + 1000 });
     vi.useFakeTimers();
     await act(async () => { fireEvent.click(screen.getByText('connections.access.createCode')); });
-    expect(screen.getByLabelText('connections.pairingCode')).toHaveAttribute('type', 'password');
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('connections.access.pairingTitle');
+    expect(screen.getByLabelText('connections.pairingCode').tagName).toBe('TEXTAREA');
+    expect(screen.getByLabelText('connections.pairingCode')).toHaveFocus();
     expect(screen.getByLabelText('connections.pairingCode')).toHaveValue('temporary-private-code');
     expect(screen.getByLabelText('connections.address')).toHaveValue('http://127.0.0.1:54321');
     expect(screen.getByText('connections.access.localAddressHint')).toBeInTheDocument();
@@ -43,6 +44,8 @@ describe('center device access', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1001); });
     expect(screen.queryByLabelText('connections.pairingCode')).toBeNull();
     expect(screen.queryByLabelText('connections.address')).toBeNull();
+    expect(screen.getByText('connections.access.expired')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'connections.access.regenerate' })).toBeEnabled();
   });
   it('copies the service origin rather than the development page address', async () => {
     const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');

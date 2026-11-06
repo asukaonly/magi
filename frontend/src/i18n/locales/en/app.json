@@ -3250,7 +3250,8 @@
         "failed": "Playback failed",
         "unknown": "Playback unconfirmed"
       }
-    }
+    },
+    "desktopNotificationsTitle": "Notifications on this device"
   },
   "memory": {
     "facts": {
@@ -5934,10 +5935,10 @@
   },
   "connections": {
     "title": "Connections",
-    "description": "Run Magi on this computer, or connect to Magi on another computer to use its conversations, memories, and tasks.",
+    "description": "Choose which Magi to use. Your conversations, memories and tasks belong to that connection.",
     "access": {
-      "title": "Devices allowed to connect",
-      "description": "Each paired device has full access to this center. Revoking access does not delete center data.",
+      "title": "Devices with access to this Magi",
+      "description": "Connect a phone or another computer to this Magi, or manage access for paired devices.",
       "thisDevice": "This device",
       "revoke": "Revoke access",
       "revokeSelfHint": "This device will disconnect. Pair it again to regain access.",
@@ -5947,13 +5948,21 @@
       "createCode": "Create pairing code",
       "copyAddress": "Copy address",
       "localAddressHint": "This address works on this computer and its local iOS Simulator. A physical phone or another computer needs your service’s HTTPS address.",
-      "codeHint": "This code works once and expires in 30 minutes. Restarting the Magi service invalidates it. Share it only with a device you want to authorize.",
+      "codeHint": "Pairing gives this device access to all data, settings and tools on this Magi. The code works once and becomes invalid if the service restarts.",
       "copy": "Copy",
       "copied": "Copied",
       "loadFailed": "Could not load device access.",
       "actionFailed": "The operation could not be confirmed. Refresh the list and try again.",
       "adminRole": "Manage this Magi",
-      "collectorRole": "Collect for this source only"
+      "collectorRole": "Collect for this source only",
+      "pairingTitle": "Connect another device",
+      "pairingDescription": "On the other device, choose Connect to remote Magi, then enter the address and pairing code below.",
+      "generating": "Creating pairing code…",
+      "expiresAt": "One use · Expires at {{time}}",
+      "expired": "This pairing code has expired. Create a new one to continue.",
+      "regenerate": "Create new code",
+      "generateFailed": "Could not create a pairing code. Please try again.",
+      "copyFailed": "Could not copy. Select the text and copy it manually."
     },
     "local": "This computer",
     "localDescription": "Run Magi locally when this app is open.",
@@ -5961,7 +5970,7 @@
     "connect": "Connect",
     "switch": "Switch",
     "active": "Current",
-    "addRemote": "Connect to remote Magi",
+    "addRemote": "Add remote connection",
     "pairingHint": "Generate a one-time pairing code on the computer running Magi and paste it here.",
     "name": "Connection name",
     "address": "Magi address",
@@ -6036,7 +6045,9 @@
       "hint": "The first eligible online device shows the alert. Quit applications do not receive system alerts; messages remain available in Magi.",
       "loadFailed": "Could not load alert settings.",
       "saveFailed": "Could not save alert settings. Please retry.",
-      "newMessage": "Magi has a new message"
+      "newMessage": "Magi has a new message",
+      "allHint": "Every online device with alerts enabled will show system alerts. Fully closed apps will not show alerts; messages remain in Magi.",
+      "autoSaved": "Applies to every device connected to this Magi. Changes are saved immediately."
     },
     "repair": {
       "action": "Repair connection",
@@ -6053,7 +6064,9 @@
       "forgetTitle": "Forget “{{name}}”?",
       "forgetDescription": "This removes the saved connection and its device credential. Data already saved on Magi stays there.",
       "forgetConfirm": "Forget this connection"
-    }
+    },
+    "savedTitle": "Connections on this device",
+    "manage": "Manage {{name}}"
   },
   "centerFiles": {
     "chooseDirectory": "Choose a folder on the center",

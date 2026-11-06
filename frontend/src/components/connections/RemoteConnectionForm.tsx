@@ -11,20 +11,21 @@ interface RemoteConnectionFormProps {
   onSubmit: () => Promise<void>;
   busy: boolean;
   showSubmit?: boolean;
+  showPairingHint?: boolean;
 }
 
 export function isRemoteConnectionDraftComplete(draft: RemoteConnectionDraft): boolean {
   return [draft.address, draft.token, draft.name, draft.deviceName].every((value) => value.trim().length > 0);
 }
 
-export function RemoteConnectionForm({ id, draft, onChange, onSubmit, busy, showSubmit = true }: RemoteConnectionFormProps) {
+export function RemoteConnectionForm({ id, draft, onChange, onSubmit, busy, showSubmit = true, showPairingHint = true }: RemoteConnectionFormProps) {
   const { t } = useTranslation('app');
   const addressHintId = useId();
   return <form id={id} className="space-y-5" onSubmit={(event) => {
     event.preventDefault();
     if (!busy && isRemoteConnectionDraftComplete(draft)) void onSubmit();
   }}>
-    <p className="text-sm leading-6 text-muted-foreground">{t('connections.pairingHint')}</p>
+    {showPairingHint ? <p className="text-sm leading-6 text-muted-foreground">{t('connections.pairingHint')}</p> : null}
     <div className="space-y-2">
       <label className="flex flex-col gap-2 text-sm"><span>{t('connections.address')}</span><Input type="url" placeholder="https://magi.example.com" aria-describedby={addressHintId} value={draft.address} onChange={(event) => onChange({ ...draft, address: event.target.value })} required disabled={busy} autoComplete="off" spellCheck={false} /></label>
       <p id={addressHintId} className="text-xs leading-5 text-muted-foreground">{t('connections.addressHint')}</p>

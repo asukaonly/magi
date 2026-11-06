@@ -7,12 +7,16 @@ import { CenterNotificationPolicy } from '@/components/connections/CenterNotific
 beforeEach(() => { vi.clearAllMocks(); get.mockResolvedValue({ mode: 'single_device' }); });
 it('saves the center policy and retains the actual saved value on failure', async () => {
   render(<CenterNotificationPolicy />);
-  const select = await screen.findByRole('combobox');
+  const select = await screen.findByRole('button', { name: 'connections.notifications.title' });
+  expect(document.querySelector('select')).toBeNull();
   set.mockRejectedValueOnce(new Error('Offline'));
-  fireEvent.change(select, { target: { value: 'all_devices' } });
+  fireEvent.click(select);
+  fireEvent.click(screen.getByRole('button', { name: 'connections.notifications.all' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('connections.notifications.saveFailed');
-  expect(select).toHaveValue('single_device');
+  expect(select).toHaveTextContent('connections.notifications.single');
   set.mockResolvedValueOnce({ mode: 'all_devices' });
-  fireEvent.change(select, { target: { value: 'all_devices' } });
-  await waitFor(() => expect(select).toHaveValue('all_devices'));
+  fireEvent.click(select);
+  fireEvent.click(screen.getByRole('button', { name: 'connections.notifications.all' }));
+  await waitFor(() => expect(select).toHaveTextContent('connections.notifications.all'));
+  expect(screen.getByText('connections.notifications.allHint')).toBeInTheDocument();
 });

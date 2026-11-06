@@ -9,6 +9,20 @@ beforeEach(() => {
   activate.mockResolvedValue(undefined);
 });
 describe('connection selection', () => {
+  it('opens remote setup only on demand and clears the code when dismissed', async () => {
+    render(<ConnectionPicker />);
+    const add = await screen.findByRole('button', { name: 'connections.addRemote' });
+    expect(screen.queryByLabelText('connections.address')).not.toBeInTheDocument();
+    fireEvent.click(add);
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('connections.addRemote');
+    fireEvent.change(screen.getByLabelText('connections.pairingCode'), { target: { value: 'private-code' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(pair).not.toHaveBeenCalled();
+    fireEvent.click(add);
+    expect(screen.getByLabelText('connections.pairingCode')).toHaveValue('');
+  });
+
   it('explains missing local credentials instead of showing a native error code', async () => {
     activate.mockRejectedValue('local_credential_missing');
     render(<ConnectionPicker />);
@@ -28,6 +42,7 @@ describe('connection selection', () => {
   });
   it.each(['https://center.example', 'http://127.0.0.1:19080'])('pairs %s before activation', async (address) => {
     pair.mockResolvedValue({ id: 'remote' }); render(<ConnectionPicker />);
+    fireEvent.click(await screen.findByRole('button', { name: 'connections.addRemote' }));
     await screen.findByText('connections.ownerAccess');
     fireEvent.change(screen.getByLabelText('connections.name'), { target: { value: 'Home' } });
     fireEvent.change(screen.getByLabelText('connections.deviceName'), { target: { value: 'Work laptop' } });
@@ -43,6 +58,7 @@ describe('connection selection', () => {
   });
   it('keeps invalid pairings editable and never activates a rejected center', async () => {
     pair.mockRejectedValue(new Error('Pairing expired')); render(<ConnectionPicker />);
+    fireEvent.click(await screen.findByRole('button', { name: 'connections.addRemote' }));
     await screen.findByText('connections.ownerAccess');
     fireEvent.change(screen.getByLabelText('connections.name'), { target: { value: 'Home' } });
     fireEvent.change(screen.getByLabelText('connections.deviceName'), { target: { value: 'Work laptop' } });

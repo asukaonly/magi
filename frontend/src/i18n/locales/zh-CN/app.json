@@ -3249,7 +3249,8 @@
         "failed": "播放失败",
         "unknown": "播放结果待确认"
       }
-    }
+    },
+    "desktopNotificationsTitle": "此设备的通知"
   },
   "memory": {
     "facts": {
@@ -5932,10 +5933,10 @@
   },
   "connections": {
     "title": "连接管理",
-    "description": "在这台电脑运行 Magi，或连接另一台电脑上的 Magi，使用那里的对话、记忆和任务。",
+    "description": "选择要使用的 Magi，对话、记忆和任务随连接切换。",
     "access": {
-      "title": "允许接入的设备",
-      "description": "已配对设备拥有当前中心的完整权限。撤销接入不会删除中心的数据。",
+      "title": "接入当前 Magi 的设备",
+      "description": "让手机或其他电脑访问当前 Magi，或管理已配对设备的权限。",
       "thisDevice": "当前设备",
       "revoke": "撤销接入",
       "revokeSelfHint": "当前设备将断开连接，需要重新配对才能再次接入。",
@@ -5945,13 +5946,21 @@
       "createCode": "生成配对码",
       "copyAddress": "复制地址",
       "localAddressHint": "此地址可用于这台电脑及其 iOS 模拟器。真实手机或其他电脑需使用服务的 HTTPS 地址。",
-      "codeHint": "配对码仅可使用一次，30 分钟后失效；Magi 服务重启后需重新生成。请只提供给你希望授权的设备。",
+      "codeHint": "配对后，该设备可管理当前 Magi 的全部数据、设置和工具。配对码仅限一次使用，服务重启后失效。",
       "copy": "复制",
       "copied": "已复制",
       "loadFailed": "暂时无法读取设备授权。",
       "actionFailed": "暂时无法确认操作结果，请刷新列表后重试。",
       "adminRole": "可管理此 Magi",
-      "collectorRole": "仅可向指定数据源提交采集记录"
+      "collectorRole": "仅可向指定数据源提交采集记录",
+      "pairingTitle": "让另一台设备接入",
+      "pairingDescription": "在另一台设备的 Magi 中选择连接远程 Magi，填写下方地址和配对码。",
+      "generating": "正在生成配对码…",
+      "expiresAt": "一次性使用 · {{time}} 失效",
+      "expired": "配对码已过期，请重新生成。",
+      "regenerate": "重新生成",
+      "generateFailed": "配对码生成失败，请重试。",
+      "copyFailed": "复制失败，请选中文字手动复制。"
     },
     "local": "这台电脑",
     "localDescription": "应用运行期间，在本机运行 Magi。",
@@ -5959,7 +5968,7 @@
     "connect": "连接",
     "switch": "切换",
     "active": "当前连接",
-    "addRemote": "连接远程 Magi",
+    "addRemote": "新增远程连接",
     "pairingHint": "在运行 Magi 的电脑上生成一次性配对码，再粘贴到这里。",
     "name": "连接名称",
     "address": "Magi 地址",
@@ -6034,7 +6043,9 @@
       "hint": "由第一个符合条件的在线设备提醒。应用完全退出后不会收到系统提醒，消息仍保存在 Magi 中。",
       "loadFailed": "无法加载提醒设置。",
       "saveFailed": "保存提醒设置失败，请重试。",
-      "newMessage": "Magi 有一条新消息"
+      "newMessage": "Magi 有一条新消息",
+      "allHint": "每台开启提醒的在线设备都会收到系统提醒。应用完全退出后不会提醒，消息仍保存在 Magi 中。",
+      "autoSaved": "此设置对当前 Magi 的所有设备生效，更改后立即保存。"
     },
     "repair": {
       "action": "修复连接",
@@ -6051,7 +6062,9 @@
       "forgetTitle": "忘记「{{name}}」？",
       "forgetDescription": "这会移除已保存的连接及此设备的授权凭据，已经保存在 Magi 上的数据不会删除。",
       "forgetConfirm": "忘记此连接"
-    }
+    },
+    "savedTitle": "这台设备的连接",
+    "manage": "管理「{{name}}」"
   },
   "centerFiles": {
     "chooseDirectory": "选择中心上的文件夹",

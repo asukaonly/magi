@@ -1634,8 +1634,15 @@ Connection switches and local background-queue persistence do not wait for remot
 authentication or readiness requests. In-flight network results are accepted only
 for the connection generation that started them.
 
-Saved connections are managed under Settings → Application → Center Connections,
-where inactive remote profiles can be forgotten. A failed startup still allows selecting
+Saved connections are managed under Settings → Application → Center Connections.
+The page separates connections saved on this device from devices authorized to
+access the current Magi. **Add remote connection** opens a focused dialog;
+the address and pairing form are not shown until requested. Repair and Forget
+live in each remote profile's action menu; only inactive profiles can be forgotten.
+Dismissed setup dialogs clear the entered pairing code, and pairing failures keep
+the form editable. Connection and access actions take effect immediately, so the
+page shows the settings save footer only when other settings have pending changes.
+A failed startup still allows selecting
 another connection before the main settings surface is available. Selecting a
 different saved profile or pairing a new center requires explicit confirmation
 before Magi reloads its interface and rebuilds its runtime clients. The warning
@@ -1711,8 +1718,13 @@ invalidates a pending transfer; download access never uses a credential in a URL
 The Settings connection section separates saved connection profiles from the
 current center's device authorizations. The access panel lists paired devices,
 requires explicit confirmation before revocation, and can generate a one-use
-30-minute pairing code. Codes remain masked in component memory and are copied
-only on user action; they are never stored in browser persistence. Revoking the
+30-minute pairing code. Generating a code opens a focused dialog immediately,
+with loading, failure/retry and expiry states. The complete code is readable in
+a wrapping field alongside its expiration time and a copy action; no page scroll
+or reveal action is required. The dialog also shows the service origin with a
+separate copy action and explains loopback-address limits. Codes stay in component
+memory only while the dialog is open, are cleared on dismissal or expiry, and are
+copied only on user action; they are never stored in browser persistence. Revoking the
 current device disconnects its profile without stopping the center. The remote
 quit prompt explicitly states that center tasks continue after closing the client.
 
@@ -1819,9 +1831,9 @@ configuration. A remote desktop starts neither a local center nor a local
 Python worker. Readiness errors must distinguish an unavailable management
 service from an available service awaiting model configuration.
 
-## Background sync in connection settings
+## Background sync diagnostics
 
-Settings → Connections includes background sync status for the current Magi:
+Settings → Application → Diagnostics and Logs includes background sync status for the current Magi:
 this device's pending/failed outbox records and the server's pending/failed
 processing records. A temporarily unavailable server does not hide local queue
 status. Users can retry failed records after correcting the connection or
@@ -1920,8 +1932,11 @@ on the center until they adopt an appropriate collector/resource contract.
 
 ### System alerts across devices
 
-Settings → Center Connections offers a center-wide choice between **One online
-device** (the default) and **All online devices**. The first eligible device to
+Settings → Application → Desktop and Notifications separates this device's
+notification preferences from the current center's multi-device policy. The
+center-wide choice uses the shared settings selector, saves immediately, and
+offers **One online device** (the default) or **All online devices**. The
+explanation follows the selected mode. The first eligible device to
 claim a message shows its system alert in the first mode; it is not an inference
 about which device the user prefers or used most recently. Each device's existing
 notification enable and preview settings still apply. The current chat session

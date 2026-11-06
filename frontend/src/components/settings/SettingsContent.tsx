@@ -224,7 +224,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     ? 'memoryGeneral'
     : activeSection;
   const navigationSection = isModelSelectionSection(effectiveActiveSection) ? 'llmModels' : effectiveActiveSection;
-  const showSettingsFooter = !['personalitySelection', 'memoryData', 'tts'].includes(effectiveActiveSection);
+  const showSettingsFooter = !['personalitySelection', 'memoryData', 'tts'].includes(effectiveActiveSection)
+    && (effectiveActiveSection !== 'connections' || dirty || autoStartSyncFailed);
   const browsePluginMarketplace = () => {
     setGroupExpanded('plugins', true);
     handleNavItemClick('pluginsMarketplace', false);

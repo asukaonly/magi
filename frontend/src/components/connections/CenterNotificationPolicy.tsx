@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { serverApi, type CenterNotificationMode } from '@/api/modules/server';
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { Button } from '@/components/ui/button';
+import { LabeledSelectField } from '@/components/settings/form-fields';
+import { SettingsGroup } from '@/components/settings/SettingsSectionPrimitives';
 
 export function CenterNotificationPolicy() {
   const { t } = useTranslation('app');
@@ -39,14 +41,15 @@ export function CenterNotificationPolicy() {
       if (mounted.current) setPending(false);
     }
   };
-  return <div className="space-y-2 border-b border-border pb-5">
-    <label htmlFor="center-notification-mode" className="text-sm font-semibold">{t('connections.notifications.title')}</label>
-    <p className="text-xs text-muted-foreground">{t('connections.notifications.description')}</p>
-    {mode ? <select id="center-notification-mode" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={mode} disabled={pending} onChange={(event) => { void update(event.target.value); }}>
-      <option value="single_device">{t('connections.notifications.single')}</option>
-      <option value="all_devices">{t('connections.notifications.all')}</option>
-    </select> : null}
-    <p className="text-xs leading-5 text-muted-foreground">{t('connections.notifications.hint')}</p>
+  return <SettingsGroup title={t('connections.notifications.title')} description={t('connections.notifications.description')}>
+    {mode ? <LabeledSelectField label="" ariaLabel={t('connections.notifications.title')} value={mode} disabled={pending}
+      className="sm:max-w-sm" onChange={(value) => { void update(value); }}
+      options={[
+        { value: 'single_device', label: t('connections.notifications.single') },
+        { value: 'all_devices', label: t('connections.notifications.all') },
+      ]} /> : !error ? <p role="status" className="text-sm text-muted-foreground">{t('common.loading')}</p> : null}
+    <p className="text-xs leading-5 text-muted-foreground">{t(mode === 'all_devices' ? 'connections.notifications.allHint' : 'connections.notifications.hint')}</p>
+    <p className="text-xs text-muted-foreground">{t('connections.notifications.autoSaved')}</p>
     {error ? <div role="alert" className="text-xs text-destructive">{error}<Button variant="ghost" size="sm" disabled={pending} onClick={() => { void load(); }}>{t('common.retry')}</Button></div> : null}
-  </div>;
+  </SettingsGroup>;
 }

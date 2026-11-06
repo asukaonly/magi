@@ -1,4 +1,6 @@
 import { useTranslation } from 'react-i18next';
+import { BackgroundDeliveryPanel } from '@/components/connections/BackgroundDeliveryPanel';
+import { CenterNotificationPolicy } from '@/components/connections/CenterNotificationPolicy';
 
 import type { SystemConfig } from '@/api/modules/config';
 import { LabeledSelectField } from '@/components/settings';
@@ -144,6 +146,11 @@ export function SettingsPreferencesSection({
                   draft.preferences.skip_quit_confirmation = checked;
                 })}
               />
+            </div>
+          </SettingsGroup>
+
+          <SettingsGroup title={t('settings.desktopNotificationsTitle')} description={t('settings.deviceOnly')}>
+            <div className="space-y-1.5">
               <PreferenceToggleRow
                 label={t('settings.desktopNotificationsLabel')}
                 checked={draftConfig.preferences.desktop_notifications_enabled}
@@ -158,6 +165,8 @@ export function SettingsPreferencesSection({
               />
             </div>
           </SettingsGroup>
+
+          <CenterNotificationPolicy />
 
           <SettingsGroup title={t('settings.startupSettings')} description={t('settings.deviceOnly')}>
             <div className="space-y-1.5">
@@ -274,7 +283,7 @@ export function SettingsPreferencesSection({
         </div>
       </SettingsGroup> : null}
 
-      {section === 'diagnostics' ? <SettingsGroup
+      {section === 'diagnostics' ? <><SettingsGroup
         title={t('settings.diagnostics.title')}
         description={t('settings.diagnostics.description')}
       >
@@ -286,7 +295,7 @@ export function SettingsPreferencesSection({
             draft.diagnostics.full_content_logging_enabled = checked;
           })}
         />
-      </SettingsGroup> : null}
+      </SettingsGroup><BackgroundDeliveryPanel /></> : null}
 
       {section === 'about' ? <DesktopUpdateSection /> : null}
     </SettingsSectionShell>
