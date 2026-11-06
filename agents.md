@@ -76,9 +76,7 @@ Main code locations:
 - HTTP, native database access and Python IPC: `crates/magi-gateway/`
 - Shared launch contracts: `crates/magi-service-contract/`; native filesystem protection: `crates/magi-platform/`
 - Rust dependency direction is enforced by `scripts/check-rust-boundaries.py`; desktop must not depend on service implementation crates
-- Builtin plugins: `plugins/` (currently `core-tools`; `core-actions` is inactive)
-- External plugins repo: `github.com/asukaonly/magi-plugins` (marketplace registry + all non-builtin plugins)
-- Builtin plugins: `plugins/` (currently `core-tools`; `core-actions` is inactive)
+- Builtin plugins: `plugins/` (currently `core-tools`)
 - External plugins repo: `github.com/asukaonly/magi-plugins` (marketplace registry + all non-builtin plugins)
 
 ---
@@ -136,11 +134,7 @@ magi/
 │   ├── build-sidecar.ps1       # Build Python sidecar binary for Windows
 │   └── dev-tauri-hot.sh        # Start Tauri + backend with hot reload
 ├── plugins/
-│   ├── core-tools/              # Builtin tools plugin (web search, file ops, etc.)
-│   └── core-actions/             # Legacy inactive directory
-├── plugins/
-│   ├── core-tools/              # Builtin tools plugin (web search, file ops, etc.)
-│   └── core-actions/             # Legacy inactive directory
+│   └── core-tools/              # Builtin tools plugin (web search, file ops, etc.)
 ├── configs/
 ├── docs/
 │   ├── project-overview.md
@@ -148,22 +142,6 @@ magi/
 │   └── task-agent-runtime-architecture.md
 ├── README.md
 └── agents.md
-```
-
-### External Plugin Repository
-
-```text
-magi-plugins/                     # github.com/asukaonly/magi-plugins
-├── registry.json                  # Marketplace index (plugin_id, version, path, platforms)
-├── calendar/                      # macOS calendar source
-├── chrome-history/                # Chrome browsing history source
-├── git-activity/                  # Git commit history source
-├── netease-music/                 # NetEase Cloud Music play history source
-├── photo-library/                 # Photo library EXIF source
-├── screen-time/                   # macOS app usage source
-├── system-media/                  # Cross-platform media playback source
-├── telegram/                      # Telegram bot channel adapter
-└── terminal-history/              # Terminal command history source
 ```
 
 ### External Plugin Repository
