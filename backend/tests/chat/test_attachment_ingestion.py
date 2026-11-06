@@ -345,39 +345,37 @@ def test_ingest_attachment_reports_heic_conversion_failure(tmp_path: Path) -> No
         )
 
 
-def test_ingest_attachment_rejects_oversized_image(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "filename,mime_type,limit_mb,error",
+    [
+        pytest.param(
+            "huge.png", "image/png", 20, "Image attachment exceeds the 20 MB limit", id="image"
+        ),
+        pytest.param(
+            "huge.md", "text/markdown", 50, "File attachment exceeds the 50 MB limit", id="text"
+        ),
+    ],
+)
+def test_ingest_attachment_rejects_oversized_content(
+    tmp_path: Path, filename, mime_type, limit_mb, error
+) -> None:
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
 
-    with language_context("en"), pytest.raises(
-        ValueError,
-        match="Image attachment exceeds the 20 MB limit",
+    with (
+        language_context("en"),
+        pytest.raises(
+            ValueError,
+            match=error,
+        ),
     ):
         _mutate(
             service.ingest_attachment,
             session_id="session-1",
             turn_id="turn-1",
-            original_name="huge.png",
-            content=b"0" * (20 * 1024 * 1024 + 1),
-            mime_type="image/png",
-        )
-
-
-def test_ingest_attachment_rejects_oversized_text_file(tmp_path: Path) -> None:
-    runtime_paths = RuntimePaths(tmp_path / "runtime")
-    service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
-
-    with language_context("en"), pytest.raises(
-        ValueError,
-        match="File attachment exceeds the 50 MB limit",
-    ):
-        _mutate(
-            service.ingest_attachment,
-            session_id="session-1",
-            turn_id="turn-1",
-            original_name="huge.md",
-            content=b"0" * (50 * 1024 * 1024 + 1),
-            mime_type="text/markdown",
+            original_name=filename,
+            content=b"0" * (limit_mb * 1024 * 1024 + 1),
+            mime_type=mime_type,
         )
 
 

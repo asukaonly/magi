@@ -354,7 +354,24 @@ def test_scenario_llm_pool_passes_embedding_dimension_for_embedding_scenario():
     ]
 
 
-def test_scenario_llm_pool_maps_custom_provider_to_runtime_api_format():
+@pytest.mark.parametrize(
+    "display_name,base_url,api_key,model",
+    [
+        pytest.param(
+            "My Gateway",
+            "https://llm.example.com/v1",
+            "sk-custom",
+            "gpt-4.1-mini",
+            id="authenticated-gateway",
+        ),
+        pytest.param(
+            "Local Gateway", "http://127.0.0.1:11434/v1", "", "local-model", id="keyless-local"
+        ),
+    ],
+)
+def test_scenario_llm_pool_maps_custom_provider_to_runtime_api_format(
+    display_name, base_url, api_key, model
+):
     """Custom OpenAI-compatible providers route through the OpenAI adapter,
     keeping ``custom`` as the adapter-level provider name. Vendor (and
     therefore reasoning dialect) is resolved later from
@@ -366,13 +383,13 @@ def test_scenario_llm_pool_maps_custom_provider_to_runtime_api_format():
     config = _build_test_config()
     config.llm.providers["custom_openai"] = _custom_provider(
         config.llm.providers["openai"],
-        display_name="My Gateway",
-        base_url="https://llm.example.com/v1",
-        api_key="sk-custom",
-        models=["gpt-4.1-mini"],
+        display_name=display_name,
+        base_url=base_url,
+        api_key=api_key,
+        models=[model],
     )
     config.llm.selections["core"].provider_id = "custom_openai"
-    config.llm.selections["core"].model = "gpt-4.1-mini"
+    config.llm.selections["core"].model = model
 
     def adapter_factory(**kwargs) -> DummyAdapter:  # type: ignore[no-untyped-def]
         created.append(dict(kwargs))
@@ -386,46 +403,9 @@ def test_scenario_llm_pool_maps_custom_provider_to_runtime_api_format():
     assert created == [
         {
             "provider_type": "custom",
-            "api_key": "sk-custom",
-            "model": "gpt-4.1-mini",
-            "base_url": "https://llm.example.com/v1",
-            "timeout": 60,
-            "embedding_dimension": None,
-            "proxy_url": None,
-        }
-    ]
-
-
-def test_scenario_llm_pool_builds_keyless_custom_openai_provider():
-    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
-
-    created: list[dict[str, object]] = []
-    config = _build_test_config()
-    config.llm.providers["custom_openai"] = _custom_provider(
-        config.llm.providers["openai"],
-        display_name="Local Gateway",
-        base_url="http://127.0.0.1:11434/v1",
-        api_key="",
-        models=["local-model"],
-    )
-    config.llm.selections["core"].provider_id = "custom_openai"
-    config.llm.selections["core"].model = "local-model"
-
-    def adapter_factory(**kwargs) -> DummyAdapter:  # type: ignore[no-untyped-def]
-        created.append(dict(kwargs))
-        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
-
-    pool = ScenarioLLMPool(config=config, adapter_factory=adapter_factory)
-
-    core_llm = pool.get(LLMScenario.CORE)
-
-    assert core_llm.provider_name == "custom"
-    assert created == [
-        {
-            "provider_type": "custom",
-            "api_key": "",
-            "model": "local-model",
-            "base_url": "http://127.0.0.1:11434/v1",
+            "api_key": api_key,
+            "model": model,
+            "base_url": base_url,
             "timeout": 60,
             "embedding_dimension": None,
             "proxy_url": None,

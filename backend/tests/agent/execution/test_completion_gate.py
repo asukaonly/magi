@@ -207,7 +207,14 @@ def test_successful_validation_allows_local_write_completion() -> None:
     assert decision.outcome is CompletionOutcome.COMPLETE
 
 
-def test_failed_validation_requests_reasoning_helpful_repair() -> None:
+@pytest.mark.parametrize(
+    "status,reason_code,reasoning_helpful",
+    [
+        pytest.param("fail", "validation_failed", True, id="failed-needs-reasoning"),
+        pytest.param("timeout", "validation_inconclusive", False, id="timeout-retry"),
+    ],
+)
+def test_unsuccessful_validation_requests_repair(status, reason_code, reasoning_helpful) -> None:
     decision = CompletionGate().evaluate(
         policy=CompletionPolicy(),
         evidence=[
@@ -217,10 +224,15 @@ def test_failed_validation_requests_reasoning_helpful_repair() -> None:
                 effect_class="read_only",
                 replay_policy="read_only",
                 result={
-                    "summary": {"pass": 0, "fail": 1, "skipped": 0, "timeout": 0},
+                    "summary": {
+                        "pass": 0,
+                        "fail": int(status == "fail"),
+                        "skipped": 0,
+                        "timeout": int(status == "timeout"),
+                    },
                     "results": [
                         {
-                            "status": "fail",
+                            "status": status,
                             "path": "/workspace/a.py",
                             "verifier": "py_compile",
                             "content_sha256": "a" * 64,
@@ -233,38 +245,8 @@ def test_failed_validation_requests_reasoning_helpful_repair() -> None:
     )
 
     assert decision.outcome is CompletionOutcome.CONTINUE
-    assert decision.reason_code == "validation_failed"
-    assert decision.reasoning_helpful is True
-
-
-def test_validation_timeout_requests_repair_without_reasoning_escalation() -> None:
-    decision = CompletionGate().evaluate(
-        policy=CompletionPolicy(),
-        evidence=[
-            ToolExecutionEvidence(
-                tool_name="verify",
-                success=True,
-                effect_class="read_only",
-                replay_policy="read_only",
-                result={
-                    "summary": {"pass": 0, "fail": 0, "skipped": 0, "timeout": 1},
-                    "results": [
-                        {
-                            "status": "timeout",
-                            "path": "/workspace/a.py",
-                            "verifier": "py_compile",
-                            "content_sha256": "a" * 64,
-                        }
-                    ],
-                },
-            )
-        ],
-        repair_iterations=0,
-    )
-
-    assert decision.outcome is CompletionOutcome.CONTINUE
-    assert decision.reason_code == "validation_inconclusive"
-    assert decision.reasoning_helpful is False
+    assert decision.reason_code == reason_code
+    assert decision.reasoning_helpful is reasoning_helpful
 
 
 def test_skipped_validation_does_not_satisfy_local_write_requirement() -> None:

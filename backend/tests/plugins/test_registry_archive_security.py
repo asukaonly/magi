@@ -94,19 +94,45 @@ def test_registry_tarball_rejects_case_conflicting_paths(tmp_path: Path) -> None
         _extract(payload, tmp_path / "plugin")
 
 
-def test_registry_tarball_rejects_too_many_members(
+@pytest.mark.parametrize(
+    "limit_name,limit,extension,payloads,error",
+    [
+        pytest.param(
+            "MAX_PLUGIN_ARCHIVE_MEMBERS",
+            2,
+            "txt",
+            (b"1", b"2"),
+            "more than 2 members",
+            id="member-count",
+        ),
+        pytest.param(
+            "MAX_PLUGIN_ARCHIVE_TOTAL_BYTES",
+            5,
+            "bin",
+            (b"123", b"456"),
+            "total expanded-size",
+            id="expanded-size",
+        ),
+    ],
+)
+def test_registry_tarball_rejects_resource_limits(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    limit_name,
+    limit,
+    extension,
+    payloads,
+    error,
 ) -> None:
-    monkeypatch.setattr(package_files, "MAX_PLUGIN_ARCHIVE_MEMBERS", 2)
+    monkeypatch.setattr(package_files, limit_name, limit)
     payload = _tarball(
         [
-            (f"{TARGET_PREFIX}/one.txt", b"1", None, 0o644),
-            (f"{TARGET_PREFIX}/two.txt", b"2", None, 0o644),
+            (f"{TARGET_PREFIX}/one.{extension}", payloads[0], None, 0o644),
+            (f"{TARGET_PREFIX}/two.{extension}", payloads[1], None, 0o644),
         ]
     )
 
-    with pytest.raises(InvalidPluginArchiveError, match="more than 2 members"):
+    with pytest.raises(InvalidPluginArchiveError, match=error):
         _extract(payload, tmp_path / "plugin")
 
 
@@ -118,22 +144,6 @@ def test_registry_tarball_rejects_oversized_file(
     payload = _tarball([(f"{TARGET_PREFIX}/large.bin", b"1234", None, 0o644)])
 
     with pytest.raises(InvalidPluginArchiveError, match="per-file limit"):
-        _extract(payload, tmp_path / "plugin")
-
-
-def test_registry_tarball_rejects_oversized_expansion(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(package_files, "MAX_PLUGIN_ARCHIVE_TOTAL_BYTES", 5)
-    payload = _tarball(
-        [
-            (f"{TARGET_PREFIX}/one.bin", b"123", None, 0o644),
-            (f"{TARGET_PREFIX}/two.bin", b"456", None, 0o644),
-        ]
-    )
-
-    with pytest.raises(InvalidPluginArchiveError, match="total expanded-size"):
         _extract(payload, tmp_path / "plugin")
 
 

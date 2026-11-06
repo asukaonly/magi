@@ -44,32 +44,27 @@ def test_file_exists_fails_when_current_platform_missing(tmp_path: Path) -> None
     assert ok is False
 
 
-def test_file_exists_expands_tilde(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
+@pytest.mark.parametrize(
+    "variable,unix_path,windows_path",
+    [
+        pytest.param("HOME", "~/x.txt", "~/x.txt", id="home"),
+        pytest.param(
+            "MAGI_TEST_DIR", "$MAGI_TEST_DIR/x.txt", "%MAGI_TEST_DIR%/x.txt", id="environment"
+        ),
+    ],
+)
+def test_file_exists_expands_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variable, unix_path, windows_path
+) -> None:
+    monkeypatch.setenv(variable, str(tmp_path))
     target = tmp_path / "x.txt"
     target.write_text("")
     req = LocalRequirementFileExists(
         check_kind="file_exists",
         paths_per_platform={
-            "darwin": "~/x.txt",
-            "win32": "~/x.txt",
-            "linux": "~/x.txt",
-        },
-    )
-    ok, _ = check_file_exists(req)
-    assert ok is True
-
-
-def test_file_exists_expands_env_vars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MAGI_TEST_DIR", str(tmp_path))
-    target = tmp_path / "x.txt"
-    target.write_text("")
-    req = LocalRequirementFileExists(
-        check_kind="file_exists",
-        paths_per_platform={
-            "darwin": "$MAGI_TEST_DIR/x.txt",
-            "win32": "%MAGI_TEST_DIR%/x.txt",
-            "linux": "$MAGI_TEST_DIR/x.txt",
+            "darwin": unix_path,
+            "win32": windows_path,
+            "linux": unix_path,
         },
     )
     ok, _ = check_file_exists(req)

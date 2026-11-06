@@ -273,26 +273,22 @@ def test_run_skill_as_background_rejects_inline_skill(client):
     assert "context: fork" in r.json()["detail"]
 
 
-def test_run_skill_as_background_404_for_missing(client):
+@pytest.mark.parametrize(
+    "skill_name,status_code",
+    [
+        pytest.param("ghost", 404, id="missing"),
+        pytest.param("internal-only", 403, id="not-invocable"),
+    ],
+)
+def test_run_skill_as_background_rejects_unavailable_skill(client, skill_name, status_code):
     c, monkeypatch = client
     _stub_manager(monkeypatch)
     _stub_chat_writer(monkeypatch)
     r = c.post(
         "/api/commands/run-skill-as-background",
-        json={"session_id": "s1", "skill_name": "ghost"},
+        json={"session_id": "s1", "skill_name": skill_name},
     )
-    assert r.status_code == 404
-
-
-def test_run_skill_as_background_403_for_non_invocable(client):
-    c, monkeypatch = client
-    _stub_manager(monkeypatch)
-    _stub_chat_writer(monkeypatch)
-    r = c.post(
-        "/api/commands/run-skill-as-background",
-        json={"session_id": "s1", "skill_name": "internal-only"},
-    )
-    assert r.status_code == 403
+    assert r.status_code == status_code
 
 
 def test_run_skill_as_background_503_when_manager_unavailable(client):

@@ -331,7 +331,6 @@ class TestApplyRefinement:
         assert l2_conditions.subject_hint == "explicit"
         assert l2_conditions.predicate_family == "relationship"
 
-
     def test_derives_l2_flat_fields_from_semantic_frame(self, decider: LLMIntentDecider):
         from dataclasses import asdict
 
@@ -436,14 +435,28 @@ class TestApplyRefinement:
             "limit": 3,
         }
 
-    def test_l1_validation_rejects_overly_broad_quoted_query(self, decider: LLMIntentDecider):
-        original_query = (
-            "How many days before the team meeting did I attend the workshop on "
-            "'Effective Communication in the Workplace'?"
-        )
+    @pytest.mark.parametrize(
+        "original_query,content_query",
+        [
+            pytest.param(
+                "How many days before the team meeting did I attend the workshop on "
+                "'Effective Communication in the Workplace'?",
+                "communication skills workshop and meeting preparation",
+                id="quoted-title",
+            ),
+            pytest.param(
+                "Which vehicle did I take care of first in February, the bike or the car?",
+                "vehicle maintenance in february",
+                id="comparison",
+            ),
+        ],
+    )
+    def test_l1_validation_rejects_overly_broad_query(
+        self, decider: LLMIntentDecider, original_query, content_query
+    ):
         rule_decision = _make_l1_rule_plan(query=original_query)
         refinement = LLMRefinement(
-            content_query="communication skills workshop and meeting preparation",
+            content_query=content_query,
             reasoning="bad",
         )
 
@@ -454,22 +467,6 @@ class TestApplyRefinement:
         )
 
         # L1 validation rolls overly-broad refinement back to original_query.
-        assert result.plans[0].conditions.content_query == original_query
-
-    def test_l1_validation_rejects_overly_broad_comparison_query(self, decider: LLMIntentDecider):
-        original_query = "Which vehicle did I take care of first in February, the bike or the car?"
-        rule_decision = _make_l1_rule_plan(query=original_query)
-        refinement = LLMRefinement(
-            content_query="vehicle maintenance in february",
-            reasoning="bad",
-        )
-
-        result = decider.apply(
-            original_query=original_query,
-            rule_decision=rule_decision,
-            refinement=refinement,
-        )
-
         assert result.plans[0].conditions.content_query == original_query
 
     def test_l1_validation_preserves_specific_anchor_queries(self, decider: LLMIntentDecider):

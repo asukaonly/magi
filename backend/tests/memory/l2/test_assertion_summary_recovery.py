@@ -252,15 +252,33 @@ async def test_recovery_keeps_literal_value_contracts(l2_store_with_schema, pred
     assert await _row(store.db_path, "l2_grounded_claims", "claim_id", "claim:apple") == before
 
 
+@pytest.mark.parametrize(
+    "failure_target,error",
+    [
+        pytest.param(
+            "append_claim_target_outcomes_on_connection", "Receipt unavailable", id="receipt"
+        ),
+        pytest.param(
+            "MemoryCorrectionRepository.invalidate_l3_insights_on_connection",
+            "L3 invalidation unavailable",
+            id="l3-invalidation",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_recovery_rolls_back_on_receipt_failure(l2_store_with_schema):
+async def test_recovery_rolls_back_on_side_effect_failure(
+    l2_store_with_schema, failure_target, error
+):
     store = l2_store_with_schema
     request = await _seed(store)
     before = await _row(store.db_path, "tom_trait_assertions", "assertion_id", request.assertion_id)
-    with patch(
-        "magi.memory.l2.assertions.summary_recovery.append_claim_target_outcomes_on_connection",
-        new=AsyncMock(side_effect=RuntimeError("Receipt unavailable")),
-    ), pytest.raises(RuntimeError, match="Receipt unavailable"):
+    with (
+        patch(
+            f"magi.memory.l2.assertions.summary_recovery.{failure_target}",
+            new=AsyncMock(side_effect=RuntimeError(error)),
+        ),
+        pytest.raises(RuntimeError, match=error),
+    ):
         await recover_assertion_summaries(store.db_path, requests=[request], dry_run=False, language="zh")
     assert await _row(store.db_path, "tom_trait_assertions", "assertion_id", request.assertion_id) == before
 
@@ -352,19 +370,6 @@ async def test_recovery_invalidates_only_dependent_l3_and_preserves_review_state
     async with sqlite_connection_async(store.db_path) as db:
         async with db.execute("SELECT summary_id FROM l3_summaries_fts") as cursor:
             assert [row[0] for row in await cursor.fetchall()] == ["summary:unrelated"]
-
-
-@pytest.mark.asyncio
-async def test_l3_invalidation_failure_rolls_back_assertion_recovery(l2_store_with_schema):
-    store = l2_store_with_schema
-    request = await _seed(store)
-    before = await _row(store.db_path, "tom_trait_assertions", "assertion_id", request.assertion_id)
-    with patch(
-        "magi.memory.l2.assertions.summary_recovery.MemoryCorrectionRepository.invalidate_l3_insights_on_connection",
-        new=AsyncMock(side_effect=RuntimeError("L3 invalidation unavailable")),
-    ), pytest.raises(RuntimeError, match="L3 invalidation unavailable"):
-        await recover_assertion_summaries(store.db_path, requests=[request], dry_run=False, language="zh")
-    assert await _row(store.db_path, "tom_trait_assertions", "assertion_id", request.assertion_id) == before
 
 
 @pytest.mark.asyncio

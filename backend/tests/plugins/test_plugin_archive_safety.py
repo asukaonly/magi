@@ -212,20 +212,39 @@ def test_rejects_non_portable_or_escaping_paths(
         extract_plugin_archive(archive, tmp_path / "dest")
 
 
+@pytest.mark.parametrize(
+    "limit_name,limit,payloads,error",
+    [
+        pytest.param(
+            "MAX_PLUGIN_ARCHIVE_MEMBERS", 1, (b"1", b"2"), "more than 1 members", id="member-count"
+        ),
+        pytest.param(
+            "MAX_PLUGIN_ARCHIVE_TOTAL_BYTES",
+            5,
+            (b"123", b"456"),
+            "expanded-size limit",
+            id="expanded-size",
+        ),
+    ],
+)
 @pytest.mark.parametrize("archive_format", ["tar", "zip"])
-def test_rejects_member_count_limit(
+def test_rejects_archive_resource_limits(
     tmp_path: Path,
     archive_format: str,
     monkeypatch: pytest.MonkeyPatch,
+    limit_name,
+    limit,
+    payloads,
+    error,
 ) -> None:
-    monkeypatch.setattr(package_files, "MAX_PLUGIN_ARCHIVE_MEMBERS", 1)
+    monkeypatch.setattr(package_files, limit_name, limit)
     archive = _write_archive_files(
         tmp_path,
         archive_format,
-        [("one", b"1", 0o644), ("two", b"2", 0o644)],
+        [("one", payloads[0], 0o644), ("two", payloads[1], 0o644)],
     )
 
-    with pytest.raises(InvalidPluginArchiveError, match="more than 1 members"):
+    with pytest.raises(InvalidPluginArchiveError, match=error):
         extract_plugin_archive(archive, tmp_path / "dest")
 
 
@@ -250,9 +269,22 @@ def test_rejects_archive_container_size_limit(
         extract_plugin_archive(archive, tmp_path / "dest")
 
 
-def test_rejects_tar_metadata_expansion_before_tarfile_parsing(
+@pytest.mark.parametrize(
+    "limit_name,error",
+    [
+        pytest.param(
+            "MAX_PLUGIN_ARCHIVE_TAR_STREAM_BYTES", "TAR stream limit", id="stream-expansion"
+        ),
+        pytest.param(
+            "MAX_PLUGIN_ARCHIVE_METADATA_BYTES", "TAR metadata parsing limit", id="metadata-size"
+        ),
+    ],
+)
+def test_rejects_tar_metadata_limits_before_parsing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    limit_name,
+    error,
 ) -> None:
     archive = tmp_path / "plugin.tar.gz"
     with tarfile.open(
@@ -265,30 +297,9 @@ def test_rejects_tar_metadata_expansion_before_tarfile_parsing(
         info = tarfile.TarInfo("plugin.toml")
         info.size = len(payload)
         tf.addfile(info, io.BytesIO(payload))
-    monkeypatch.setattr(package_files, "MAX_PLUGIN_ARCHIVE_TAR_STREAM_BYTES", 2_048)
+    monkeypatch.setattr(package_files, limit_name, 2_048)
 
-    with pytest.raises(InvalidPluginArchiveError, match="TAR stream limit"):
-        extract_plugin_archive(archive, tmp_path / "dest")
-
-
-def test_rejects_large_tar_metadata_before_it_is_loaded(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    archive = tmp_path / "plugin.tar.gz"
-    with tarfile.open(
-        archive,
-        "w:gz",
-        format=tarfile.PAX_FORMAT,
-        pax_headers={"comment": "x" * 10_000},
-    ) as tf:
-        payload = b"x"
-        info = tarfile.TarInfo("plugin.toml")
-        info.size = len(payload)
-        tf.addfile(info, io.BytesIO(payload))
-    monkeypatch.setattr(package_files, "MAX_PLUGIN_ARCHIVE_METADATA_BYTES", 2_048)
-
-    with pytest.raises(InvalidPluginArchiveError, match="TAR metadata parsing limit"):
+    with pytest.raises(InvalidPluginArchiveError, match=error):
         extract_plugin_archive(archive, tmp_path / "dest")
 
 
@@ -341,23 +352,6 @@ def test_rejects_per_file_size_limit(
 
 
 @pytest.mark.parametrize("archive_format", ["tar", "zip"])
-def test_rejects_total_expanded_size_limit(
-    tmp_path: Path,
-    archive_format: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(package_files, "MAX_PLUGIN_ARCHIVE_TOTAL_BYTES", 5)
-    archive = _write_archive_files(
-        tmp_path,
-        archive_format,
-        [("one", b"123", 0o644), ("two", b"456", 0o644)],
-    )
-
-    with pytest.raises(InvalidPluginArchiveError, match="expanded-size limit"):
-        extract_plugin_archive(archive, tmp_path / "dest")
-
-
-@pytest.mark.parametrize("archive_format", ["tar", "zip"])
 def test_rejects_path_length_and_depth_limits(
     tmp_path: Path,
     archive_format: str,
@@ -383,48 +377,29 @@ def test_rejects_path_length_and_depth_limits(
         extract_plugin_archive(too_deep, tmp_path / "deep-dest")
 
 
+@pytest.mark.parametrize(
+    "first_path,second_path,error",
+    [
+        pytest.param("plugin.py", "plugin.py", "Duplicate", id="exact-duplicate"),
+        pytest.param("Plugin.py", "plugin.py", "case-conflicting", id="file-case"),
+        pytest.param("Folder/one", "folder/two", "portable spellings", id="parent-case"),
+    ],
+)
 @pytest.mark.parametrize("archive_format", ["tar", "zip"])
-def test_rejects_exact_duplicate_paths(
+def test_rejects_conflicting_paths(
     tmp_path: Path,
     archive_format: str,
+    first_path,
+    second_path,
+    error,
 ) -> None:
     archive = _write_archive_files(
         tmp_path,
         archive_format,
-        [("plugin.py", b"one", 0o644), ("plugin.py", b"two", 0o644)],
+        [(first_path, b"one", 0o644), (second_path, b"two", 0o644)],
     )
 
-    with pytest.raises(InvalidPluginArchiveError, match="Duplicate"):
-        extract_plugin_archive(archive, tmp_path / "dest")
-
-
-@pytest.mark.parametrize("archive_format", ["tar", "zip"])
-def test_rejects_duplicate_and_case_conflicting_paths(
-    tmp_path: Path,
-    archive_format: str,
-) -> None:
-    archive = _write_archive_files(
-        tmp_path,
-        archive_format,
-        [("Plugin.py", b"one", 0o644), ("plugin.py", b"two", 0o644)],
-    )
-
-    with pytest.raises(InvalidPluginArchiveError, match="case-conflicting"):
-        extract_plugin_archive(archive, tmp_path / "dest")
-
-
-@pytest.mark.parametrize("archive_format", ["tar", "zip"])
-def test_rejects_case_conflicts_in_implicit_parent_directories(
-    tmp_path: Path,
-    archive_format: str,
-) -> None:
-    archive = _write_archive_files(
-        tmp_path,
-        archive_format,
-        [("Folder/one", b"one", 0o644), ("folder/two", b"two", 0o644)],
-    )
-
-    with pytest.raises(InvalidPluginArchiveError, match="portable spellings"):
+    with pytest.raises(InvalidPluginArchiveError, match=error):
         extract_plugin_archive(archive, tmp_path / "dest")
 
 
