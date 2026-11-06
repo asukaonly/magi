@@ -109,9 +109,8 @@ retain their turn, source and replay identities. Batch hydration preserves calle
 order and session windows retain user filtering. Source-facet reads return typed
 values; each facet rebuild page holds a write transaction from source selection
 through publication, so deletion cannot race between those operations. Counts,
-source summaries and retention pages share the repository boundary. The current
-live L1 adapter remains SQLite; embedding-state publication and full-clear
-lifecycle still use owner-specific SQLite methods.
+source summaries and retention pages share the repository boundary. The selected L1 storage plugin owns embedding-state publication and full-clear
+transactions through the same repository contract.
 
 Selective deletion resolves event and vector identities through the repository,
 then removes vectors under the memory service's mutation guard before committing
@@ -126,69 +125,79 @@ the event repository. L2 reads the frozen payload rather than a live source;
 retry timing and acknowledgement are persisted beside the canonical event.
 SQLite payload I/O uses the shared cancellation-drained connection boundary.
 
-`magi.db.mysql.MysqlDatabase` provides connection and transaction infrastructure
-for MySQL repository implementations, using the optional `storage-mysql` extra.
-Repositories own SQL and row mapping; application services receive domain ports.
-Connection settings reference an environment variable for the password, use a
-bounded pool and verified TLS for remote hosts, and disable local infile access.
-Transactions commit once and close through cancellation. No connection failure
-automatically retries a write: the caller may have lost confirmation of a commit.
-Driver failures cross repository boundaries as persistence-unavailable or
-constraint-conflict outcomes. Schema migration remains a startup operation.
+### Storage plugin selection
 
-The channel lifecycle scope has both SQLite and MySQL implementations. It includes
-thread-aware session bindings, notification and relay cursors, approval preferences,
-delivery receipts, and the proactive outreach outbox and receipt log. Both implementations
-serve the same domain ports. `StructuredStorageModule` assembles them before channels
-start; outreach receives its repositories from that assembly. MySQL tables use InnoDB,
-exact identity hashes and complete original identifiers, avoiding truncated indexes or
-case-insensitive account collisions. A database is owned by one logical center.
+SQLite is the bundled `storage-sqlite` plugin. MySQL implementations, migrations,
+and database drivers live in the companion `magi-plugins/plugins/storage-mysql`
+package. The host has no MySQL driver dependency or database-kind factory.
+`runtime_storage_plugins` loads selected packages before recovery and domain
+startup; `StructuredStorageModule` injects their typed repository ports.
 
-Selection is server startup configuration in `config/agent.yaml`:
+The current selectable domains are `chat`, `memory_events` (L1), and `channels`
+(including outreach). Other memory projections, vectors, runtime traces, identity,
+scheduler and service authorization retain their existing owners. A storage
+plugin does not gain control of those databases or of host files. Chat assets,
+workspace preferences and trace enrichment remain host services.
+
+Install and trust the MySQL package through Extensions, create and enable a
+connection, and supply its host, database, user and password in that connection.
+Passwords use the connection credential store. Remote hosts require verified TLS;
+only loopback test connections may disable TLS. Drivers use bounded pools, disable
+local infile and never retry an uncertain write. Provision a dedicated empty
+MySQL database with privileges for its tables, indexes, migrations and triggers.
+
+Select the connection in the server's `config/agent.yaml` while stopped:
 
 ```yaml
 structured_storage:
-  channels: mysql
-  memory_events: mysql
-  chat: mysql
-  mysql:
-    host: database.example
-    port: 3306
-    database: magi_channels
-    user: magi
-    password_env: MAGI_MYSQL_PASSWORD
-    tls: true
-    # ca_file: /private/path/to/ca.pem
+  chat:
+    connection_id: conn_0123456789abcdef0123456789abcdef
+    provider_id: mysql
+  memory_events:
+    connection_id: conn_0123456789abcdef0123456789abcdef
+    provider_id: mysql
+  channels:
+    connection_id: conn_0123456789abcdef0123456789abcdef
+    provider_id: mysql
 ```
 
-Install `storage-mysql`, provision an empty database and supply the named environment
-variable to the server. Localhost-only test databases may disable TLS. `channels`,
-`memory_events`, and `chat` independently select SQLite or MySQL; all default to
-SQLite. MySQL write owners share one async pool and distinct table scopes; chat
-reads use a separately bounded synchronous pool for their worker threads.
-Other structured owners retain their separately configured/current implementations.
+The ID is the connection's actual ID from Extensions. Omitted domains or `{}` use
+the built-in SQLite connection. Database credentials and addresses never belong
+in this selection document. Selection is startup-only; active or durably bound
+connections cannot be disabled, reconfigured, removed, or have their packages
+replaced through normal plugin lifecycle actions. Unselected connections can be
+configured without opening a database.
 
-For an existing center, stop its service, configure the destination, then run:
+For an existing center, stop the service, configure the destination, then run
+one command for each domain being moved:
 
 ```bash
-python -m magi.bootstrap.channel_storage_transfer --root /absolute/magi-root --target mysql
+python -m magi.bootstrap.storage_transfer --root /absolute/magi-root --domain channels
+python -m magi.bootstrap.storage_transfer --root /absolute/magi-root --domain memory_events
+python -m magi.bootstrap.storage_transfer --root /absolute/magi-root --domain chat
 ```
 
-The offline command takes the worker lease, exports a typed logical snapshot, imports
-all seven collections in one destination transaction, checks the complete logical digest,
-and atomically activates the new binding. Source data remains intact. Selecting SQLite
-uses the same command with `--target sqlite`; an occupied owned destination requires
-the explicit `--replace-target` flag. Replacement rolls back as one transaction on failure.
-Changing between different MySQL servers requires a separate source configuration and
-is rejected by this command. The storage setting cannot be edited through the product UI.
+Use the server's Python environment with the installed SDK and plugin dependencies.
+The command holds the exclusive worker lease. It locates the source by its durable
+connection binding, exports a complete logical snapshot, imports in one destination
+transaction, verifies the logical digest, and activates the destination. It leaves
+source data intact. Selecting `{}` and running the same command moves back to
+SQLite; an occupied destination requires `--replace-target`. Keep the original
+connection available for remote-to-remote migration. Changing its database address
+would invalidate the recorded source identity and is rejected.
 
-`data/channels/storage-binding.json` retains center identity, active destination and an
-interrupted transfer intent. Configuration changes alone cannot silently select an empty
-store. An unfinished cutover blocks startup; rerun the same command and flags to verify
-or resume it without duplicate imports. Pending, attempting and uncertain operations keep
-their exact states during transfer; migration never sends a message or replays an effect.
-The MySQL owner marker is not part of an exported business snapshot. Copying another
-center's database does not grant ownership to a new center.
+Binding files under `data/chat/`, `data/memory/` and `data/channels/` record a center
+identity, plugin/connection/provider identity, contract version, and pending transfer
+intent. Interrupted transfer blocks normal startup. Rerun the same command and
+flags to verify or resume the exact intent; it never replays deliveries or tool
+effects. A foreign center cannot claim a populated MySQL owner.
+
+Existing pre-plugin version-1 bindings require an explicit offline metadata upgrade.
+Configure the same physical database through its plugin connection and run the
+command for each domain with `--adopt-current-binding`. It validates the old identity,
+opens without schema migration, verifies a complete snapshot, and retains the
+center ID. Wrong owners and unfinished old transfers are rejected. This is an
+operator migration, not an automatic runtime compatibility path.
 
 ## Runtime SQLite layout
 
@@ -1433,24 +1442,14 @@ transfer, an unapproved target change, or existing local facts when MySQL is
 selected for the first time. The offline coordinator preserves the source,
 imports the complete logical snapshot, verifies it and then activates the target.
 A crash before activation resumes the original intent. A MySQL-to-MySQL move
-requires separate source connection settings matching the recorded source.
+retains the original source connection identified by the durable binding.
 
 
-For event storage, configure `structured_storage.memory_events`, stop the center,
-and run:
-
-```bash
-python -m magi.bootstrap.event_storage_transfer --root /absolute/magi-root --target mysql
-```
-
-Use `--target sqlite` to return to the local repository, and `--replace-target` only
-when replacing existing destination state. A move between MySQL databases accepts
-`--source-mysql-config /private/source-mysql.yaml`; that file contains the original
-MySQL settings with an environment-variable credential reference. The main agent
-configuration identifies the destination. The command holds the same exclusive
-worker lease as the running center. `runtime_structured_storage` supplies the event
-repository and logical transfer port to `runtime_memory`, and closes the shared
-pool only after dependent modules stop.
+For event storage, select `structured_storage.memory_events`, stop the center,
+and use the generic transfer command with `--domain memory_events` described above.
+The per-domain `magi.bootstrap.event_storage_transfer` entrypoint accepts the same
+flags without `--domain`. Recovery opens the bound plugin before normal domain
+consumers and never migrates its schema while restoring a rollback snapshot.
 
 Backup and readable export open the event owner identified by the active storage
 binding under the memory maintenance boundary. They export logical event state
@@ -1548,8 +1547,8 @@ failures propagate as storage failures instead of becoming empty histories.
 Filesystem failures preserve redacted rows and exact private cleanup receipts,
 allowing restart to resume removal. MySQL commit confirms logical deletion;
 server log, backup and physical-block retention remain the operator's concern.
-The optional MySQL extra includes PyMySQL and SQLAlchemy 2.0.55 or later in the
-2.0 series, including the upstream asyncmy/PyMySQL ping compatibility fix.
+The external MySQL plugin locks its own PyMySQL, asyncmy and SQLAlchemy dependencies;
+the packaged host does not include these database drivers.
 
 SQLite chat revision `v22_retired_turns` and MySQL `mysql_chat_v2` retain a
 content-free SHA-256 receipt for permanently removed turn identities. User-message,
@@ -1606,19 +1605,11 @@ open a local chat database. Startup checks the durable storage binding before
 connecting to a newly configured target, initializes the write owner, verifies
 the read connection, and only then activates a fresh binding.
 
-To move existing chat state, stop the center, configure `structured_storage.chat`
-and the destination connection, then run:
-
-```bash
-python -m magi.bootstrap.chat_storage_transfer --root /absolute/magi-root --target mysql
-```
-
-Use `--target sqlite` to move back, `--replace-target` for explicit replacement of
-an occupied destination owned by this center, and `--source-mysql-config` with a
-private YAML file of the original MySQL settings for a remote-to-remote move.
-The command acquires the runtime worker lease and checks the configured target.
-It does not touch inactive local chat files during remote-to-remote transfer.
-Changing configuration alone cannot switch an already selected chat store.
+To move existing chat state, stop the center, select the destination connection
+and run the generic transfer command with `--domain chat`. The per-domain
+`magi.bootstrap.chat_storage_transfer` entrypoint accepts the same flags without
+`--domain`. Remote-to-remote transfers retain both connections and do not touch
+inactive local chat files. Configuration changes alone cannot activate a new store.
 
 Memory lifecycle assembly also injects the vector-index factory, asset-reference,
 daily-mood and archive-query repositories. The unified memory coordinator wraps
@@ -1635,18 +1626,17 @@ background event; a lost storage confirmation remains unavailable or retryable.
 Repository cleanup finishes before the original driver exception is translated
 and retained as a diagnostic cause.
 
-### Packaged external-storage clients
+### Packaged storage clients
 
-Release workers install both `storage-mysql` and `storage-chroma` extras. The
-sidecar builder explicitly collects MySQL's dynamic SQLAlchemy dialects and both
-DBAPI packages, plus Chroma's dynamically resolved HTTP components. A custom local
-build can omit both extras; an incomplete MySQL client installation fails the build.
+Release workers bundle `storage-sqlite` alongside `core-tools`. The MySQL plugin
+installs its locked drivers into its own dependency directory and runs in a
+supervised SDK-only worker. Host package discovery, trust, credential and lifecycle
+rules apply to it. No external database driver is needed for a default local start.
 
-After freezing, the build scripts run `--check-storage-runtime` with the backends
-present in the build interpreter. This resolves native client imports, dialects
-and Chroma's HTTP/telemetry components without connecting to a database or reading
-credentials. It detects missing frozen dependencies; real service contract tests
-remain the separate evidence for MySQL and Chroma behavior.
+The separate `storage-chroma` extra still belongs to the existing vector adapter.
+The frozen worker's `--check-storage-runtime` verifies Chroma components when that
+extra is installed. MySQL validation belongs to plugin dependency installation and
+real plugin contract tests rather than the host freeze check.
 
 
 ### Plugin source journal

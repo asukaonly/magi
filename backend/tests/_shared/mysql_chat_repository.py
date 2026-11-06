@@ -1,9 +1,9 @@
 """Native MySQL composition for atomic chat persistence."""
 
-from ....db.mysql import MysqlDatabase
-from ....utils.runtime import RuntimePaths
-from ..relational_store import RelationalChatRepository
-from .database import MysqlChatDatabase
+from _shared.mysql_storage_plugin.database import MysqlDatabase
+from magi.utils.runtime import RuntimePaths
+from magi.chat.storage.relational_store import RelationalChatRepository
+from _shared.mysql_storage_plugin.chat.database import MysqlChatDatabase
 
 
 class MysqlChatRepository(RelationalChatRepository):

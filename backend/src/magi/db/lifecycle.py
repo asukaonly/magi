@@ -18,7 +18,7 @@ from __future__ import annotations
 from ..bootstrap.context import RuntimeBootstrapContext
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
-from .runner import run_upgrade_head
+from .runner import MIGRATION_TARGETS, run_upgrade_head
 
 logger = get_logger(__name__)
 
@@ -37,7 +37,8 @@ class DatabaseMigrationModule(LifecycleModule):
         runtime_paths = self._context.core.runtime_paths
         if runtime_paths is None:
             raise RuntimeError("runtime paths is not initialized")
-        run_upgrade_head(runtime_paths)
+        run_upgrade_head(runtime_paths, targets=tuple(target for target in MIGRATION_TARGETS
+            if target.name not in {"chat", "l1", "channels"}))
         logger.info("Database migrations completed")
 
 

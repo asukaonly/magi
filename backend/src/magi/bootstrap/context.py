@@ -124,6 +124,7 @@ class ChatBootstrapState:
 class PluginBootstrapState:
     """L4 Plugin runtime state slice."""
 
+    storage_runtime: Any = None
     plugin_manager: PluginManager | None = None
     plugin_projection_service: PluginProjectionService | None = None
     source_registry: SourceRegistry | None = None

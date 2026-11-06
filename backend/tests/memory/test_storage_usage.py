@@ -6,8 +6,7 @@ import pytest
 
 from magi.bootstrap.memory_storage_usage import compose_memory_storage_usage
 from magi.config.memory_models import MemorySettings, VectorStorageSettings
-from magi.config.storage_models import StructuredStorageSettings
-from magi.db.mysql import MysqlSettings
+from magi.config.storage_models import StructuredStorageSettings, StorageSelection
 from magi.memory.local_storage_usage import LocalMemoryStorageUsage
 from magi.utils.runtime import RuntimePaths
 
@@ -20,8 +19,7 @@ def test_external_storage_has_no_complete_local_measurement(tmp_path, external):
         backend="chroma" if external == "chroma" else "sqlite_vec",
     ))
     structured = StructuredStorageSettings(
-        memory_events="mysql" if external == "mysql" else "sqlite",
-        mysql=MysqlSettings(host="localhost", database="memory", user="test", password_env="TEST_SECRET"),
+        memory_events=StorageSelection(connection_id="conn_" + "a"*32, provider_id="mysql") if external == "mysql" else StorageSelection(),
     )
     assert compose_memory_storage_usage(paths, memory, structured) is None
 

@@ -49,7 +49,7 @@ never SQL connections or host objects. Domain repositories remain host-owned
 contracts. Storage bindings pin their connection until its consumers have
 drained, so normal contribution disposal cannot replace an active storage owner.
 
-`storage_ports` and `storage_models` in the SDK contain the public channel and
+`storage_ports` and `storage_models` in the SDK contain the public chat, channel and
 event persistence signatures, values, and deterministic index normalization.
 Host domain ports consume these contracts; ingestion policy, scheduling and
 external side effects remain in their host layers. A repository dispatcher
@@ -57,6 +57,20 @@ validates arguments and results against the explicit method table rather than
 allowing arbitrary attribute access. Logical snapshots cross the same transport
 in bounded chunks; the destination validates length, checksum and snapshot schema
 before its atomic import. An interrupted transfer never activates a binding.
+
+The built-in `storage-sqlite` contribution is assembled by the host. External
+`storage-mysql` runs in the existing supervised worker. Early storage packages
+contribute only storage and are self-contained; they cannot depend on the normal
+plugin activation graph, which starts after repositories. The normal manager
+adopts these instances without starting or stopping them a second time. Selected
+connections and durable bindings reject ordinary update, disable and removal;
+storage failures never trigger a silent fallback to SQLite.
+
+Chat uses invocation-scoped callbacks for asset validation, workspace identity
+and read enrichment. The host checks the original user/session, payload and
+workspace before responding. No callback can choose another connection or expose
+an arbitrary host operation. Snapshot transport uses bounded frames and checksums;
+the current logical snapshot is materialized in memory and capped at 1 GiB.
 
 Installation records package integrity and user consent. It does not create an
 account. The user creates a connection, supplies configuration or runs an

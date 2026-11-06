@@ -1466,3 +1466,23 @@ across queues and restarts. Plugins and model arguments cannot extend it.
 Freshness-bound operations reject missing provenance as
 `COMMAND_ORIGIN_UNAVAILABLE` and expired intent as `COMMAND_EXPIRED` before the
 handler runs. Operations without this policy keep their existing behavior.
+
+
+## Storage providers
+
+Storage requires SDK `0.2.7` and `contribution_types = ["storage"]`. A package
+returns `(StorageProviderSpec, provider)` pairs from `get_storage_providers()`.
+Each provider declares supported domains, a credential-free stable target identity
+and contract version 1, and implements `open`, `invoke`, `close`. Repository
+operations use the finite typed `storage_ports` method catalog; raw SQL and driver
+objects never cross the worker boundary. Use `RepositoryDispatcher` for validation
+and `SnapshotTransport` for complete logical export/import. Own each import in one
+transaction and preserve idempotency, ownership, revision and deletion fences.
+
+Early providers cannot contribute tools/sources or depend on other plugin packages.
+They own their database clients and migrations and must work before normal plugin
+activation. Maintenance opens with `migrate=False` must verify the existing owner
+and cannot silently initialize a different schema. Package settings and secrets
+use ordinary connection fields/credentials. Database replacement requires offline
+transfer; a provider must never retry an ambiguous write or silently change targets.
+The reference external implementation is `magi-plugins/plugins/storage-mysql`.

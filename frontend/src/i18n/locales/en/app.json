@@ -3049,13 +3049,15 @@
         "source": "Source",
         "tool": "Tool",
         "action": "Action",
-        "channel": "Channel"
+        "channel": "Channel",
+        "storage": "Storage"
       },
       "contributionType": {
         "source": "Source",
         "tool": "Tool",
         "action": "Action",
-        "channel": "Channel"
+        "channel": "Channel",
+        "storage": "Storage"
       },
       "consent": {
         "title": {
@@ -6042,6 +6044,8 @@
       "reinstall": "Reinstall this package before authorizing it."
     },
     "connections": {
+      "storageConnectionId": "Storage connection ID",
+      "storageSelectionHint": "Select this connection in the server storage configuration. Changing an active database requires stopping the service and transferring its data.",
       "selectConnection": "Select {{name}}",
       "choose": "Account or folder",
       "title": "Connected sources",

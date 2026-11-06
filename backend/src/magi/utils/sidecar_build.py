@@ -66,6 +66,7 @@ PACKAGE_DATA_DIRECTORIES = (
 # Optional plugins are installed at runtime from the plugin registry.
 CORE_PLUGIN_IDS = (
     "core-tools",
+    "storage-sqlite",
 )
 
 RUNTIME_BINARY_DIRECTORIES = (
@@ -216,10 +217,6 @@ def build_pyinstaller_command(
             command.extend(["--collect-submodules", package])
         for package in ("mlx-audio", "mlx", "transformers", "huggingface-hub", "sentencepiece", "soundfile"):
             command.extend(["--copy-metadata", package])
-    if "mysql" in storage_backends:
-        for dialect in ("asyncmy", "pymysql"):
-            command.extend(["--hidden-import", f"sqlalchemy.dialects.mysql.{dialect}"])
-            command.extend(["--collect-all", dialect])
     if "chroma" in storage_backends:
         command.extend(["--collect-all", "chromadb"])
     for package_name in COLLECT_SUBMODULE_PACKAGES:

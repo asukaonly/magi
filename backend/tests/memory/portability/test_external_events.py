@@ -6,12 +6,14 @@ import sqlite3
 import pytest
 import yaml
 
-from channels.test_storage_transfer import environment as _environment
-from magi.bootstrap.event_storage import binding_file, migrate_event_storage
+from _shared.storage_plugins import mysql_settings, mysql_package, install_mysql, select
+from magi.bootstrap.storage_selection import binding_file
+from magi.bootstrap.storage_transfer import migrate_storage
+from magi.config.storage_models import StructuredStorageSettings
 from magi.bootstrap.portable_event_storage import open_portable_event_storage
 from magi.db.logical_transfer import snapshot_digest
 
-from magi.memory.l1.storage.mysql.snapshots import MysqlEventStateTransfer
+from _shared.mysql_storage_plugin.events.snapshots import MysqlEventStateTransfer
 from magi.memory.portability.backup import build_memory_backup
 from magi.memory.portability.preflight import inspect_memory_backup
 from magi.memory.portability.storage import create_memory_snapshot, discard_snapshot
@@ -25,7 +27,6 @@ from ._helpers import migrate_memory_databases
 from .test_restore_recovery import SimulatedProcessCrash, _create_scenario
 
 mysql_environment = _mysql_environment
-environment = _environment
 
 
 async def test_external_backup_uses_selected_owner_without_local_event_file(
@@ -62,15 +63,13 @@ async def test_external_backup_uses_selected_owner_without_local_event_file(
 
 
 @pytest.fixture
-async def external_scenario(environment, tmp_path):
-    _paths, config = environment
+async def external_scenario(mysql_settings, mysql_package, tmp_path):
     scenario = _create_scenario(tmp_path / "restore")
     paths = scenario.runtime_paths
-    await migrate_event_storage(paths, destination="mysql", mysql=config.mysql)
-    settings = config.model_copy(update={"memory_events": "mysql"})
-    config_file = paths.base_dir / "config" / "agent.yaml"
-    config_file.parent.mkdir(exist_ok=True, parents=True)
-    config_file.write_text(yaml.safe_dump({"structured_storage": settings.model_dump(mode="json")}))
+    remote = await install_mysql(paths, mysql_package, mysql_settings)
+    settings = StructuredStorageSettings(memory_events=remote)
+    select(paths, settings)
+    await migrate_storage(paths, "memory_events")
     return scenario, settings
 
 
@@ -89,7 +88,7 @@ async def test_external_cutover_crash_recovers_exact_remote_state(external_scena
     transaction = await prepare_memory_restore(
         candidate=scenario.candidate, runtime_paths=paths, failpoint=crash,
     )
-    assert read_restore_journal(paths).external_events.center_id == binding_file(paths).read_or_create().center_id
+    assert read_restore_journal(paths).external_events.center_id == binding_file(paths, "memory_events").read_or_create().center_id
     with pytest.raises(SimulatedProcessCrash):
         await asyncio.to_thread(transaction.cutover)
     async with open_portable_event_storage(paths) as storage:
@@ -120,9 +119,9 @@ async def test_external_recovery_blocks_changed_configuration_and_retains_rollba
     transaction = await prepare_memory_restore(candidate=scenario.candidate, runtime_paths=paths)
     await asyncio.to_thread(transaction.cutover)
     config_file = paths.base_dir / "config" / "agent.yaml"
-    config_file.write_text("structured_storage: {}\n")
+    select(paths, StructuredStorageSettings())
     with pytest.raises(RuntimeError, match="active owner"):
         await asyncio.to_thread(recover_pending_memory_restore, paths)
     assert read_restore_journal(paths) is not None
-    config_file.write_text(yaml.safe_dump({"structured_storage": settings.model_dump(mode="json")}))
+    select(paths, settings)
     assert await asyncio.to_thread(recover_pending_memory_restore, paths) == "rolled_back"

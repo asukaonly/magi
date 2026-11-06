@@ -1,196 +1,234 @@
-"""Real cross-database migration, restart fencing and source preservation."""
-import os
-from uuid import uuid4
+"""Real plugin cutover preserves all domains and fences interrupted activation."""
 
 import pytest
-from sqlalchemy import text
-
-from magi.bootstrap.channel_storage import (
-    binding_file, configured_target, migrate_channel_storage, verify_storage_selection,
+from _shared.storage_plugins import (
+    mysql_package, mysql_settings, storage_environment, select, start, stop, install_mysql,
 )
-from magi.channels.persistence.snapshots import SqliteChannelStateTransfer, MysqlChannelStateTransfer
-from magi.channels.storage_snapshot import ChannelStorageSnapshot
+from magi.bootstrap.storage_selection import binding_file
+from magi.bootstrap.storage_transfer import migrate_storage
 from magi.config.storage_models import StructuredStorageSettings
 from magi.db.logical_transfer import snapshot_digest
-from magi.db.mysql import MysqlDatabase, MysqlSettings
-from magi.db.mysql_migrations import upgrade_mysql_channels
 from magi.db.storage_bindings import StorageBindingFile
-from magi.utils.runtime import RuntimePaths
+from magi.channels.contracts import ChannelSessionMapping
+from memory.l1.test_event_repository import command
+
+DOMAINS = ("channels", "memory_events", "chat")
 
 
-@pytest.fixture
-async def environment(tmp_path, monkeypatch, ensure_db_schema):
-    port = os.environ.get("MAGI_TEST_MYSQL_PORT")
-    if not port:
-        pytest.skip("Set MAGI_TEST_MYSQL_PORT to run real storage migration tests")
-    monkeypatch.setenv("MAGI_MYSQL_TRANSFER_PASSWORD",os.environ.get("MAGI_TEST_MYSQL_PASSWORD",""))
-    settings = MysqlSettings(host="127.0.0.1",port=int(port),database="magi_test_architecture",
-                            user=os.environ.get("MAGI_TEST_MYSQL_USER","root"),password_env="MAGI_MYSQL_TRANSFER_PASSWORD",tls=False)
-    admin = MysqlDatabase(settings)
-    name = "magi_test_transfer_" + uuid4().hex
+def transfer(context, domain):
+    if domain == "chat":
+        return context.chat.state_transfer
+    if domain == "memory_events":
+        return context.memory.event_state_transfer
+    return context._storage_module.sessions[0].transfer
+
+
+async def seed(context, domain, key):
+    if domain == "chat":
+        await context.chat.store.create_user_turn_once(session_id="s", user_id="u", turn_id=key,
+            message_text=key, created_at_ms=100, request_fingerprint=key,
+            runtime_envelope={"session_id": "s", "turn_id": key, "message": key, "attachments": [], "metadata": {}})
+        assert await context.chat.reader.aget_session_summary("u", "s") is not None
+    elif domain == "memory_events":
+        await context.memory.event_repository.append(command(key))
+    else:
+        await context.channels.repositories.sessions.insert(ChannelSessionMapping(
+            channel_type="channel.test", external_chat_id=key, external_thread_id=None,
+            magi_session_id=key, magi_user_id="u", is_group=False,
+            created_at_ms=1, last_active_at_ms=1, metadata_json="{}"))
+
+
+async def boot(paths, config):
+    context, module = await start(paths, config)
+    context._storage_module = module
+    return context, module
+
+
+@pytest.mark.parametrize("domain", DOMAINS)
+async def test_sqlite_mysql_sqlite_complete_cutover(storage_environment, domain):
+    paths, remote = storage_environment
+    local = StructuredStorageSettings()
+    context, module = await boot(paths, local)
+    try:
+        await seed(context, domain, "original")
+        before = await transfer(context, domain).export_state()
+    finally:
+        await stop(context, module)
+    external = local.model_copy(update={domain: remote})
+    select(paths, external)
+    with pytest.raises(RuntimeError, match="selection changed"):
+        await start(paths, external)
+    await migrate_storage(paths, domain)
+    context, module = await boot(paths, external)
+    try:
+        assert snapshot_digest(await transfer(context, domain).export_state()) == snapshot_digest(before)
+        await seed(context, domain, "remote-added")
+        final = await transfer(context, domain).export_state()
+        with pytest.raises(ValueError, match="storage|Storage"):
+            context.plugins.storage_runtime.require_mutable("storage-mysql", remote.connection_id)
+    finally:
+        await stop(context, module)
+    select(paths, local)
+    with pytest.raises(ValueError, match="Destination has data"):
+        await migrate_storage(paths, domain)
+    await migrate_storage(paths, domain, replace_destination=True)
+    context, module = await boot(paths, local)
+    try:
+        assert snapshot_digest(await transfer(context, domain).export_state()) == snapshot_digest(final)
+    finally:
+        await stop(context, module)
+
+
+@pytest.mark.parametrize("domain", DOMAINS)
+async def test_interrupted_activation_retains_intent_and_resumes(storage_environment, domain, monkeypatch):
+    paths, remote = storage_environment
+    context, module = await boot(paths, StructuredStorageSettings())
+    try:
+        await seed(context, domain, "retained")
+        before = snapshot_digest(await transfer(context, domain).export_state())
+    finally:
+        await stop(context, module)
+    external = StructuredStorageSettings().model_copy(update={domain: remote})
+    select(paths, external)
+    write = StorageBindingFile.write
+    def interrupt(self, binding):
+        if binding.active is not None and binding.active.plugin_id == "storage-mysql" and binding.pending is None:
+            raise OSError("activation interrupted")
+        write(self, binding)
+    monkeypatch.setattr(StorageBindingFile, "write", interrupt)
+    with pytest.raises(OSError, match="interrupted"):
+        await migrate_storage(paths, domain)
+    assert binding_file(paths, domain).read_or_create().pending is not None
+    with pytest.raises(RuntimeError, match="incomplete"):
+        await start(paths, external)
+    monkeypatch.setattr(StorageBindingFile, "write", write)
+    from magi.db.storage_transfer_proxy import StorageTransferProxy
+    async def no_repeat(*args, **kwargs):
+        pytest.fail("A verified import must not be repeated")
+    monkeypatch.setattr(StorageTransferProxy, "import_state", no_repeat)
+    await migrate_storage(paths, domain)
+    context, module = await boot(paths, external)
+    try:
+        assert snapshot_digest(await transfer(context, domain).export_state()) == before
+    finally:
+        await stop(context, module)
+
+
+@pytest.mark.parametrize("domain", DOMAINS)
+async def test_remote_to_remote_uses_recorded_connection_and_preserves_source(storage_environment, mysql_settings, mysql_package, domain):
+    from _shared.mysql_storage_plugin.database import MysqlDatabase
+    from sqlalchemy import text
+    from uuid import uuid4
+    paths, remote = storage_environment
+    first_config = StructuredStorageSettings().model_copy(update={domain: remote})
+    select(paths, first_config)
+    context, module = await boot(paths, first_config)
+    try:
+        await seed(context, domain, "remote-source")
+        original = snapshot_digest(await transfer(context, domain).export_state())
+    finally:
+        await stop(context, module)
+    admin = MysqlDatabase(mysql_settings)
+    name = "magi_test_destination_" + uuid4().hex
     async with admin.transaction() as db:
         await db.execute(text(f"CREATE DATABASE {name} CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin"))
-    mysql = settings.model_copy(update={"database":name})
-    paths = RuntimePaths(base_dir=tmp_path)
-    ensure_db_schema("channels",paths.channels_db_path)
-    ensure_db_schema("l1",paths.l1_memory_db_path)
-    ensure_db_schema("chat",paths.chat_db_path)
-    config = StructuredStorageSettings(channels="mysql",mysql=mysql)
     try:
-        yield paths,config
+        second = await install_mysql(paths, mysql_package, mysql_settings.model_copy(update={"database": name}))
+        destination_config = first_config.model_copy(update={domain: second})
+        select(paths, destination_config)
+        await migrate_storage(paths, domain)
+        context, module = await boot(paths, destination_config)
+        try:
+            assert snapshot_digest(await transfer(context, domain).export_state()) == original
+        finally:
+            await stop(context, module)
+        # The recorded source connection remains independently readable after cutover.
+        from magi.bootstrap.storage_plugins import build_storage_plugin_runtime
+        from magi.bootstrap.storage_selection import resolve_storage, open_storage
+        runtime = build_storage_plugin_runtime(paths)
+        source = None
+        try:
+            entry, target = await resolve_storage(runtime, remote, domain)
+            source = await open_storage(entry, target, domain, binding_file(paths, domain).read_or_create().center_id,
+                migrate=False, maintenance=True)
+            assert snapshot_digest(await source.transfer.export_state()) == original
+        finally:
+            if source is not None:
+                await source.close()
+            await runtime.close()
     finally:
         async with admin.transaction() as db:
             await db.execute(text(f"DROP DATABASE {name}"))
         await admin.close()
 
 
-def sample_snapshot():
-    return ChannelStorageSnapshot.model_validate({
-        "bindings":[dict(channel_type="channel.a.telegram",external_chat_id="chat",external_thread_id="thread",
-                         magi_session_id="session",magi_user_id="local_user",is_group=True,created_at_ms=1,last_active_at_ms=2,metadata_json='{"name":"中文"}')],
-        "notification_cursors":[dict(channel_type="channel.a.telegram",external_chat_id="chat",last_notification_id=100,updated_at_ms=1)],
-        "relay_cursors":[dict(state_key="relay",value_integer=42,updated_at_ms=1)],
-        "binding_settings":[dict(channel_type="channel.a.telegram",external_user_id="person",auto_approve=True,updated_at_ms=1)],
-        "delivery_receipts":[dict(receipt_id=91,session_id="session",run_id="run",revision=2,channel_id="channel.a.telegram",external_message_id="native-message",magi_session_id="session",delivered_at_ms=3,created_at_ms=3)],
-        "outreach_intents":[dict(id=index+10,correlation_id="event-"+status,channel_scope="channel.a.telegram",intent_fingerprint="fingerprint",intent_json='{}',release_at_ms=3,status=status,created_at_ms=1) for index,status in enumerate(("pending","attempting","uncertain","delivered"))],
-        "outreach_receipts":[dict(correlation_id="delivered-event",user_id="local_user",channel_type="channel.a.telegram",delivered_at_ms=3)],
-    })
-
-
-async def test_sqlite_mysql_sqlite_transfer_preserves_complete_logical_state(environment):
-    paths,config = environment
-    local = SqliteChannelStateTransfer(str(paths.channels_db_path))
-    snapshot = sample_snapshot()
-    await local.import_state(snapshot)
-    with pytest.raises(RuntimeError,match="Local channel data exists"):
-        await verify_storage_selection(paths,config,None)
-    result = await migrate_channel_storage(paths,config)
-    assert result["status"] == "migrated"
-    assert snapshot_digest(await local.export_state()) == snapshot_digest(snapshot)
-    database = MysqlDatabase(config.mysql)
+async def test_foreign_center_cannot_bind_an_existing_mysql_owner(storage_environment, mysql_settings, mysql_package, tmp_path):
+    from magi.utils.runtime import RuntimePaths
+    paths, remote = storage_environment
+    config = StructuredStorageSettings(chat=remote)
+    select(paths, config)
+    context, module = await boot(paths, config)
     try:
-        await verify_storage_selection(paths,config,database)
-        remote = MysqlChannelStateTransfer(database)
-        recovered = await remote.export_state()
-        assert snapshot_digest(recovered) == snapshot_digest(snapshot)
-        # A new remote fact must survive a round trip; old SQLite content is retained until explicit replacement.
-        recovered.relay_cursors[0].value_integer = 99
-        await remote.import_state(recovered,replace=True)
-        back = config.model_copy(update={"channels":"sqlite"})
-        with pytest.raises(ValueError,match="Destination has data"):
-            await migrate_channel_storage(paths,back)
-        assert binding_file(paths).read_or_create().pending is None
-        await migrate_channel_storage(paths,back,replace_destination=True)
-        assert snapshot_digest(await local.export_state()) == snapshot_digest(recovered)
-        assert (await remote.export_state()).relay_cursors[0].value_integer == 99
-        await verify_storage_selection(paths,back,None)
+        await seed(context, "chat", "retained")
     finally:
-        await database.close()
+        await stop(context, module)
+    foreign = RuntimePaths(base_dir=tmp_path / "foreign")
+    selected = await install_mysql(foreign, mysql_package, mysql_settings)
+    foreign_config = StructuredStorageSettings(chat=selected)
+    select(foreign, foreign_config)
+    with pytest.raises(RuntimeError, match="another center"):
+        await start(foreign, foreign_config)
+    assert binding_file(foreign, "chat").read_or_create().active is None
 
 
-async def test_interrupted_cutover_blocks_boot_and_resumes_without_duplicate_import(environment,monkeypatch):
-    paths,config = environment
-    local = SqliteChannelStateTransfer(str(paths.channels_db_path))
-    snapshot = sample_snapshot()
-    await local.import_state(snapshot)
-    original = StorageBindingFile.write
-    failed = False
-    def fail_final_binding(self,binding):
-        nonlocal failed
-        if binding.active is not None and binding.active.kind == "mysql" and binding.pending is None and not failed:
-            failed = True
-            raise OSError("simulated cutover crash")
-        original(self,binding)
-    monkeypatch.setattr(StorageBindingFile,"write",fail_final_binding)
-    with pytest.raises(OSError,match="cutover crash"):
-        await migrate_channel_storage(paths,config)
-    assert binding_file(paths).read_or_create().pending is not None
-    with pytest.raises(RuntimeError,match="incomplete"):
-        await verify_storage_selection(paths,config,None)
-    await migrate_channel_storage(paths,config)
-    binding = binding_file(paths).read_or_create()
-    assert binding.pending is None
-    assert binding.active == configured_target(paths,config)
-    assert snapshot_digest(await local.export_state()) == snapshot_digest(snapshot)
-
-
-async def test_a_different_center_cannot_attach_existing_mysql_state(environment,tmp_path):
-    paths,config = environment
-    await migrate_channel_storage(paths,config)
-    second = RuntimePaths(base_dir=tmp_path / "second-center")
-    from magi.db.runner import run_upgrade_database
-    run_upgrade_database("channels",second.channels_db_path)
-    database = MysqlDatabase(config.mysql)
+async def test_worker_loss_never_falls_back_to_sqlite(storage_environment):
+    from magi.core.persistence_errors import PersistenceUnavailableError
+    from magi.plugins.process_runtime import PluginProcessError
+    paths, remote = storage_environment
+    config = StructuredStorageSettings(chat=remote)
+    select(paths, config)
+    context, module = await boot(paths, config)
     try:
-        with pytest.raises(RuntimeError,match="another logical center"):
-            await verify_storage_selection(second,config,database)
+        await seed(context, "chat", "retained")
+        context.plugins.storage_runtime.instances[remote.connection_id]._terminate()
+        with pytest.raises(PersistenceUnavailableError, match="not be confirmed"):
+            await context.chat.reader.aget_session_summary("u", "s")
+        assert not paths.chat_db_path.exists()
+        assert binding_file(paths, "chat").read_or_create().active.connection_id == remote.connection_id
     finally:
-        await database.close()
+        try:
+            await stop(context, module)
+        except (PluginProcessError, PersistenceUnavailableError):
+            pass
 
 
-async def test_failed_mysql_replacement_rolls_back_deletions(environment):
-    _,config = environment
-    database = MysqlDatabase(config.mysql)
+async def test_chat_outcome_delivery_and_cleanup_cross_worker_contract(storage_environment, ensure_db_schema):
+    from magi.chat.contracts import ChatMessageRecord
+    from magi.delivery.routing import DeliveryPlan
+    from magi_plugin_sdk.endpoints import EndpointRef
+    paths, remote = storage_environment
+    ensure_db_schema("runtime_trace", paths.runtime_trace_db_path)
+    config = StructuredStorageSettings(chat=remote)
+    select(paths, config)
+    context, module = await boot(paths, config)
     try:
-        await upgrade_mysql_channels(database)
-        store = MysqlChannelStateTransfer(database)
-        first = sample_snapshot()
-        await store.import_state(first)
-        replacement = sample_snapshot()
-        replacement.relay_cursors[0].value_integer = 99
-        # Fail on a later collection, after earlier destination rows were replaced.
-        async with database.transaction() as db:
-            await db.execute(text("""CREATE TRIGGER reject_transfer BEFORE INSERT ON outreach_outbox
-                FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='injected migration failure'"""))
-        with pytest.raises(RuntimeError,match="could not be confirmed"):
-            await store.import_state(replacement,replace=True)
-        assert snapshot_digest(await store.export_state()) == snapshot_digest(first)
+        await seed(context, "chat", "turn")
+        reply = ChatMessageRecord("reply", "s", "turn", "u", "assistant", "assistant_final",
+            "Done", "{}", True, True, 201, 2, None, None)
+        assert await context.chat.store.commit_unmanaged_assistant_outcome(
+            post_turn_source="conversation", turn_id="turn", messages=[reply], attachment_payloads_by_message_id={},
+            trace_id=None, execution_mode="direct_llm", ux_plan={}, response_mode="final_only",
+            started_at_ms=100, completed_at_ms=201,
+            delivery_plan=DeliveryPlan("s", "u", (EndpointRef("phone", "message", "owner"),)))
+        delivery = await context.chat.store.claim_outbound_delivery(now_ms=202)
+        assert await context.chat.store.begin_outbound_attempt(delivery, retry_safe=False, now_ms=203)
+        assert await context.chat.store.settle_outbound_delivery(delivery, state="uncertain", now_ms=204)
+        snapshot = await context.chat.state_transfer.export_state()
+        assert snapshot.outbound_deliveries[0].state == "uncertain" and snapshot.post_turn_outcomes
+        await context.chat.reader.aclear_conversation_history("u", "s")
+        assert await context.chat.store.list_recent_outbound_status() == []
+        snapshot = await context.chat.state_transfer.export_state()
+        assert all(not item.content_text for item in snapshot.messages)
+        assert all(not item.content.text for item in await context.chat.store.list_outbound_deliveries(message_id="reply"))
     finally:
-        await database.close()
-
-
-async def test_bootstrap_reopens_selected_mysql_repositories(environment):
-    paths,config = environment
-    from magi.bootstrap.context import RuntimeBootstrapContext
-    from magi.bootstrap.structured_storage import StructuredStorageModule
-    from magi.config.models import AppConfig
-    from magi.channels.contracts import ChannelSessionMapping
-    context = RuntimeBootstrapContext()
-    context.core.runtime_paths = paths
-    context.core.config = AppConfig(structured_storage=config)
-    module = StructuredStorageModule(context)
-    await module.init()
-    try:
-        await context.channels.repositories.sessions.insert(ChannelSessionMapping(
-            channel_type="channel.a.telegram",external_chat_id="chat",external_thread_id="thread",
-            magi_session_id="session",magi_user_id="local_user",is_group=False,
-            created_at_ms=1,last_active_at_ms=1,metadata_json="{}",
-        ))
-    finally:
-        await module.shutdown()
-    restarted = StructuredStorageModule(context)
-    await restarted.init()
-    try:
-        recovered = await context.channels.repositories.sessions.lookup("channel.a.telegram","chat",external_thread_id="thread")
-        assert recovered.magi_session_id == "session"
-    finally:
-        await restarted.shutdown()
-    assert context.channels.repositories is None
-    assert context.outreach.repositories is None
-
-
-async def test_config_switch_is_rejected_before_connecting_to_destination(tmp_path,ensure_db_schema,monkeypatch):
-    from magi.bootstrap.context import RuntimeBootstrapContext
-    from magi.bootstrap.structured_storage import StructuredStorageModule
-    from magi.config.models import AppConfig
-    paths = RuntimePaths(base_dir=tmp_path)
-    ensure_db_schema("channels",paths.channels_db_path)
-    await verify_storage_selection(paths,StructuredStorageSettings(),None)
-    config = StructuredStorageSettings(channels="mysql",mysql=MysqlSettings(
-        host="127.0.0.1",database="magi_test_unreachable",user="root",password_env="MISSING_MYSQL_PASSWORD",tls=False,
-    ))
-    context = RuntimeBootstrapContext()
-    context.core.runtime_paths = paths
-    context.core.config = AppConfig(structured_storage=config)
-    with pytest.raises(RuntimeError,match="storage changed"):
-        await StructuredStorageModule(context).init()
+        await stop(context, module)

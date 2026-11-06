@@ -9,13 +9,9 @@ from sqlalchemy import select, text
 from magi.core.persistence_errors import PersistenceUnavailableError
 from magi.memory.l1.storage.events import SqliteMemoryEventRepository
 from magi.memory.l1.storage.snapshots import SqliteEventStateTransfer
-from magi.memory.l1.storage.mysql.snapshots import MysqlEventStateTransfer
-from magi.memory.l1.storage.mysql import schema as s
 from magi.memory.l1.storage_snapshot import EventStorageSnapshot
 from .test_event_repository import command, embedding_publication
-from .test_mysql_event_repository import mysql_environment as _mysql_environment
-
-mysql_environment = _mysql_environment
+from _shared.mysql_fixtures import mysql_environment
 
 
 def canonical(snapshot):
@@ -47,6 +43,7 @@ async def seed(repo):
 async def test_sqlite_mysql_sqlite_round_trip_preserves_complete_event_state(
     mysql_environment, tmp_path, ensure_db_schema
 ):
+    from _shared.mysql_storage_plugin.events.snapshots import MysqlEventStateTransfer
     remote_repo, database = mysql_environment
     source_path, target_path = str(tmp_path / "source.db"), str(tmp_path / "target.db")
     for path in (source_path, target_path):
@@ -83,6 +80,8 @@ async def test_sqlite_mysql_sqlite_round_trip_preserves_complete_event_state(
 async def test_mysql_import_failure_preserves_previous_snapshot_and_binding(
     mysql_environment, tmp_path, ensure_db_schema
 ):
+    from _shared.mysql_storage_plugin.events.snapshots import MysqlEventStateTransfer
+    from _shared.mysql_storage_plugin.events import schema as s
     repo, database = mysql_environment
     await seed(repo)
     remote = MysqlEventStateTransfer(database, center_id="center-test")

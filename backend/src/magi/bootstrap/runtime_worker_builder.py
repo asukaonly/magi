@@ -5,6 +5,7 @@ from __future__ import annotations
 from .speech_runtime import synthesize_delivery
 
 from .structured_storage import StructuredStorageModule
+from .storage_plugins import StoragePluginBootstrapModule
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -204,6 +205,7 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
         _build_subprocess_orphan_cleanup_module(context),
         CoreDependenciesModule(context),
         InitializationStateModule(context),
+        StoragePluginBootstrapModule(context),
         # A kill between restore file swaps and runtime validation leaves a
         # durable journal. Resolve it before Alembic opens either memory DB.
         MemoryRestoreRecoveryModule(context),
@@ -418,7 +420,7 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
     # own their failures and block their dependents rather than repair APIs.
     critical = {
         "runtime_core_dependencies", "runtime_initialization_state", "runtime_memory_restore_recovery",
-        "runtime_database_migrations", "runtime_configuration", "runtime_structured_storage", "runtime_command_queue",
+        "runtime_storage_plugins", "runtime_database_migrations", "runtime_configuration", "runtime_structured_storage", "runtime_command_queue",
         "runtime_chat_storage_exports", "runtime_chat_store", "runtime_message_bus", "runtime_chat_projector", "runtime_trace",
         "runtime_control_plane", "runtime_base_exports",
     }

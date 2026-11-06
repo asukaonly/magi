@@ -429,7 +429,7 @@ async def _prepare_memory_restore(
     failpoint: RestoreFailpoint | None,
     events: PortableEventStorage,
 ) -> RestoreTransaction:
-    external = events.target.kind == "mysql"
+    external = events.target.plugin_id != "storage-sqlite"
     rollback_events = await events.transfer.export_state() if external else None
     with _ENGINE_LOCK:
         if read_restore_journal(runtime_paths) is not None:

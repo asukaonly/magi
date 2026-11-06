@@ -333,6 +333,7 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 1. `subprocess_orphan_cleanup`
 2. `runtime_core_dependencies`
 3. `runtime_initialization_state`
+   - `runtime_storage_plugins` (early selected-provider runtime, before restore)
 4. `runtime_memory_restore_recovery`
 5. `runtime_database_migrations`
 6. `runtime_personal_tasks`
@@ -1757,8 +1758,9 @@ selection plus logical transfer ports. `runtime_chat_storage_exports` publishes
 the selected chat writer and reader before `runtime_chat_store` assembles the
 conversation log, workspace claims and delivery services. These early exports are
 process-critical. `runtime_memory` receives the preselected event repository.
-The shared MySQL write pool and bounded chat read pool outlive their consumers;
-shutdown unpublishes bindings and releases pools only after consumer shutdown.
+The early storage plugin runtime outlives these consumers and owns selected workers.
+Shutdown unpublishes repositories, closes provider sessions, then stops workers.
+Normal plugin activation adopts the same storage instances; it never duplicates them.
 
 Native chat requests may supply explicit `delivery_targets`. Omission uses the
 configured additional destinations; an empty list selects no additional targets.

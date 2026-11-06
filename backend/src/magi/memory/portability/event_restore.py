@@ -23,8 +23,8 @@ class ExternalEventTarget(BaseModel):
     @field_validator("target")
     @classmethod
     def require_external_target(cls, target: StorageTarget) -> StorageTarget:
-        if target.kind != "mysql":
-            raise ValueError("External event restore requires a MySQL target")
+        if target.plugin_id == "storage-sqlite":
+            raise ValueError("External event restore requires an external storage plugin")
         return target
 
 

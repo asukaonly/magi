@@ -3048,13 +3048,15 @@
         "source": "数据来源",
         "tool": "工具",
         "action": "执行器",
-        "channel": "消息渠道"
+        "channel": "消息渠道",
+        "storage": "数据存储"
       },
       "contributionType": {
         "source": "数据来源",
         "tool": "工具",
         "action": "执行器",
-        "channel": "消息渠道"
+        "channel": "消息渠道",
+        "storage": "数据存储"
       },
       "consent": {
         "title": {
@@ -6040,6 +6042,8 @@
       "reinstall": "请重新安装此插件，再授权运行。"
     },
     "connections": {
+      "storageConnectionId": "存储连接 ID",
+      "storageSelectionHint": "在服务端存储配置中选择这个连接。更换正在使用的数据库，需要先停止服务并迁移数据。",
       "selectConnection": "选择 {{name}}",
       "choose": "选择账号或文件夹",
       "title": "已接入",

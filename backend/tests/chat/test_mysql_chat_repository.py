@@ -13,11 +13,11 @@ from magi_plugin_sdk.endpoints import EndpointRef
 from magi.chat.contracts import ChatMessageRecord
 from magi.chat.errors import ChatTurnConflictError
 from magi.chat.model_context import ModelContextItem, ModelContextRevisionConflictError
-from magi.chat.storage.mysql.repository import MysqlChatRepository
+from _shared.mysql_chat_repository import MysqlChatRepository
 from magi.chat.storage.outbound_delivery import insert_outbound_deliveries
 from magi.core.persistence_errors import PersistenceConflictError
-from magi.db.mysql import MysqlDatabase, MysqlSettings
-from magi.db.mysql_migrations import upgrade_mysql_chat
+from _shared.mysql_storage_plugin.database import MysqlDatabase, MysqlSettings
+from _shared.mysql_storage_plugin.schema_lifecycle import upgrade_mysql_chat
 from magi.delivery.routing import DeliveryPlan
 from magi.utils.runtime import RuntimePaths
 
@@ -29,7 +29,7 @@ async def mysql_chat(monkeypatch, tmp_path):
         pytest.skip("Set MAGI_TEST_MYSQL_PORT for native MySQL chat contracts")
     monkeypatch.setenv("MAGI_MYSQL_CHAT_PASSWORD", os.environ.get("MAGI_TEST_MYSQL_PASSWORD", ""))
     settings = MysqlSettings(host="127.0.0.1", port=int(port), database="magi_test_architecture",
-        user=os.environ.get("MAGI_TEST_MYSQL_USER", "root"), password_env="MAGI_MYSQL_CHAT_PASSWORD", tls=False)
+        user=os.environ.get("MAGI_TEST_MYSQL_USER", "root"), password=os.environ["MAGI_MYSQL_CHAT_PASSWORD"], tls=False)
     admin = MysqlDatabase(settings)
     name = "magi_test_chat_" + uuid4().hex
     async with admin.transaction() as connection:
@@ -48,11 +48,7 @@ async def mysql_chat(monkeypatch, tmp_path):
         await admin.close()
 
 
-async def create_turn(store, *, turn="t1", session="s1"):
-    return await store.create_user_turn_once(session_id=session, user_id="u1", turn_id=turn,
-        message_text="Turn on the living room light", created_at_ms=100,
-        runtime_envelope={"session_id": session, "turn_id": turn, "message": "light", "attachments": [], "metadata": {}},
-        request_fingerprint="fingerprint-"+turn)
+from _shared.mysql_fixtures import create_turn
 
 
 async def test_native_schema_owner_and_concurrent_acceptance(mysql_chat):
@@ -262,7 +258,7 @@ async def test_native_schema_keys_do_not_escape_domain_rows(mysql_chat):
 
 @pytest.fixture
 async def mysql_chat_reader(mysql_chat, monkeypatch):
-    from magi.chat.storage.mysql.read_database import MysqlChatReadDatabase
+    from _shared.mysql_storage_plugin.chat.read_database import MysqlChatReadDatabase
     from _shared.chat_stores import build_chat_reader
     from magi.chat.storage.workspace_preferences import JsonRecentWorkspaceRepository
     from magi.runtime_trace.persistence.chat_cleanup import SqliteTraceContentRepository
@@ -271,7 +267,7 @@ async def mysql_chat_reader(mysql_chat, monkeypatch):
     _, database, paths = mysql_chat
     settings = MysqlSettings(host="127.0.0.1", port=int(os.environ["MAGI_TEST_MYSQL_PORT"]),
         database=database._engine.url.database, user=os.environ.get("MAGI_TEST_MYSQL_USER", "root"),
-        password_env="MAGI_MYSQL_CHAT_PASSWORD", tls=False)
+        password=os.environ["MAGI_MYSQL_CHAT_PASSWORD"], tls=False)
     reads = MysqlChatReadDatabase(settings, center_id="center-test")
     apply_chain_schema("runtime_trace", paths.runtime_trace_db_path)
     trace = ChatTraceReadService()

@@ -9,12 +9,12 @@ import pytest
 from sqlalchemy import func, select, text, update
 
 from magi.core.persistence_errors import PersistenceConflictError
-from magi.db.mysql import MysqlDatabase, MysqlSettings
-from magi.db.mysql_migrations import upgrade_mysql_l1
+from _shared.mysql_storage_plugin.database import MysqlDatabase, MysqlSettings
+from _shared.mysql_storage_plugin.schema_lifecycle import upgrade_mysql_l1
 from magi.memory.evidence import L1RetrievalScope
 from magi.memory.l1.ports import EventAppendResult, EventQuery
-from magi.memory.l1.storage.mysql.events import MysqlMemoryEventRepository
-from magi.memory.l1.storage.mysql import schema as s
+from _shared.mysql_storage_plugin.events.events import MysqlMemoryEventRepository
+from _shared.mysql_storage_plugin.events import schema as s
 from .test_event_repository import command
 
 
@@ -29,7 +29,7 @@ async def mysql_environment(monkeypatch):
         port=int(port),
         database="magi_test_architecture",
         user=os.environ.get("MAGI_TEST_MYSQL_USER", "root"),
-        password_env="MAGI_MYSQL_EVENTS_PASSWORD",
+        password=os.environ["MAGI_MYSQL_EVENTS_PASSWORD"],
         tls=False,
     )
     admin = MysqlDatabase(settings)
