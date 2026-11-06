@@ -355,13 +355,19 @@
           "emotion": "",
           "engine": "local",
           "instructions": "",
-          "local_model": "kokoro-multi-lang-v1_0",
+          "local_codec_path": "",
+          "local_model": "voxcpm2-8bit",
+          "local_model_path": "",
           "local_speed": 1.0,
-          "local_voice": "zf_xiaobei",
+          "local_voice": "",
           "provider_id": null,
+          "reference_audio": "",
           "remote_model": "",
           "remote_speed": 1.0,
-          "remote_voice": ""
+          "remote_voice": "",
+          "voice_description": "",
+          "voice_presets": [],
+          "voice_seed": 42
         }
       },
       "timeline": {
@@ -704,13 +710,19 @@
             "emotion": "",
             "engine": "local",
             "instructions": "",
-            "local_model": "kokoro-multi-lang-v1_0",
+            "local_codec_path": "",
+            "local_model": "voxcpm2-8bit",
+            "local_model_path": "",
             "local_speed": 1.0,
-            "local_voice": "zf_xiaobei",
+            "local_voice": "",
             "provider_id": null,
+            "reference_audio": "",
             "remote_model": "",
             "remote_speed": 1.0,
-            "remote_voice": ""
+            "remote_voice": "",
+            "voice_description": "",
+            "voice_presets": [],
+            "voice_seed": 42
           }
         },
         "timeline": {

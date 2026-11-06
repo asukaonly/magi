@@ -29,6 +29,19 @@ export function centerStorageKey(key: string): string { return prefix + key; }
 export function centerLocalStorage(): Storage { return new CenterStorage(window.localStorage, prefix); }
 export function centerSessionStorage(): Storage { return new CenterStorage(window.sessionStorage, prefix); }
 
+/** Clear content for every remembered center, preserving device appearance and preferences. */
+export function clearAllCenterStorage(): void {
+  const owns = (key: string) => key.startsWith('magi.center.') || key.startsWith('magi.offline.blocked.')
+    || UNSCOPED_CONTENT_KEYS.has(key) || UNSCOPED_CONTENT_PREFIXES.some((value) => key.startsWith(value));
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index))
+      .filter((key): key is string => key !== null && owns(key));
+    for (const key of keys) storage.removeItem(key);
+    if (keys.some((key) => storage.getItem(key) !== null)) throw new Error('Client content could not be cleared');
+  }
+  prefix = 'magi.center.unbound.';
+}
+
 /** Bind a previously verified snapshot without reconciling or deleting other epochs. */
 export function bindOfflineCenterStorageScope(serverId: string, contentEpoch: string): void {
   if (!serverId || !contentEpoch) throw new Error('Center storage identity is missing');

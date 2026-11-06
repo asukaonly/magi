@@ -19,7 +19,8 @@ from magi_plugin_sdk.audio import AudioClip
 
 from .contracts import MessageSource, SynthesisJob, SynthesisRequest
 from .engines import EngineOptions, TTSEngine
-from .models import MELO_ID, TTSModelStore
+from .models import MELO_ID, MLX_MODELS, TTSModelStore
+from .voices import TTSReferenceStore
 from .text import clean_segments
 
 SOURCE_TTL = 600
@@ -46,11 +47,12 @@ class Receipt:
 
 class SynthesisService:
     def __init__(self, root: Path, models: TTSModelStore,
-                 read_message: Callable[[MessageSource], Awaitable[str]]) -> None:
+                 read_message: Callable[[MessageSource], Awaitable[str]], reference_root: Path | None = None) -> None:
         self.root = root
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.models = models
-        self.engine = TTSEngine(models)
+        self.references = TTSReferenceStore(reference_root or root.parent / "tts-voices")
+        self.engine = TTSEngine(models, self.references)
         self.read_message = read_message
         self.receipts: dict[str, Receipt] = {}
         self.sealed = False
@@ -103,7 +105,7 @@ class SynthesisService:
 
     async def _delivery_clip(self, text: str, options: EngineOptions,
                              cancellation: threading.Event, epoch: int) -> AudioClip:
-        segments = clean_segments(text, max_chars=80 if options.model == MELO_ID else 140)
+        segments = clean_segments(text, max_chars=80 if options.model == MELO_ID or options.model in MLX_MODELS else 140)
         format_key = None
         frames = 0
         samples: list[bytes] = []
@@ -164,8 +166,8 @@ class SynthesisService:
             text = request.source.text if request.source.kind == "text" else await self.read_message(request.source)
             if epoch != self.epoch or self.sealed:
                 raise ValueError("content_clearing")
-            # The 44.1 kHz model needs shorter segments to stay within the WAV byte budget.
-            limit = max(25, int((80 if options.model == MELO_ID else 140) * options.speed))
+            # High-rate models need shorter segments to stay within the WAV byte budget.
+            limit = max(25, int((80 if options.model == MELO_ID or options.model in MLX_MODELS else 140) * options.speed))
             segments = clean_segments(text, max_chars=min(200, limit))
             job = SynthesisJob(job_id=str(uuid4()), request_id=str(request.request_id), state="ready",
                                engine=options.engine, model=options.model, voice=options.voice, speed=options.speed,
@@ -262,6 +264,7 @@ class SynthesisService:
             job.state, job.error = "unknown", "provider_outcome_unknown"
         except Exception as exc:
             allowed = {"runtime_missing", "model_missing", "model_checksum_failed", "model_invalid", "cancelled",
+                       "reference_audio_missing", "reference_audio_invalid", "model_directory_invalid", "generation_limit",
                        "provider_rejected", "provider_invalid_response", "audio_too_large", "capacity_exceeded", "stale_message", "interrupted"}
             job.state = "cancelled" if receipt.cancellation.is_set() else "failed"
             job.error = str(exc) if isinstance(exc, ValueError) and str(exc) in allowed else "synthesis_failed"

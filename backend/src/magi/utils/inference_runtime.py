@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import platform
 
 from .espeak import english_phonemes
 
@@ -23,6 +24,16 @@ def validate_inference_runtime() -> None:
             "OfflineRecognizer.from_whisper",
         ),
     }
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        required_apis.update({
+            "mlx.core": ("array", "eval", "set_memory_limit"),
+            "mlx_audio.tts.models.voxcpm2": ("Model",),
+            "mlx_audio.tts.models.qwen3_tts": ("Model",),
+            "mlx_audio.tts.models.moss_tts_nano": ("Model",),
+            "mlx_audio.tts.models.moss_tts": ("Model",),
+            "mlx_audio.codec": ("MossAudioTokenizer",),
+            "transformers": ("AutoTokenizer.from_pretrained",),
+        })
     for module_name, names in required_apis.items():
         try:
             module = importlib.import_module(module_name)

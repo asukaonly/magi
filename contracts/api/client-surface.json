@@ -1722,6 +1722,21 @@
       "surface": "management"
     },
     {
+      "method": "POST",
+      "path": "/api/speech/tts/models/inspect",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/speech/tts/references",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/speech/tts/references/{reference_id}",
+      "surface": "management"
+    },
+    {
       "method": "GET",
       "path": "/api/speech/tts/settings",
       "surface": "management"

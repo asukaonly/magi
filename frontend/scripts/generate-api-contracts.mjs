@@ -42,7 +42,7 @@ await generate('config', ['ConfigResponse', 'OnboardingStatusResponse', 'Onboard
 await generate('client', ['TurnSnapshot', 'SendConfirmation', 'SendConfirmationRequest']);
 await generate('device', ['CollectionCapability', 'CollectorScope', 'CollectorClaim', 'CapabilityIdentity', 'SourceObservation', 'DeliveryBatch', 'DeliveryReceipt']);
 await generate('product-events', ['ProductEvent']);
-await generate('tts', ['SynthesisJob', 'TTSConfiguration', 'TTSModelStatus']);
+await generate('tts', ['SynthesisJob', 'TTSConfiguration', 'TTSModelStatus', 'TTSReferenceAudio']);
 await generate('plugins', ['PluginConnectionResponse', 'PluginConnectionsResponse', 'PluginPackageResponse', 'PluginInstallCandidateResponse', 'PluginInstallJobSnapshot', 'PluginRegistryResponse', 'PluginInstallPlanResponse', 'PluginSettingsActionRunResponse', 'PluginSettingsResourceResponse', 'PluginsListResponse', 'SourceCatalogResponse']);
 
 await generate('events', ['ChatDisplayMessage', 'ChatSessionSummary', 'HistoryPageResponse', 'SessionPageResponse', 'BackgroundTask', 'BackgroundTaskEvent', 'RunEvent', 'DelegateResult']);

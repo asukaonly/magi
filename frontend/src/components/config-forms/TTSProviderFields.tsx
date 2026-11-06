@@ -15,16 +15,17 @@ export function TTSProviderFields({ value, onChange }: { value: LLMProviderTTSCo
       <p className="text-xs text-muted-foreground">{t('tts.providerHint')}</p>
       <div className="grid gap-3 sm:grid-cols-2">
         <LabeledSelectField label={t('tts.protocol')} value={value.protocol ?? 'openai'}
-          options={['openai', 'minimax', 'dashscope'].map((protocol) => ({ value: protocol, label: t(`tts.protocols.${protocol}`) }))}
+          options={['openai', 'openai_compatible', 'minimax', 'dashscope'].map((protocol) => ({ value: protocol, label: t(`tts.protocols.${protocol}`) }))}
           onChange={(protocol) => {
-            if (protocol === 'openai' || protocol === 'minimax' || protocol === 'dashscope') onChange({ ...value, protocol, base_url: '' });
+            if (protocol === 'openai' || protocol === 'openai_compatible' || protocol === 'minimax' || protocol === 'dashscope') onChange({ ...value, protocol, base_url: '' });
           }} />
         <label className="text-sm">{t('tts.endpoint')}<Input value={value.base_url ?? ''}
-          placeholder={value.protocol === 'minimax' ? 'https://api.minimax.io/v1' : value.protocol === 'dashscope' ? 'https://dashscope.aliyuncs.com/api/v1' : undefined}
+          placeholder={value.protocol === 'openai_compatible' ? 'http://127.0.0.1:8880/v1' : value.protocol === 'minimax' ? 'https://api.minimax.io/v1' : value.protocol === 'dashscope' ? 'https://dashscope.aliyuncs.com/api/v1' : undefined}
           onChange={(e) => onChange({ ...value, base_url: e.target.value })} /></label>
         <label className="text-sm">{t('tts.apiKey')}<Input type="password" autoComplete="off" value={value.api_key ?? ''} onChange={(e) => onChange({ ...value, api_key: e.target.value })} /></label>
         <label className="text-sm">{t('tts.timeout')}<Input type="number" min="1" max="180" value={value.timeout ?? 90} onChange={(e) => onChange({ ...value, timeout: Number(e.target.value) })} /></label>
       </div>
+      {value.protocol === 'openai_compatible' && <p className="text-xs leading-5 text-muted-foreground">{t('tts.selfHostedHint')}</p>}
     </>}
   </fieldset>;
 }

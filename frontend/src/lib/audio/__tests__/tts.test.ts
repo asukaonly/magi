@@ -66,6 +66,7 @@ it('prefetches one segment, preserves order and only finishes after the last sou
 it('freezes the preview draft before awaiting audio activation', async () => {
   const { controller, api } = fixture(1);
   const draft: TTSSettings = { engine: 'local', local_model: 'vits-melo-tts-zh_en', local_voice: 'zh_en', local_speed: 1,
+    local_model_path: '', local_codec_path: '', voice_description: '', reference_audio: '', voice_seed: 42, voice_presets: [],
     provider_id: null, remote_model: '', remote_voice: '', remote_speed: 1, instructions: '', emotion: '' };
   const task = controller.speak({ kind: 'text', text: 'Hello' }, null, 'manual', draft);
   draft.local_speed = 1.8;

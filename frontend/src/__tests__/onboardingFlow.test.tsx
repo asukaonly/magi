@@ -1,7 +1,7 @@
 import * as fileTransfers from '@/runtime/file-transfers';
 import * as runtimeConfig from '@/runtime/config';
 import { centerStorageKey } from '@/runtime/center-storage';
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -109,7 +109,11 @@ const stubCatalog = () => ({
       default_classify_model: "gpt-4o-mini",
       default_base_url: "https://api.openai.com/v1",
       api_format: "openai",
-      resolved_chat_models: [],
+      resolved_chat_models: [
+        stubChatModel("gpt-4o"),
+        stubChatModel("gpt-4o-mini"),
+        stubChatModel("gpt-4.1"),
+      ],
       resolved_embedding_models: [
         { id: "text-embedding-3-small", dimensions: [1536] },
       ],
@@ -1805,9 +1809,12 @@ describe("OnboardingFlow (linear 5-step)", () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByTestId("llm-setup-advanced-toggle"));
-    const modelInput = screen.getByTestId("llm-setup-core-model");
-    await user.clear(modelInput);
-    await user.type(modelInput, "gpt-4.1");
+    const modelTrigger = within(screen.getByTestId("llm-setup-core-model")).getByRole("button", {
+      name: "llmSetup.coreModelLabel",
+    });
+    await user.click(modelTrigger);
+    await user.click(screen.getByRole("button", { name: "gpt-4.1" }));
+    expect(modelTrigger).toHaveTextContent("gpt-4.1");
     await waitFor(() =>
       expect(
         screen.queryByText("llm.providerConfiguration.testSuccess"),
@@ -1838,9 +1845,12 @@ describe("OnboardingFlow (linear 5-step)", () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByTestId("llm-setup-advanced-toggle"));
-    const fastModelInput = screen.getByTestId("llm-setup-fast-model");
-    await user.clear(fastModelInput);
-    await user.type(fastModelInput, "gpt-4o-mini-new");
+    const fastModelTrigger = within(screen.getByTestId("llm-setup-fast-model")).getByRole("button", {
+      name: "llmSetup.fastModelLabel",
+    });
+    await user.click(fastModelTrigger);
+    await user.click(screen.getByRole("button", { name: "gpt-4.1" }));
+    expect(fastModelTrigger).toHaveTextContent("gpt-4.1");
     expect(
       screen.getByText("llm.providerConfiguration.testSuccess"),
     ).toBeInTheDocument();

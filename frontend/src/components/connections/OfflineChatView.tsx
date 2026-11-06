@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ClientResetAction } from './ClientResetAction';
 import { useTranslation } from 'react-i18next';
 import { CloudOff, RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -50,6 +51,7 @@ export function OfflineChatView({ descriptor, name, address, reconnecting, onRec
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
             <Button variant="outline" onClick={onChangeConnection}>{t('connections.change')}</Button>
+            <ClientResetAction />
             <Button onClick={onReconnect} disabled={reconnecting}><RotateCw className={`h-4 w-4 ${reconnecting ? 'animate-spin' : ''}`} />{t(reconnecting ? 'offline.reconnecting' : 'offline.reconnect')}</Button>
           </div>
         </div>

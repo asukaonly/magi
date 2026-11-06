@@ -207,6 +207,15 @@ def build_pyinstaller_command(
     command.extend(["--collect-all", "kaldifst"])
     command.extend(["--collect-all", "espeakng_loader"])
     command.extend(["--collect-data", "magi.speech.tts"])
+    if sys.platform == "darwin" and platform.machine().lower() == "arm64":
+        for package in ("mlx", "mlx_audio", "sentencepiece", "soundfile"):
+            command.extend(["--collect-data", package, "--collect-binaries", package])
+        for model in ("voxcpm2", "qwen3_tts", "moss_tts_nano", "moss_tts"):
+            command.extend(["--collect-submodules", f"mlx_audio.tts.models.{model}"])
+        for package in ("mlx_audio.codec", "mlx_audio.lm", "transformers"):
+            command.extend(["--collect-submodules", package])
+        for package in ("mlx-audio", "mlx", "transformers", "huggingface-hub", "sentencepiece", "soundfile"):
+            command.extend(["--copy-metadata", package])
     if "mysql" in storage_backends:
         for dialect in ("asyncmy", "pymysql"):
             command.extend(["--hidden-import", f"sqlalchemy.dialects.mysql.{dialect}"])

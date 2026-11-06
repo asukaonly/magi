@@ -4,9 +4,11 @@ mod credentials;
 pub mod offline;
 mod profiles;
 pub mod protocol;
+mod reset;
 pub mod runtime;
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use profiles::ProfileStore;
@@ -25,6 +27,9 @@ pub struct Connections {
     credentials: credentials::CredentialStore,
     offline: offline::OfflineStore,
     operation: tokio::sync::Mutex<()>,
+    reset_path: std::path::PathBuf,
+    resetting: AtomicBool,
+    reset_revision: AtomicU64,
 }
 
 impl Connections {
@@ -34,6 +39,12 @@ impl Connections {
             credentials: credentials::CredentialStore::new(directory),
             offline: offline::OfflineStore::new(directory),
             operation: tokio::sync::Mutex::new(()),
+            reset_path: directory.join("reset-pending"),
+            resetting: AtomicBool::new(
+                directory.join("reset-pending").try_exists()
+                    .map_err(|_| "Could not inspect client reset state")?,
+            ),
+            reset_revision: AtomicU64::new(0),
         })
     }
 
@@ -54,6 +65,7 @@ impl Connections {
 
     pub async fn activate(&self, id: String) -> Result<(), String> {
         let _guard = self.operation.lock().await;
+        self.require_available()?;
         let store = Arc::clone(&self.store);
         let credentials = self.credentials.clone();
         blocking(move || {
@@ -76,6 +88,8 @@ impl Connections {
         device_name: String,
     ) -> Result<Profile, String> {
         let _guard = self.operation.lock().await;
+        self.require_available()?;
+        let reset_revision = self.reset_revision.load(Ordering::Acquire);
         if !cfg!(any(unix, windows)) {
             return Err("Remote credential storage is not supported on this platform".into());
         }
@@ -112,6 +126,7 @@ impl Connections {
             client_id: grant.client_id,
         };
         let _guard = self.operation.lock().await;
+        self.require_pair_revision(reset_revision)?;
         if self.list().profiles.len() >= 17 {
             return Err("Connection profile limit reached".into());
         }

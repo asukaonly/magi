@@ -221,6 +221,11 @@ impl OfflineStore {
         Ok(())
     }
 
+    pub fn clear(&self) -> Result<(), String> {
+        self.revision.fetch_add(1, Ordering::AcqRel);
+        self.save(&Manifest::default())
+    }
+
     pub fn remove(&self, profile_id: &str) -> Result<(), String> {
         self.revision.fetch_add(1, Ordering::AcqRel);
         // A failed disk invalidation must not restore known-revoked data in this process.

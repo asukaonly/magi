@@ -301,7 +301,8 @@ async def test_preview_snapshot_does_not_save_and_is_part_of_request_identity(sy
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test",
                                 headers={"x-magi-client-id": "desktop"}) as client:
         body = request("Hello").model_dump(mode="json")
-        body["preview_settings"] = {**config.speech.tts.model_dump(), "local_speed": 1.4}
+        body["preview_settings"] = {**config.speech.tts.model_dump(), "local_model": "kokoro-multi-lang-v1_0",
+                                    "local_voice": "zf_xiaobei", "local_speed": 1.4}
         result = await client.post("/syntheses", json=body)
         assert result.status_code == 202
         assert result.json()["speed"] == 1.4

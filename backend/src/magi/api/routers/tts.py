@@ -1,18 +1,19 @@
 """Authenticated generation API; no playback or public resource URLs."""
 
+import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query
 
 from magi.config.loader import config_write_guard, get_config, save_config
 from magi.identity import CANONICAL_LOCAL_USER
 from magi.speech.tts.contracts import (
     SynthesisJob, SynthesisRequest, TTSConfiguration,
-    TTSConfigurationUpdate, TTSModelStatus,
+    TTSConfigurationUpdate, TTSModelStatus, TTSDirectoryRequest, TTSReferenceAudio,
 )
 from magi.speech.tts.catalog import choices
 from magi.speech.tts.engines import resolve_options
-from magi.speech.tts.models import MODEL_ID
+from magi.speech.tts.models import VOX_ID
 from magi.speech.tts.service import fingerprint
 from magi.bootstrap.speech_runtime import synthesis_service as service
 
@@ -40,11 +41,19 @@ async def settings() -> TTSConfiguration:
     config = get_config()
     selection = config.speech.tts
     return TTSConfiguration(settings=selection, revision=fingerprint(selection.model_dump()),
-                            models=choices(config, service().models))
+                            models=choices(config, service().models), reference_audio=service().references.list())
 
 
 @tts_router.put("/settings", response_model=TTSConfiguration)
 async def update_settings(body: TTSConfigurationUpdate) -> TTSConfiguration:
+    try:
+        for reference in {body.settings.reference_audio, *(preset.reference_audio for preset in body.settings.voice_presets)} - {""}:
+            service().references.path(reference)
+        if body.settings.engine == "local" and body.settings.local_model_path:
+            await asyncio.to_thread(service().models.get(body.settings.local_model).inspect_directory,
+                                    body.settings.local_model_path, body.settings.local_codec_path)
+    except (ValueError, OSError) as exc:
+        raise api_error(exc if isinstance(exc, ValueError) else ValueError("model_directory_invalid")) from exc
     with config_write_guard():
         config = get_config()
         if fingerprint(config.speech.tts.model_dump()) != body.revision:
@@ -52,6 +61,8 @@ async def update_settings(body: TTSConfigurationUpdate) -> TTSConfiguration:
         candidate = config.model_copy(deep=True)
         candidate.speech.tts = body.settings
         try:
+            for reference in {body.settings.reference_audio, *(preset.reference_audio for preset in body.settings.voice_presets)} - {""}:
+                service().references.path(reference)
             resolve_options(candidate)
         except ValueError as exc:
             raise api_error(exc) from exc
@@ -132,7 +143,7 @@ async def audio(job_id: UUID, seq: int, owner: str = Depends(caller)) -> Respons
 
 
 @tts_router.get("/models", response_model=TTSModelStatus)
-async def model_status(model_id: str = MODEL_ID) -> TTSModelStatus:
+async def model_status(model_id: str = VOX_ID) -> TTSModelStatus:
     try:
         return service().models.get(model_id).snapshot()
     except ValueError as exc:
@@ -140,7 +151,7 @@ async def model_status(model_id: str = MODEL_ID) -> TTSModelStatus:
 
 
 @tts_router.post("/models/download", response_model=TTSModelStatus)
-async def download(model_id: str = MODEL_ID) -> TTSModelStatus:
+async def download(model_id: str = VOX_ID) -> TTSModelStatus:
     try:
         return service().models.get(model_id).download(get_config().network.proxy_url())
     except ValueError as exc:
@@ -148,7 +159,7 @@ async def download(model_id: str = MODEL_ID) -> TTSModelStatus:
 
 
 @tts_router.post("/models/download/cancel", response_model=TTSModelStatus)
-async def cancel_download(model_id: str = MODEL_ID) -> TTSModelStatus:
+async def cancel_download(model_id: str = VOX_ID) -> TTSModelStatus:
     try:
         return await service().models.get(model_id).cancel()
     except ValueError as exc:
@@ -156,7 +167,7 @@ async def cancel_download(model_id: str = MODEL_ID) -> TTSModelStatus:
 
 
 @tts_router.delete("/models", response_model=TTSModelStatus)
-async def delete_model(model_id: str = MODEL_ID) -> TTSModelStatus:
+async def delete_model(model_id: str = VOX_ID) -> TTSModelStatus:
     service()._expire()
     if any(
         receipt.job.engine == "local" and receipt.job.model == model_id and receipt.job.state in {"ready", "running", "cancelling"}
@@ -169,3 +180,42 @@ async def delete_model(model_id: str = MODEL_ID) -> TTSModelStatus:
         return result
     except ValueError as exc:
         raise api_error(exc) from exc
+
+
+@tts_router.post("/models/inspect", response_model=TTSModelStatus)
+async def inspect_directory(body: TTSDirectoryRequest) -> TTSModelStatus:
+    try:
+        return await asyncio.to_thread(service().models.get(body.model_id).inspect_directory, body.path, body.codec_path)
+    except (ValueError, OSError) as exc:
+        raise api_error(exc if isinstance(exc, ValueError) else ValueError("model_directory_invalid")) from exc
+
+
+@tts_router.post("/references", response_model=TTSReferenceAudio)
+async def upload_reference(request: Request, name: str = Query(default="Reference", min_length=1, max_length=120)) -> TTSReferenceAudio:
+    epoch = service().epoch
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > 2 * 1024 * 1024:
+            raise HTTPException(413, "reference_audio_invalid")
+        data.extend(chunk)
+    if service().sealed or service().epoch != epoch:
+        raise HTTPException(409, "content_clearing")
+    try:
+        return service().references.add(bytes(data), name)
+    except ValueError as exc:
+        raise api_error(exc) from exc
+
+
+@tts_router.delete("/references/{reference_id}", status_code=204)
+async def delete_reference(reference_id: str) -> Response:
+    config = get_config().speech.tts
+    if reference_id == service().engine.reference_in_use or reference_id in {config.reference_audio, *(preset.reference_audio for preset in config.voice_presets)} or any(
+        receipt.options and receipt.options.reference_audio == reference_id and receipt.job.state in {"ready", "running", "cancelling"}
+        for receipt in service().receipts.values()
+    ):
+        raise HTTPException(409, "reference_audio_busy")
+    try:
+        service().references.delete(reference_id)
+    except ValueError as exc:
+        raise api_error(exc) from exc
+    return Response(status_code=204)

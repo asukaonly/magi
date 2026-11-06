@@ -548,6 +548,40 @@ describe('LLMSetupStep', () => {
     expect(screen.getByTestId('llm-setup-fast-model')).toBeInTheDocument();
   });
 
+  it('switches built-in scenario models through catalog-backed dropdowns', async () => {
+    const user = userEvent.setup();
+    const onChangeSpy = vi.fn();
+    render(<Harness onChangeSpy={onChangeSpy} />);
+
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.click(screen.getByTestId('llm-setup-advanced-toggle'));
+
+    const coreModelTrigger = within(screen.getByTestId('llm-setup-core-model')).getByRole('button', {
+      name: 'llmSetup.coreModelLabel',
+    });
+    expect(coreModelTrigger).toHaveTextContent('gpt-4o');
+    await user.click(coreModelTrigger);
+    await user.click(screen.getByRole('button', { name: 'gpt-4o-mini' }));
+
+    await waitFor(() => {
+      const latest = onChangeSpy.mock.calls[onChangeSpy.mock.calls.length - 1]?.[0] as LLMConfig;
+      expect(latest.selections.core.model).toBe('gpt-4o-mini');
+    });
+
+    const fastModelTrigger = within(screen.getByTestId('llm-setup-fast-model')).getByRole('button', {
+      name: 'llmSetup.fastModelLabel',
+    });
+    expect(fastModelTrigger).toHaveTextContent('gpt-4o-mini');
+    await user.click(fastModelTrigger);
+    await user.click(screen.getByRole('button', { name: 'gpt-4o' }));
+
+    await waitFor(() => {
+      const latest = onChangeSpy.mock.calls[onChangeSpy.mock.calls.length - 1]?.[0] as LLMConfig;
+      expect(latest.selections.core.model).toBe('gpt-4o-mini');
+      expect(latest.selections.auxiliary.model).toBe('gpt-4o');
+    });
+  });
+
   it('shows the vector-model row when the selected provider has no native vector model', async () => {
     const user = userEvent.setup();
     render(<Harness />);

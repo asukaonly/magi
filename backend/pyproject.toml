@@ -104,6 +104,10 @@ dependencies = [
     # Kokoro keeps bounded clauses together using ONNX and its pinned FST rules.
     "kaldifst==1.8.1",
     "espeakng-loader==0.2.4",
+    # The tested quantized speech catalog uses Metal on Apple Silicon.
+    "mlx-audio==0.6.2; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "transformers==5.21.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "soundfile==0.14.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
 
     # Plugin SDK (shared contracts; install sdk/ in editable mode for local dev)
     "magi-plugin-sdk>=0.2.4,<0.3.0",
@@ -131,7 +135,7 @@ Repository = "https://github.com/asukaonly/magi"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"magi.speech.tts" = ["kokoro-manifest.json", "melo-manifest.json"]
+"magi.speech.tts" = ["*-manifest.json"]
 "magi.tools.builtin" = ["_typescript_check.cjs"]
 "magi.i18n" = ["locales/*.json"]
 "magi.agent.task_agents.chat" = ["*.yaml"]

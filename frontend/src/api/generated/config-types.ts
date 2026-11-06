@@ -1256,11 +1256,21 @@ export interface components {
              */
             instructions: string;
             /**
+             * Local Codec Path
+             * @default
+             */
+            local_codec_path: string;
+            /**
              * Local Model
-             * @default kokoro-multi-lang-v1_0
+             * @default voxcpm2-8bit
              * @enum {string}
              */
-            local_model: "kokoro-multi-lang-v1_0" | "vits-melo-tts-zh_en";
+            local_model: "voxcpm2-8bit" | "moss-tts-nano" | "qwen3-tts-customvoice-8bit" | "moss-tts-local-1.5-4bit" | "kokoro-multi-lang-v1_0" | "vits-melo-tts-zh_en";
+            /**
+             * Local Model Path
+             * @default
+             */
+            local_model_path: string;
             /**
              * Local Speed
              * @default 1
@@ -1268,7 +1278,7 @@ export interface components {
             local_speed: number;
             /**
              * Local Voice
-             * @default zf_xiaobei
+             * @default
              */
             local_voice: string;
             /**
@@ -1276,6 +1286,11 @@ export interface components {
              * @default null
              */
             provider_id: string | null;
+            /**
+             * Reference Audio
+             * @default
+             */
+            reference_audio: string;
             /**
              * Remote Model
              * @default
@@ -1291,6 +1306,58 @@ export interface components {
              * @default
              */
             remote_voice: string;
+            /**
+             * Voice Description
+             * @default
+             */
+            voice_description: string;
+            /** Voice Presets */
+            voice_presets: components["schemas"]["TTSVoicePreset"][];
+            /**
+             * Voice Seed
+             * @default 42
+             */
+            voice_seed: number;
+        };
+        /**
+         * TTSVoicePreset
+         * @description A named, model-specific voice recipe; never a portable speaker identity.
+         */
+        TTSVoicePreset: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Id */
+            id: string;
+            /**
+             * Model Id
+             * @enum {string}
+             */
+            model_id: "voxcpm2-8bit" | "moss-tts-nano" | "qwen3-tts-customvoice-8bit" | "moss-tts-local-1.5-4bit" | "kokoro-multi-lang-v1_0" | "vits-melo-tts-zh_en";
+            /** Name */
+            name: string;
+            /**
+             * Reference Audio
+             * @default
+             */
+            reference_audio: string;
+            /**
+             * Seed
+             * @default 42
+             */
+            seed: number;
+            /**
+             * Speed
+             * @default 1
+             */
+            speed: number;
+            /**
+             * Voice
+             * @default
+             */
+            voice: string;
         };
         /** TimelineConfigModel */
         TimelineConfigModel: {

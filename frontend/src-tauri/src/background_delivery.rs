@@ -266,6 +266,11 @@ async fn send_next(app: &AppHandle, check_scope: bool) -> Result<(), String> {
     }
     info.data_epoch = server.maintenance.data_epoch;
     let destination = scope(&info);
+    // Serialize claiming with device reset; stale probes must not recreate producers.
+    let operation = state.operation.lock().await;
+    if !state.is_current(generation) {
+        return Ok(());
+    }
     let batch = delivery
         .storage(move |queue| {
             queue.retire_epochs(
@@ -276,7 +281,8 @@ async fn send_next(app: &AppHandle, check_scope: bool) -> Result<(), String> {
             queue.claim(&destination, now())
         })
         .await?;
-    if batch.events.is_empty() {
+    drop(operation);
+    if batch.events.is_empty() || !state.is_current(generation) {
         return Ok(());
     }
     // A switch never changes this request's address, identity or payload. Its ACK only removes these IDs.

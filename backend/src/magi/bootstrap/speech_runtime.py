@@ -35,7 +35,8 @@ def synthesis_service() -> SynthesisService:
     global _service
     if _service is None:
         paths = get_runtime_paths()
-        _service = SynthesisService(paths.cache_dir / "tts", TTSModelStore(paths.models_cache_dir / "tts"), read_message)
+        _service = SynthesisService(paths.cache_dir / "tts", TTSModelStore(paths.models_cache_dir / "tts"), read_message,
+                                   reference_root=paths.data_dir / "speech" / "voices")
     return _service
 
 

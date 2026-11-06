@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from magi.config.tts import TTSSettings
+from magi.config.tts import LocalTTSModel, TTSSettings
 from magi.utils.model_download import DownloadProgress
 
 
@@ -62,7 +62,7 @@ class VoiceInfo(BaseModel):
 
 
 class TTSModelStatus(BaseModel):
-    model_id: str = "kokoro-multi-lang-v1_0"
+    model_id: str = "voxcpm2-8bit"
     state: Literal["missing", "downloading", "ready", "failed", "cancelled"] = "missing"
     download: DownloadProgress | None = None
     error: str | None = None
@@ -85,12 +85,34 @@ class TTSModelChoice(BaseModel):
     emotions: list[str] = Field(default_factory=list)
     download_bytes: int = 0
     status: TTSModelStatus | None = None
+    recommended: bool = False
+    experimental: bool = False
+    runtime: Literal["onnx", "mlx", "remote"] = "onnx"
+    reference_audio: Literal["none", "optional", "required"] = "none"
+    voice_description: bool = False
+    seed: bool = False
+    companion_model: bool = False
+
+
+class TTSDirectoryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model_id: LocalTTSModel
+    path: str = Field(min_length=1, max_length=4096)
+    codec_path: str = Field(default="", max_length=4096)
+
+
+class TTSReferenceAudio(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    name: str = Field(min_length=1, max_length=120)
+    seconds: float = Field(ge=3, le=20, allow_inf_nan=False)
 
 
 class TTSConfiguration(BaseModel):
     settings: TTSSettings
     revision: str
     models: list[TTSModelChoice]
+    reference_audio: list[TTSReferenceAudio] = Field(default_factory=list)
 
 
 class TTSConfigurationUpdate(BaseModel):
