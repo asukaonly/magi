@@ -412,7 +412,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
     async def test_summary_tuning_controls_actual_generation_calls_and_timeout(self):
         from unittest.mock import AsyncMock
 
-        prose = "The user reviewed job opportunities and prepared a portfolio for the next application."
+        prose = "The user wanted to switch jobs and review portfolio items."
         for label, enabled, count, stall in [
             ("disabled", False, 3, False),
             ("below-threshold", True, 2, False),
@@ -445,7 +445,10 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                     side_effect=(
                         stall_call
                         if stall
-                        else [SimpleNamespace(content=prose), SimpleNamespace(content="{}")]
+                        else [
+                            SimpleNamespace(content=prose),
+                            SimpleNamespace(content='{"unsupported_claims": []}'),
+                        ]
                     )
                 )
                 now = time.time()
