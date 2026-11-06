@@ -2,6 +2,7 @@
 
 Manages the lifecycle of event projection jobs:
 pending → queued → running → completed/failed.
+Users may move terminal failures between failed and ignored without queuing work.
 """
 
 from __future__ import annotations
@@ -23,7 +24,8 @@ from ..batch_models import (
     projection_attempt_descriptor_json,
 )
 from .errors import ProjectionAttemptFencedError
-from .diagnostics import projection_failure_reason
+from .diagnostics import projection_failure_reason, projection_retry_allowed
+from .failure_management import ProjectionFailureManagementMixin
 from .fencing import assert_bound_projection_attempt
 from .governance import active_projection_event_predicate, ready_projection_job_predicate
 
@@ -43,7 +45,7 @@ ProjectionCompletionCallback = Callable[
 ]
 
 
-class ProjectionJobQueue(ProjectionQueueClaimingMixin):
+class ProjectionJobQueue(ProjectionQueueClaimingMixin, ProjectionFailureManagementMixin):
     """Persistent queue for L2 extraction projection jobs.
 
     Shares the same SQLite database as ``L2CognitionStore`` but owns
@@ -150,7 +152,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
             try:
                 async with db.execute(
                     f"""
-                    SELECT status, replay_requested
+                    SELECT status, replay_requested, last_error
                     FROM l2_projection_jobs AS jobs
                     WHERE jobs.event_id = ?
                       AND {active_projection_event_predicate('jobs.event_id')}
@@ -162,6 +164,9 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                     await db.rollback()
                     return False
                 status = str(row["status"])
+                if status == "failed" and not projection_retry_allowed(row["last_error"]):
+                    await db.rollback()
+                    return False
                 if status in {"pending", "completed", "failed"}:
                     cursor = await db.execute(
                         """
@@ -217,6 +222,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                 raise ValueError("Event IDs must be nonempty strings without surrounding whitespace")
             selected_ids = list(dict.fromkeys(event_ids))
         async with sqlite_connection_async(self.db_path) as db:
+            await db.create_function("projection_retry_allowed", 1, projection_retry_allowed, deterministic=True)
             await db.execute("BEGIN IMMEDIATE")
             try:
                 eligible = f"status = 'failed' AND {active_projection_event_predicate('l2_projection_jobs.event_id')}"
@@ -227,7 +233,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                     parameters.extend(selected_ids)
                 parameters.append(limit)
                 cursor = await db.execute(
-                    f"SELECT event_id FROM l2_projection_jobs WHERE {eligible}{selection} ORDER BY updated_at, event_id LIMIT ?",
+                    f"SELECT event_id FROM l2_projection_jobs WHERE {eligible} AND projection_retry_allowed(last_error){selection} ORDER BY updated_at, event_id LIMIT ?",
                     parameters,
                 )
                 ids = [str(row[0]) for row in await cursor.fetchall()]
@@ -789,6 +795,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                     group = groups.setdefault(key, {
                         "source": str(source), "reason": reason, "count": 0,
                         "last_failed_at": 0.0, "error": None,
+                        "retry_allowed": projection_retry_allowed(error),
                     })
                     group["count"] += int(count)
                     if float(last_failed_at) >= group["last_failed_at"]:
@@ -797,7 +804,11 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
         ordered = sorted(groups.values(), key=lambda group: (-group["count"], -group["last_failed_at"], group["source"], group["reason"]))
         visible = ordered[:max(1, min(limit, 12))]
         total = sum(group["count"] for group in ordered)
-        return {"total": total, "groups": visible, "other_count": total - sum(group["count"] for group in visible)}
+        return {
+            "total": total, "groups": visible,
+            "other_count": total - sum(group["count"] for group in visible),
+            "retryable_count": sum(group["count"] for group in ordered if group["retry_allowed"]),
+        }
 
     async def clear_all(self) -> None:
         """Delete all projection jobs."""

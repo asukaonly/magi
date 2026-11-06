@@ -1,12 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { memoryApi, type MemoryFailureSummary } from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import { formatMemoryTimeRange } from '@/utils/memory-time';
 import { useChatShellStore } from '@/stores/chat-shell';
+import type { MemoryFailureFilter } from './MemoryFailureRecords';
 
-export function MemoryFailureDetails({ revision, failed }: { revision: number; failed: number }) {
+export function MemoryFailureDetails({ revision, failed, onViewRecords, retryAction }: {
+  revision: number; failed: number;
+  onViewRecords: (filter: MemoryFailureFilter) => void;
+  retryAction: ReactNode;
+}) {
   const { t, i18n } = useTranslation('app');
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const setSettingsNavigationIntent = useChatShellStore((state) => state.setSettingsNavigationIntent);
@@ -39,6 +44,7 @@ export function MemoryFailureDetails({ revision, failed }: { revision: number; f
           <span className="text-xs text-muted-foreground">{getMemorySourceLabel(t, group.source)} · {t('memory.processing.details.count', { count: group.count })}</span>
         </div>
         <p className="mt-1 text-sm leading-6 text-muted-foreground">{t(`memory.processing.reasons.${group.reason}.help`)}</p>
+        <Button className="mt-1" variant="outline" size="sm" onClick={() => onViewRecords({ source: group.source, reason: group.reason })}>{t('memory.processing.records.viewRecords')}</Button>
         {['auth', 'model_unavailable', 'invalid_parameter'].includes(group.reason) ? <Button className="mt-1" variant="ghost" size="sm" onClick={() => {
           setSettingsNavigationIntent({ section: 'llmModels' });
           setActivePanel('settings');
@@ -47,6 +53,7 @@ export function MemoryFailureDetails({ revision, failed }: { revision: number; f
       </li>)}
     </ul>
     {summary.other_count > 0 ? <p className="text-xs text-muted-foreground">{t('memory.processing.details.other', { count: summary.other_count })}</p> : null}
+    {summary.retryable_count > 0 ? retryAction : null}
   </div>;
 }
 
@@ -65,7 +72,7 @@ export function ConversationFailureDetails({ errorKinds }: { errorKinds: string[
   </ul>;
 }
 
-function FailureTechnicalDetail({ error, time }: { error: string | null; time?: string }) {
+export function FailureTechnicalDetail({ error, time }: { error: string | null; time?: string }) {
   const { t } = useTranslation('app');
   return <details className="mt-2 text-xs text-muted-foreground">
     <summary className="w-fit cursor-pointer rounded-sm py-1 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">{t('memory.processing.details.technical')}</summary>

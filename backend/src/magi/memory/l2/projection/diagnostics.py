@@ -11,6 +11,15 @@ ProjectionFailureReason = Literal[
     "invalid_response", "interrupted", "missing_source", "unknown",
 ]
 
+NON_RETRYABLE_PROJECTION_REASONS = frozenset({
+    "content_filter", "content_inspection_failed", "missing_source",
+})
+
+
+def projection_retry_allowed(error: str | None) -> bool:
+    """Keep unchanged content rejections out of manual bulk recovery."""
+    return projection_failure_reason(error) not in NON_RETRYABLE_PROJECTION_REASONS
+
 _PROVIDER_REASON = re.compile(
     r"^L2 LLM call failed for .+ \(kind=(auth|rate_limit|timeout|service_unavailable|"
     r"content_filter|invalid_parameter|content_inspection_failed|unknown),"

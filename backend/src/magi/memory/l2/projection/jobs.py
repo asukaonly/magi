@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any, Dict, Protocol, cast
+from typing import Any, Dict, Literal, Protocol, cast
 
 import aiosqlite
 
@@ -307,3 +307,20 @@ class L2ProjectionJobStoreMixin:
         """Return actionable failure groups without loading source records."""
         await self.initialize()
         return await self._projection_queue.get_failure_summary()
+
+    async def list_projection_failure_records(
+        self, *, status: Literal["failed", "ignored"] = "failed", source: str | None = None,
+        reason: str | None = None, event_id: str | None = None, limit: int = 20, offset: int = 0,
+    ) -> dict[str, Any]:
+        """Read one filtered page of actionable or user-ignored failures."""
+        await self.initialize()
+        return await self._projection_queue.list_failure_records(
+            status=status, source=source, reason=reason, event_id=event_id, limit=limit, offset=offset,
+        )
+
+    async def set_projection_failure_disposition(
+        self, *, action: Literal["ignore", "restore"], selections: list[dict[str, Any]],
+    ) -> dict[str, int]:
+        """Ignore or restore terminal failures without modifying source memory."""
+        await self.initialize()
+        return await self._projection_queue.set_failure_disposition(action=action, selections=selections)

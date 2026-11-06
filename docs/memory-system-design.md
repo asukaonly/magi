@@ -3733,6 +3733,27 @@ and diagnostic groups. Opening or refreshing diagnostics never replays work.
 Model configuration failures link to model settings. Detail reads have independent
 loading/retry state and discard responses after the disclosure is closed.
 
+The persistent **Processing records** entry opens a paginated list with **Needs
+attention** and **Ignored** views. Source/cause filters precede pagination and
+counts. List previews are bounded; reading a complete original requires an
+explicit event ID and uses L1's user-visible read boundary. Removed or hidden
+originals remain unavailable. Content rejection describes the failed request,
+not a finding that every member of an extraction batch violated a rule. The
+service does not identify a specific offending sentence; the UI must not invent
+one or highlight a guessed passage.
+
+Content-filter, content-inspection and missing-source failures are excluded from
+manual retry selection before applying its limit. Other failures retain bounded
+recovery, including configuration failures after repair. User ignore changes a
+terminal projection job from `failed` to `ignored`, preserving its original,
+last diagnostic and attempt history. It neither deletes data nor claims successful
+extraction. Ignored jobs do not contribute to failure counts or automatic work,
+and duplicate ingestion/replay cannot silently reactivate them. Undo returns the
+job to `failed` without queuing it. Both actions require the exact reviewed
+`updated_at` value and refuse active, stale or governed records. Batch actions
+cover only the displayed page. No schema migration is needed: the queue's existing
+unconstrained status column owns this additional terminal state.
+
 ### Chinese journey regression and live evaluation
 
 `backend/tests/memory/journeys/test_chinese_memory_journey.py` runs a fresh-store

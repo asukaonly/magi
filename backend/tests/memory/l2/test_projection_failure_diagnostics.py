@@ -23,12 +23,12 @@ async def test_groups_causes_across_requests_and_excludes_forgotten_jobs(l2_stor
     assert (await store.get_projection_backlog_stats())["failed"] == 3
     assert summary["other_count"] == 0
     assert summary["groups"] == [{
-        "source": "chrome-history", "reason": "auth", "count": 3,
+        "source": "chrome-history", "reason": "auth", "count": 3, "retry_allowed": True,
         "last_failed_at": 3.0,
         "error": "L2 LLM call failed for extraction (kind=auth, status=401, request_id=2)",
     }]
     await store.retry_failed_projection_jobs()
-    assert await store.get_projection_failure_summary() == {"total": 0, "groups": [], "other_count": 0}
+    assert await store.get_projection_failure_summary() == {"total": 0, "groups": [], "other_count": 0, "retryable_count": 0}
 
 
 @pytest.mark.asyncio

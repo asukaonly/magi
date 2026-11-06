@@ -862,6 +862,16 @@
       "surface": "management"
     },
     {
+      "method": "POST",
+      "path": "/api/memory/l2/failures/disposition",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory/l2/failures/records",
+      "surface": "management"
+    },
+    {
       "method": "GET",
       "path": "/api/memory/l2/mentions",
       "surface": "management"

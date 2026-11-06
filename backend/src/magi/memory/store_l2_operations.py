@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Mapping, Optional
+from typing import Any, Dict, Iterable, Literal, Mapping, Optional
 
 from magi.identity.defaults import CANONICAL_LOCAL_USER
 
@@ -55,6 +55,15 @@ class UnifiedMemoryL2OperationsMixin:
             if result["queued_count"]:
                 await self.l2_pipeline.flush_pending_projection_jobs()
             return result
+
+    async def set_l2_failure_disposition(
+        self, *, action: Literal["ignore", "restore"], selections: list[dict[str, Any]],
+    ) -> dict[str, int]:
+        """Persist a user disposition under the memory clear boundary."""
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            if self.l2 is None:
+                raise RuntimeError("Memory extraction is unavailable")
+            return await self.l2.set_projection_failure_disposition(action=action, selections=selections)
 
     async def reconcile_entities(self, entity_ids: list[str]) -> bool:
         """Trigger entity-level reconcile for one or more entities."""

@@ -10,7 +10,7 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, args
 describe('MemoryProcessingStatus', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.mocked(memoryApi.getL2Failures).mockResolvedValue({ total: 2, other_count: 0, groups: [{ source: 'chat', reason: 'auth', count: 2, last_failed_at: 123, error: 'Access denied' }] });
+    vi.mocked(memoryApi.getL2Failures).mockResolvedValue({ total: 2, other_count: 0, retryable_count: 2, groups: [{ source: 'chat', reason: 'auth', retry_allowed: true, count: 2, last_failed_at: 123, error: 'Access denied' }] });
   });
 
   it('preserves the failure explanation and permits retry after request failure', async () => {
@@ -44,7 +44,7 @@ describe('MemoryProcessingStatus', () => {
     expect(button).toBeDisabled();
     expect(memoryApi.retryFailedL2Extractions).toHaveBeenCalledOnce();
     complete({ queued_count: 100, remaining_count: 50 });
-    await waitFor(() => expect(button).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'memory.processing.retry:' })).not.toBeDisabled());
     expect(screen.getByRole('status')).toHaveTextContent('memory.processing.queued:100 memory.processing.remaining:50');
   });
 
@@ -76,10 +76,10 @@ describe('MemoryProcessingStatus', () => {
 
   it('keeps healthy status invisible and normal processing free of recovery actions', () => {
     const { rerender } = render(<MemoryProcessingStatus pending={0} failed={0} onRetried={() => {}} />);
-    expect(screen.queryByTestId('memory-processing-status')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.processing.records.title:' })).toBeInTheDocument();
     rerender(<MemoryProcessingStatus pending={2} failed={0} onRetried={() => {}} />);
     expect(screen.getByText('memory.processing.pending:2')).toBeInTheDocument();
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'memory.processing.retry:' })).not.toBeInTheDocument();
     expect(memoryApi.getL2Failures).not.toHaveBeenCalled();
   });
 
@@ -103,7 +103,7 @@ describe('MemoryProcessingStatus', () => {
     render(<MemoryProcessingStatus pending={0} failed={2} onRetried={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'memory.processing.details.show:' }));
     fireEvent.click(screen.getByRole('button', { name: 'memory.processing.details.hide:' }));
-    finish({ total: 0, other_count: 0, groups: [] });
+    finish({ total: 0, other_count: 0, retryable_count: 0, groups: [] });
     fireEvent.click(screen.getByRole('button', { name: 'memory.processing.details.show:' }));
     expect(await screen.findByText('memory.processing.reasons.auth.title:')).toBeInTheDocument();
     expect(screen.queryByText('memory.processing.details.empty:')).not.toBeInTheDocument();

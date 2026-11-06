@@ -5,6 +5,7 @@ import { memoryApi, type MemoryPostTurnProcessingBacklog } from '@/api/modules/m
 import { Button } from '@/components/ui/button';
 import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { ConversationFailureDetails, MemoryFailureDetails } from './MemoryFailureDetails';
+import { MemoryFailureRecords, type MemoryFailureFilter } from './MemoryFailureRecords';
 
 export const MemoryProcessingStatus = ({ pending, failed, postTurn, onRetried, onRefresh }: {
   pending: number;
@@ -14,18 +15,20 @@ export const MemoryProcessingStatus = ({ pending, failed, postTurn, onRetried, o
   onRefresh?: () => void;
 }) => {
   const { t } = useTranslation('app');
-  if (!pending && !failed && postTurn !== null && !postTurn?.pending && !postTurn?.claimed && !postTurn?.failed) return null;
+  const [recordsFilter, setRecordsFilter] = useState<MemoryFailureFilter | null>(null);
   return <div className="space-y-2" data-testid="memory-processing-status">
-    <ProcessingQueueStatus pending={pending} failed={failed} prefix="memory.processing" retryFailed={memoryApi.retryFailedL2Extractions} onRetried={onRetried} />
+    <div className="flex justify-end"><Button variant="ghost" size="sm" onClick={() => setRecordsFilter({})}>{t('memory.processing.records.title')}</Button></div>
+    <ProcessingQueueStatus pending={pending} failed={failed} prefix="memory.processing" retryFailed={memoryApi.retryFailedL2Extractions} onRetried={onRetried} onViewRecords={setRecordsFilter} />
     {postTurn === null ? <section className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm text-muted-foreground" aria-live="polite">
       <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
       <p className="min-w-0 flex-1">{t('memory.processing.postTurn.unavailable')}</p>
       {onRefresh ? <Button variant="ghost" size="sm" onClick={onRefresh}>{t('common.retry')}</Button> : null}
     </section> : postTurn ? <ProcessingQueueStatus pending={postTurn.pending} running={postTurn.claimed} failed={postTurn.failed} errorKinds={postTurn.error_kinds} prefix="memory.processing.postTurn" retryFailed={memoryApi.retryFailedPostTurn} onRetried={onRetried} /> : null}
+    {recordsFilter ? <MemoryFailureRecords initialFilter={recordsFilter} onClose={() => setRecordsFilter(null)} onChanged={onRetried} /> : null}
   </div>;
 };
 
-const ProcessingQueueStatus = ({ pending, running = 0, failed, errorKinds = [], prefix, retryFailed, onRetried }: {
+const ProcessingQueueStatus = ({ pending, running = 0, failed, errorKinds = [], prefix, retryFailed, onRetried, onViewRecords }: {
   pending: number;
   running?: number;
   failed: number;
@@ -33,6 +36,7 @@ const ProcessingQueueStatus = ({ pending, running = 0, failed, errorKinds = [], 
   prefix: 'memory.processing' | 'memory.processing.postTurn';
   retryFailed: () => Promise<{ queued_count: number; remaining_count: number }>;
   onRetried: () => void;
+  onViewRecords?: (filter: MemoryFailureFilter) => void;
 }) => {
   const { t } = useTranslation('app');
   const [busy, setBusy] = useState(false);
@@ -59,6 +63,13 @@ const ProcessingQueueStatus = ({ pending, running = 0, failed, errorKinds = [], 
     } catch { if (current()) setError(true); }
     finally { submitting.current = false; if (current()) setBusy(false); }
   };
+  const retryAction = <div className="mt-4 flex flex-wrap items-center gap-3">
+    <Button variant="outline" size="sm" disabled={busy} onClick={() => void retry()}>
+      {busy ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />}
+      {t(`${prefix}.${busy ? 'retrying' : 'retry'}`)}
+    </Button>
+    <span className="text-xs text-muted-foreground">{t(`${prefix}.batchHelp`)}</span>
+  </div>;
   if (!pending && !running && !failed && queued === null) return null;
   return <section className={failed > 0 || expanded ? 'rounded-xl bg-muted/40' : ''}>
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
@@ -80,16 +91,10 @@ const ProcessingQueueStatus = ({ pending, running = 0, failed, errorKinds = [], 
     </div>
     {expanded ? <div id={detailsId} className="mx-3 border-t border-border/60 pb-4 pt-4 sm:mx-10">
       <p className="mb-4 text-sm leading-6 text-muted-foreground">{t(`${prefix}.help`)}</p>
-      {failed > 0 ? prefix === 'memory.processing'
-        ? <MemoryFailureDetails revision={revision} failed={failed} />
+      {failed > 0 ? prefix === 'memory.processing' && onViewRecords
+        ? <MemoryFailureDetails revision={revision} failed={failed} onViewRecords={onViewRecords} retryAction={retryAction} />
         : <ConversationFailureDetails errorKinds={errorKinds} /> : null}
-      {failed > 0 ? <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button variant="outline" size="sm" disabled={busy} onClick={() => void retry()}>
-          {busy ? <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />}
-          {t(`${prefix}.${busy ? 'retrying' : 'retry'}`)}
-        </Button>
-        <span className="text-xs text-muted-foreground">{t(`${prefix}.batchHelp`)}</span>
-      </div> : null}
+      {failed > 0 && prefix === 'memory.processing.postTurn' ? retryAction : null}
       {queued !== null ? <p role="status" className="mt-3 text-sm text-muted-foreground">{t(`${prefix}.queued`, { count: queued })}{remaining > 0 ? ` ${t(`${prefix}.remaining`, { count: remaining })}` : ''}</p> : null}
       {error ? <p role="alert" className="mt-3 text-sm text-destructive">{t(`${prefix}.retryFailed`)}</p> : null}
     </div> : null}

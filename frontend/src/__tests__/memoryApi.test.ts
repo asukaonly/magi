@@ -282,14 +282,28 @@ describe('memory fact display response boundaries', () => {
   });
 
   it('validates failure reasons, group counts, and the complete total', async () => {
-    const group = { source: 'chat', reason: 'auth', count: 2, last_failed_at: 123, error: 'Access denied' };
-    const payload = { total: 2, other_count: 0, groups: [group] };
+    const group = { source: 'chat', reason: 'auth', retry_allowed: true, count: 2, last_failed_at: 123, error: 'Access denied' };
+    const payload = { total: 2, other_count: 0, retryable_count: 2, groups: [group] };
     const get = vi.spyOn(api, 'get').mockResolvedValue(response(payload));
     expect(await memoryApi.getL2Failures()).toEqual(payload);
     expect(get).toHaveBeenCalledWith('/memory/l2/failures');
     for (const invalid of [{ ...payload, total: 3 }, { ...payload, other_count: -1 }, { ...payload, groups: [{ ...group, reason: 'made_up' }] }, { ...payload, groups: [{ ...group, count: '2' }] }]) {
       get.mockResolvedValue(response(invalid));
       await expect(memoryApi.getL2Failures()).rejects.toThrow();
+    }
+  });
+
+  it('validates failure records and sends the exact reviewed version when ignoring', async () => {
+    const record = { event_id: 'event-1', source: 'notes', reason: 'content_filter', retry_allowed: false, status: 'failed', attempt_count: 1, last_failed_at: 10, updated_at: 20, content: 'Original', content_truncated: false, recorded_at: 1, error: null };
+    const get = vi.spyOn(api, 'get').mockResolvedValue(response({ items: [record], total: 1, offset: 0, limit: 20 }));
+    const result = await memoryApi.getL2FailureRecords({ status: 'failed', reason: 'content_filter' });
+    expect(result.items).toEqual([record]);
+    const post = vi.spyOn(api, 'post').mockResolvedValue(response({ changed_count: 1, unchanged_count: 0 }));
+    await memoryApi.setL2FailureDisposition('ignore', result.items);
+    expect(post).toHaveBeenCalledWith('/memory/l2/failures/disposition', { action: 'ignore', selections: [{ event_id: 'event-1', expected_updated_at: 20 }] });
+    for (const invalid of [{ status: 'completed' }, { retry_allowed: 'false' }, { content: 5 }, { updated_at: null }]) {
+      get.mockResolvedValue(response({ items: [{ ...record, ...invalid }], total: 1, offset: 0, limit: 20 }));
+      await expect(memoryApi.getL2FailureRecords({})).rejects.toThrow();
     }
   });
 
