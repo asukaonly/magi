@@ -858,6 +858,11 @@
     },
     {
       "method": "GET",
+      "path": "/api/memory/l2/failures",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
       "path": "/api/memory/l2/mentions",
       "surface": "management"
     },
