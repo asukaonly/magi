@@ -38,8 +38,16 @@ interchangeable.
 | Skills | `get_skills()` and packaged `SKILL.md` | Shared index, loader, execution and owner-safe removal |
 | Hooks | `get_hooks()`, `HookContext`, `HookDecision` | Validated JSON events and existing decision precedence |
 | Providers | `get_providers()` and SDK provider requests/events | Search, model and external-agent adapters; bounded streams |
+| Storage | `get_storage_providers()` and SDK storage requests/results | Startup selection, repository injection, recovery ordering and active-connection lifetime protection |
 | History imports | `get_history_importers()` | User-selected bounded input and host memory governance |
 | Configuration | Manifest fields, setup actions, resources and UI blocks | Forms, write-only credentials, optimistic revisions and setup authority |
+
+Storage contributions use the versioned `StorageOpen`, `StorageOpened`,
+`StorageCall`, and `StorageResult` SDK values. Their worker dispatch exposes only
+`open`, `invoke`, and `close`; repository operations accept bounded JSON values,
+never SQL connections or host objects. Domain repositories remain host-owned
+contracts. Storage bindings pin their connection until its consumers have
+drained, so normal contribution disposal cannot replace an active storage owner.
 
 Installation records package integrity and user consent. It does not create an
 account. The user creates a connection, supplies configuration or runs an

@@ -63,6 +63,7 @@ class ContributionType(str, Enum):
 
     OPERATION = "operation"
     PROVIDER = "provider"
+    STORAGE = "storage"
     TOOL = "tool"
     SOURCE = "source"
     CHANNEL = "channel"

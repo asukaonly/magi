@@ -247,6 +247,9 @@ class PluginManager(PluginInstallationMixin):
 
             provider_registrar = PluginProviderRegistry(get_connection=self.connection_store.get)
         self.provider_registry = provider_registrar
+        from .storage_registry import PluginStorageRegistry
+
+        self.storage_registry = PluginStorageRegistry()
         from ..events.plugin_ingress import PluginIngressRegistry
 
         self.ingress_registry = ingress_registry or PluginIngressRegistry()
@@ -261,6 +264,7 @@ class PluginManager(PluginInstallationMixin):
             hook_registry_provider=hook_registry_provider,
             operation_registrar=operation_registrar,
             provider_registrar=provider_registrar,
+            storage_registrar=self.storage_registry,
         )
         self._settings_service = PluginSettingsService(
             get_connection=self.connection_store.get,

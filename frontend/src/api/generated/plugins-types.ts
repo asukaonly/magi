@@ -138,7 +138,7 @@ export interface components {
          * @description Supported plugin contribution categories.
          * @enum {string}
          */
-        ContributionType: "operation" | "provider" | "tool" | "source" | "channel" | "skill" | "hook" | "history_importer";
+        ContributionType: "operation" | "provider" | "storage" | "tool" | "source" | "channel" | "skill" | "hook" | "history_importer";
         /**
          * DeviceCollectorSpec
          * @description Static native collector requirement; this does not grant device access.
@@ -849,7 +849,7 @@ export interface components {
             kind: "plugin" | "library";
             /**
              * Min Sdk Version
-             * @default 0.2.6
+             * @default 0.2.7
              */
             min_sdk_version: string;
             /** Name */

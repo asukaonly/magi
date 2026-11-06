@@ -1205,6 +1205,15 @@ class ProcessPluginProxy(Plugin):
             for item in self._catalog["get_providers"]
         ]
 
+    def get_storage_providers(self) -> list[Any]:
+        from magi_plugin_sdk.storage import StorageProviderSpec
+        from .storage_proxy import StorageProviderProxy
+
+        return [
+            (StorageProviderSpec.model_validate(item["spec"]), StorageProviderProxy(self, item["target"]))
+            for item in self._catalog["get_storage_providers"]
+        ]
+
     async def invoke_operation(
         self, operation_id: str, arguments: dict[str, Any], identity: InvocationIdentity
     ) -> Any:

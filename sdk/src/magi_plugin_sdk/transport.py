@@ -33,6 +33,7 @@ from . import (
     runtime,
     source_query,
     sources,
+    storage,
     tools,
     user_content,
 )
@@ -59,6 +60,7 @@ class WorkerRuntimePaths:
 
 # Keep this list explicit. Adding an SDK class requires boundary review.
 _TYPE_NAMES = {
+    storage: "StorageProviderSpec StorageOpen StorageOpened StorageCall StorageResult",
     endpoints: "EndpointRef IngressContext",
     audio: "AudioClip AudioOutputTarget AudioTargetInfo AudioPlaybackReceipt AudioPlaybackState",
     contracts: "PluginManifest DeviceCollectorSpec ExtensionFieldOption ExtensionFieldSpec ActivationFirstContextSpec ActivationFlowSpec SettingsUIBlockSpec PluginSettingsActionSpec PluginSettingsActionResult PluginSettingsResourceSpec PluginSettingsResourcePayload TemporalSummaryFeatureBudget TemporalSummarySourceFeatures DerivedAssertionRuleSpec ExtractionProfileSpec SummaryProfileSpec ContributionType PluginCapability PluginPermissions LocalizedText Triggers SuggestionSurfaceSpec SuggestionSurfacesSpec SuggestionDescriptor PluginDisplayGroupSpec LocalRequirementFileExists LocalRequirementExecutableInPath LocalRequirementAppInstalled",

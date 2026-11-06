@@ -14,6 +14,10 @@ not part of the plugin authoring contract.
 """
 
 from .endpoints import EndpointRef, IngressContext
+from .storage import (
+    StorageProvider, StorageProviderSpec, StorageOpen, StorageOpened,
+    StorageCall, StorageResult,
+)
 
 from .base import Plugin
 from .audio import (
@@ -182,6 +186,8 @@ from .source_watch import SourceEmitter
 __version__ = SDK_VERSION
 
 __all__ = [
+    "StorageProvider", "StorageProviderSpec", "StorageOpen", "StorageOpened",
+    "StorageCall", "StorageResult",
     "EndpointRef", "IngressContext",
     "AudioClip", "AudioOutputChannel", "AudioOutputTarget", "AudioTargetInfo", "AudioPlaybackReceipt",
     "AudioPlaybackState",
