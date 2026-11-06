@@ -25,10 +25,10 @@ class ProviderUsage:
     reasoning_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
-    # Subset of cache_write_tokens written with a 1h TTL (Anthropic prices these
-    # at 2x base input vs 1.25x for the 5m default). 0 for vendors/requests with
-    # no 1h breakdown. See pricing.calculate_chat_cost.
+    # TTL-specific counts are subsets of cache_write_tokens, never extra input.
     cache_write_1h_tokens: int = 0
+    cache_write_12h_tokens: int = 0
+    service_tier: str | None = None
     # Whether the provider usage payload exposed cache-specific fields at all.
     # This distinguishes "provider reported zero cache" from "provider did not
     # report cache fields", which is essential for cache diagnostics.

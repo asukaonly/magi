@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from math import isfinite
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from magi.core.operation_barrier import AsyncOperationBarrier
+from magi.config.pricing_models import LLMModelCostModel
 from magi.events.events import Event, EventTypes, published_memory_epoch
 from magi.events.domain_payloads import SpanCompleted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
@@ -193,9 +195,13 @@ class LLMUsageSubscriber:
         # which the stats UI renders as an em dash instead of a fake $0.00.
         explicit_cost = attrs.get("cost_usd")
         if explicit_cost is not None:
-            return float(explicit_cost), "USD"
+            amount = float(explicit_cost)
+            return (amount, "USD") if isfinite(amount) and amount >= 0 else (None, None)
 
         provider_plan = str(attrs.get("provider_plan") or "").strip() or None
+        if not attrs.get("usage_available") and not attrs.get("image_count"):
+            return None, None
+        billing = attrs.get("billing") or {}
         cost_amount, cost_currency = calculate_chat_cost(
             provider=provider,
             provider_plan=provider_plan,
@@ -205,6 +211,14 @@ class LLMUsageSubscriber:
             cache_read_tokens=int(attrs.get("cache_read_tokens", 0)),
             cache_write_tokens=int(attrs.get("cache_write_tokens", 0)),
             cache_write_1h_tokens=int(attrs.get("cache_write_1h_tokens", 0)),
+            cache_write_12h_tokens=int(attrs.get("cache_write_12h_tokens", 0)),
+            requested_at=billing.get("requested_at", float(payload.started_at_ms) / 1000),
+            endpoint_host=billing.get("endpoint_host"),
+            service_tier=billing.get("service_tier", "default"),
+            thinking=billing.get("thinking"),
+            cache_mode=billing.get("cache_mode", "implicit"),
+            inference_geo=billing.get("inference_geo", "global"),
+            cost_override=LLMModelCostModel.model_validate(attrs["cost_override"]) if attrs.get("cost_override") is not None else None,
         )
         if cost_amount is not None:
             return cost_amount, cost_currency

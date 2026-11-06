@@ -2608,6 +2608,8 @@
         "noFailureData": "暂无失败数据"
       },
       "llm": {
+        "estimatedCost": "估算费用",
+        "estimatedCostUnpriced": "估算费用（{{count}} 次调用未计价）",
         "tabs": {
           "models": "按模型",
           "providers": "按提供商",

@@ -7,6 +7,7 @@ from ..openai_transport import create_completion
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, cast
 
+from .billing import capture_billing_context
 from .logging import (
     RawProviderResponseLogger,
     build_provider_test_log_context as _build_provider_test_log_context,
@@ -216,6 +217,7 @@ class ProviderBridgeRequestMixin:
             request_type="anthropic_messages",
             request=anthropic_kwargs,
         )
+        capture_billing_context(request.event_context, anthropic_kwargs)
         response = await host.llm._client.messages.create(**anthropic_kwargs)
         RawProviderResponseLogger(host.llm, request.event_context).log_response(response)
         if hasattr(response, "content"):
@@ -248,6 +250,7 @@ class ProviderBridgeRequestMixin:
             request_type="openai_chat_completions",
             request=chat_kwargs,
         )
+        capture_billing_context(request.event_context, chat_kwargs)
         response = await create_completion(host.llm._client,**chat_kwargs)
 
         RawProviderResponseLogger(host.llm, request.event_context).log_response(response)
@@ -377,6 +380,7 @@ class ProviderBridgeRequestMixin:
             anthropic_kwargs = host._apply_provider_options(
                 anthropic_kwargs, thinking_depth
             )
+            capture_billing_context(event_context, anthropic_kwargs)
             response = await host.llm._client.messages.create(**anthropic_kwargs)
             RawProviderResponseLogger(host.llm, event_context).log_response(response)
             return host._parse_anthropic_response(response)
@@ -400,6 +404,7 @@ class ProviderBridgeRequestMixin:
         kwargs = host._apply_provider_options(kwargs, thinking_depth)
         kwargs = host._apply_cache_routing(kwargs, event_context)
 
+        capture_billing_context(event_context, kwargs)
         response = await create_completion(host.llm._client,**kwargs)
         RawProviderResponseLogger(host.llm, event_context).log_response(response)
         return host._parse_openai_response(response)

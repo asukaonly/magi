@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 from .storage_models import StructuredStorageSettings
 from .speech import SpeechSettings
+from .pricing_models import LLMModelCostModel as LLMModelCostModel
 from .constants import DEFAULT_MAX_TOKENS, MIN_MAX_TOKENS
 from .memory_models import (
     CrossEncoderSettings as CrossEncoderSettings,
@@ -129,19 +130,6 @@ class LLMLimitsOverrideSettings(BaseModel):
     max_output_tokens: Optional[int] = Field(default=None, ge=1)
     max_tool_schemas: Optional[int] = Field(default=None, ge=1)
     max_schema_tokens: Optional[int] = Field(default=None, ge=1)
-
-
-class LLMModelCostModel(BaseModel):
-    """Provider-published pricing metadata for a model."""
-
-    currency: str = Field(default="USD")
-    input_per_million_tokens: Optional[float] = Field(default=None, ge=0)
-    cached_input_per_million_tokens: Optional[float] = Field(default=None, ge=0)
-    cache_write_per_million_tokens: Optional[float] = Field(default=None, ge=0)
-    output_per_million_tokens: Optional[float] = Field(default=None, ge=0)
-    per_image: Optional[float] = Field(default=None, ge=0)
-    source: Optional[str] = Field(default=None)
-    source_note: Optional[str] = Field(default=None)
 
 
 class LLMModelMetadataOverrideSettings(BaseModel):

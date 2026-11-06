@@ -111,12 +111,18 @@ def build_examples() -> dict:
     from magi.api.routers.code_agent import CodeAgentSettingsResponse, CodeAgentProbeResponse, CodeAgentProbeResults
     from magi.tools.code_agent.settings import CodeAgentSettings
     from magi.tools.code_agent.contracts import ProbeResult
+    from magi.config.models import LLMModelMetadataOverrideSettings
+    from magi.config.pricing_models import LLMModelCostModel, LLMPricingRule
 
     config = SystemConfigModel()
     config.memory.db_path = "/fixture/magi/data/memory"
     config.memory.archive_path = "/fixture/magi/data/memory/archive"
     config.preferences.default_chat_workspace_path = "/fixture/magi/chat-workspace"
     config.llm.providers["openai"] = LLMProviderConfigModel()
+    config.llm.providers["openai"].model_metadata_overrides["fixture-model"] = LLMModelMetadataOverrideSettings(
+        cost=LLMModelCostModel(input_per_million_tokens=2, output_per_million_tokens=10,
+            rules=[LLMPricingRule(min_input_tokens=272001, rates={"input_per_million_tokens": 4})]),
+    )
     for selection in config.llm.selections.values():
         selection.provider_id = "openai"
         selection.model = "fixture-model"

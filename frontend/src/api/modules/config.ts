@@ -150,16 +150,7 @@ export interface LLMLimitsOverride {
   max_schema_tokens?: number | null;
 }
 
-export interface LLMModelCost {
-  currency: string;
-  input_per_million_tokens?: number | null;
-  cached_input_per_million_tokens?: number | null;
-  cache_write_per_million_tokens?: number | null;
-  output_per_million_tokens?: number | null;
-  per_image?: number | null;
-  source?: string | null;
-  source_note?: string | null;
-}
+export type LLMModelCost = Partial<components['schemas']['LLMModelCostModel']> & { currency: string };
 
 export type ModelVendor = components['schemas']['ModelVendor'];
 

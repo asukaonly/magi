@@ -934,8 +934,47 @@
         "type": "object"
       },
       "LLMModelCostModel": {
-        "description": "Provider-published pricing metadata for a model.",
+        "description": "Provider-published prices; absent rates mean unknown, never free.",
         "properties": {
+          "cache_storage_per_million_token_hours": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cache Storage Per Million Token Hours"
+          },
+          "cache_write_12h_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cache Write 12H Per Million Tokens"
+          },
+          "cache_write_1h_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cache Write 1H Per Million Tokens"
+          },
           "cache_write_per_million_tokens": {
             "anyOf": [
               {
@@ -967,6 +1006,13 @@
             "title": "Currency",
             "type": "string"
           },
+          "endpoint_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Endpoint Hosts",
+            "type": "array"
+          },
           "input_per_million_tokens": {
             "anyOf": [
               {
@@ -993,6 +1039,17 @@
             "default": null,
             "title": "Output Per Million Tokens"
           },
+          "peak_pricing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LLMPeakPricing"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "per_image": {
             "anyOf": [
               {
@@ -1005,6 +1062,13 @@
             ],
             "default": null,
             "title": "Per Image"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/LLMPricingRule"
+            },
+            "title": "Rules",
+            "type": "array"
           },
           "source": {
             "anyOf": [
@@ -1029,6 +1093,19 @@
             ],
             "default": null,
             "title": "Source Note"
+          },
+          "verified_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Verified On"
           }
         },
         "required": [
@@ -1036,10 +1113,17 @@
           "input_per_million_tokens",
           "cached_input_per_million_tokens",
           "cache_write_per_million_tokens",
+          "cache_write_1h_per_million_tokens",
+          "cache_write_12h_per_million_tokens",
           "output_per_million_tokens",
+          "cache_storage_per_million_token_hours",
           "per_image",
           "source",
-          "source_note"
+          "source_note",
+          "verified_on",
+          "endpoint_hosts",
+          "rules",
+          "peak_pricing"
         ],
         "title": "LLMModelCostModel",
         "type": "object"
@@ -1224,6 +1308,238 @@
           "dimensions"
         ],
         "title": "LLMModelMetadataOverrideSettings",
+        "type": "object"
+      },
+      "LLMPeakPricing": {
+        "description": "UTC weekday peak windows, excluding published Chinese holiday dates.",
+        "properties": {
+          "calendar_years": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Calendar Years",
+            "type": "array"
+          },
+          "holidays": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "format": "date",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Holidays",
+            "type": "array"
+          },
+          "multiplier": {
+            "exclusiveMinimum": 0,
+            "title": "Multiplier",
+            "type": "number"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "utc_windows": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Utc Windows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "utc_windows",
+          "multiplier",
+          "calendar_years",
+          "holidays",
+          "sources"
+        ],
+        "title": "LLMPeakPricing",
+        "type": "object"
+      },
+      "LLMPricingRule": {
+        "description": "Matching rules override rates in order; multipliers compose afterward.",
+        "properties": {
+          "cache_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "implicit",
+                  "explicit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cache Mode"
+          },
+          "endpoint_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Endpoint Hosts",
+            "type": "array"
+          },
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ends At"
+          },
+          "inference_geo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Inference Geo"
+          },
+          "max_input_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Input Tokens"
+          },
+          "max_output_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Output Tokens"
+          },
+          "min_input_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Min Input Tokens"
+          },
+          "min_output_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Min Output Tokens"
+          },
+          "multiplier": {
+            "default": 1,
+            "minimum": 0,
+            "title": "Multiplier",
+            "type": "number"
+          },
+          "rates": {
+            "$ref": "#/components/schemas/LLMRateOverrides"
+          },
+          "service_tiers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Service Tiers",
+            "type": "array"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Starts At"
+          },
+          "thinking": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Thinking"
+          }
+        },
+        "required": [
+          "min_input_tokens",
+          "max_input_tokens",
+          "min_output_tokens",
+          "max_output_tokens",
+          "starts_at",
+          "ends_at",
+          "endpoint_hosts",
+          "service_tiers",
+          "thinking",
+          "cache_mode",
+          "inference_geo",
+          "rates",
+          "multiplier"
+        ],
+        "title": "LLMPricingRule",
         "type": "object"
       },
       "LLMProviderASRSettings": {
@@ -1584,6 +1900,120 @@
           "timeout"
         ],
         "title": "LLMProviderTTSConfigModel",
+        "type": "object"
+      },
+      "LLMRateOverrides": {
+        "description": "Omitted prices inherit; explicit null makes the price unknown.",
+        "properties": {
+          "cache_storage_per_million_token_hours": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Storage Per Million Token Hours"
+          },
+          "cache_write_12h_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Write 12H Per Million Tokens"
+          },
+          "cache_write_1h_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Write 1H Per Million Tokens"
+          },
+          "cache_write_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Write Per Million Tokens"
+          },
+          "cached_input_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached Input Per Million Tokens"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "input_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Per Million Tokens"
+          },
+          "output_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Per Million Tokens"
+          },
+          "per_image": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Image"
+          }
+        },
+        "title": "LLMRateOverrides",
         "type": "object"
       },
       "LLMSelectionConfigModel": {

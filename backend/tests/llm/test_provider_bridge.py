@@ -182,7 +182,7 @@ def _build_test_llm_config(*, override_limit: int | None = None):
             LLMConcurrencyOverrideSettings(max_concurrency=override_limit)
         )
     return SimpleNamespace(
-        llm=SimpleNamespace(model_runtime_overrides=llm_settings.model_runtime_overrides)
+        llm=llm_settings
     )
 
 

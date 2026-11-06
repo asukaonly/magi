@@ -213,9 +213,9 @@ async def test_records_native_currency_for_non_usd_model(fake_bus, fake_store):
     await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
     await sub.drain()
     written = fake_store.record_call.await_args.args[0]
-    # qwen3.6-plus input is 2.0 CNY / million tokens -> 1M prompt tokens = 2.0 CNY
+    # A 1M prompt uses the long-context tier: 8 CNY per million input tokens.
     assert written["cost_currency"] == "CNY"
-    assert written["cost_usd"] == pytest.approx(2.0)
+    assert written["cost_usd"] == pytest.approx(8.0)
 
 
 @pytest.mark.asyncio
@@ -462,3 +462,37 @@ async def test_clear_boundary_drains_started_projection_and_rejects_old_work(
     await sub.drain()
 
     assert seen_request_ids == ["started-before-clear", "new-after-clear"]
+
+
+@pytest.mark.asyncio
+async def test_billing_uses_request_time_and_exclusive_ttl_buckets(fake_bus, fake_store):
+    from datetime import datetime
+
+    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
+    sent_at = datetime.fromisoformat('2026-11-06T01:00:00+00:00').timestamp()
+    payload = _payload(attrs={'provider': 'deepseek', 'model': 'deepseek-flash',
+                             'prompt_tokens': 1000, 'completion_tokens': 100, 'usage_available': True,
+                             'billing': {'requested_at': sent_at}})
+    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
+    await sub.drain()
+    assert fake_store.record_call.await_args.args[0]['cost_usd'] == pytest.approx(.00042)
+
+    payload = _payload(attrs={'provider': 'openai', 'model': 'gpt-6.1-sol',
+        'prompt_tokens': 1000, 'cache_read_tokens': 200, 'cache_write_tokens': 700,
+        'cache_write_12h_tokens': 400, 'completion_tokens': 100, 'usage_available': True})
+    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
+    await sub.drain()
+    assert fake_store.record_call.await_args.args[0]['cost_usd'] == pytest.approx(.00397)
+
+
+@pytest.mark.asyncio
+async def test_custom_price_snapshot_is_used_without_a_catalog_model(fake_bus, fake_store):
+    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
+    payload = _payload(attrs={'provider': 'custom', 'model': 'account-model',
+        'prompt_tokens': 1000, 'completion_tokens': 100, 'usage_available': True,
+        'cost_override': {'currency': 'CNY', 'input_per_million_tokens': 3, 'output_per_million_tokens': 6}})
+    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
+    await sub.drain()
+    record = fake_store.record_call.await_args.args[0]
+    assert record['cost_usd'] == pytest.approx(.0036)
+    assert record['cost_currency'] == 'CNY'

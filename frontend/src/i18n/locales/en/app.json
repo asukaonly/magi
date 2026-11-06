@@ -2609,6 +2609,8 @@
         "noFailureData": "No failure data"
       },
       "llm": {
+        "estimatedCost": "Estimated cost",
+        "estimatedCostUnpriced": "Estimated cost ({{count}} unpriced calls)",
         "tabs": {
           "models": "By model",
           "providers": "By provider",

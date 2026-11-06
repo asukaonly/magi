@@ -130,3 +130,30 @@ def test_multimodal_and_optional_reasoning_request():
                                 "messages": [{"role": "user", "content": [{"type": "text", "text": "describe"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,YQ=="}}]}]})
     assert request["temperature"] == 0.5
     assert request["input"][0]["content"][1]["type"] == "input_image"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('stream', [False, True])
+async def test_responses_preserves_cache_write_ttls_and_reported_service_tier(stream):
+    from magi.llm.provider_bridge.responses import ProviderBridgeResponseMixin
+
+    payload = response()
+    payload['service_tier'] = 'priority'
+    payload['usage']['input_tokens'] = 1000
+    payload['usage']['input_tokens_details'] = {
+        'cached_tokens': 200, 'cache_write_tokens': 700,
+        'cache_write_tokens_details': {'ttl_30m_tokens': 300, 'ttl_12h_tokens': 400},
+    }
+    if stream:
+        payload = [{'type': 'response.completed', 'response': payload}]
+    async with client_for([payload], []) as client:
+        result = await create_completion(client, model='gpt-6.1-sol', messages=[], stream=stream)
+        if stream:
+            chunks = [chunk async for chunk in result]
+            result = chunks[-1]
+        usage = ProviderBridgeResponseMixin._extract_openai_usage(result)
+    assert usage.prompt_tokens == 1000
+    assert usage.cache_read_tokens == 200
+    assert usage.cache_write_tokens == 700
+    assert usage.cache_write_12h_tokens == 400
+    assert usage.service_tier == 'priority'

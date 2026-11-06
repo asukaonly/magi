@@ -19,13 +19,54 @@ providers:
           max_output_tokens: 128000
         cost:
           currency: USD
-          input_per_million_tokens: 2
-          output_per_million_tokens: 10
+          input_per_million_tokens: 2.0
+          output_per_million_tokens: 10.0
           cached_input_per_million_tokens: 0.1
           cache_write_per_million_tokens: 2.5
-          source: https://developers.openai.com/api/docs/models/gpt-6.1-sol
-          source_note: Standard short-context rates. Cache writes use default retention where listed; long-context and
-            extended-retention surcharges are excluded.
+          cache_write_12h_per_million_tokens: 5.0
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.openai.com
+          - us.api.openai.com
+          - eu.api.openai.com
+          rules:
+          - min_input_tokens: 272001
+            rates:
+              input_per_million_tokens: 4.0
+              output_per_million_tokens: 15.0
+              cached_input_per_million_tokens: 0.2
+              cache_write_per_million_tokens: 5.0
+              cache_write_12h_per_million_tokens: 10.0
+          - multiplier: 0.5
+            service_tiers:
+            - flex
+          - service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 4.0
+              output_per_million_tokens: 20.0
+              cached_input_per_million_tokens: 0.2
+              cache_write_per_million_tokens: 5.0
+              cache_write_12h_per_million_tokens: 10.0
+          - min_input_tokens: 272001
+            service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 8.0
+              output_per_million_tokens: 30.0
+              cached_input_per_million_tokens: 0.4
+              cache_write_per_million_tokens: 10.0
+              cache_write_12h_per_million_tokens: 20.0
+          - multiplier: 6
+            service_tiers:
+            - ultrafast
+          - multiplier: 1.1
+            endpoint_hosts:
+            - us.api.openai.com
+            - eu.api.openai.com
       - id: gpt-6.1-terra
         label: GPT-6.1 Terra
         capabilities:
@@ -38,13 +79,51 @@ providers:
           max_output_tokens: 128000
         cost:
           currency: USD
-          input_per_million_tokens: 1
-          output_per_million_tokens: 5
+          input_per_million_tokens: 1.0
+          output_per_million_tokens: 5.0
           cached_input_per_million_tokens: 0.05
           cache_write_per_million_tokens: 1.25
-          source: https://developers.openai.com/api/docs/models/gpt-6.1-terra
-          source_note: Standard short-context rates. Cache writes use default retention where listed; long-context and
-            extended-retention surcharges are excluded.
+          cache_write_12h_per_million_tokens: 2.5
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.openai.com
+          - us.api.openai.com
+          - eu.api.openai.com
+          rules:
+          - min_input_tokens: 272001
+            rates:
+              input_per_million_tokens: 2.0
+              output_per_million_tokens: 7.5
+              cached_input_per_million_tokens: 0.1
+              cache_write_per_million_tokens: 2.5
+              cache_write_12h_per_million_tokens: 5.0
+          - multiplier: 0.5
+            service_tiers:
+            - flex
+          - service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 2.0
+              output_per_million_tokens: 10.0
+              cached_input_per_million_tokens: 0.1
+              cache_write_per_million_tokens: 2.5
+              cache_write_12h_per_million_tokens: 5.0
+          - min_input_tokens: 272001
+            service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 4.0
+              output_per_million_tokens: 15.0
+              cached_input_per_million_tokens: 0.2
+              cache_write_per_million_tokens: 5.0
+              cache_write_12h_per_million_tokens: 10.0
+          - multiplier: 1.1
+            endpoint_hosts:
+            - us.api.openai.com
+            - eu.api.openai.com
       - id: gpt-6-luna
         label: GPT-6 Luna
         capabilities:
@@ -61,9 +140,47 @@ providers:
           output_per_million_tokens: 0.5
           cached_input_per_million_tokens: 0.01
           cache_write_per_million_tokens: 0.125
-          source: https://developers.openai.com/api/docs/models/gpt-6-luna
-          source_note: Standard short-context rates. Cache writes use default retention where listed; long-context and
-            extended-retention surcharges are excluded.
+          cache_write_12h_per_million_tokens: 0.25
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.openai.com
+          - us.api.openai.com
+          - eu.api.openai.com
+          rules:
+          - min_input_tokens: 272001
+            rates:
+              input_per_million_tokens: 0.2
+              output_per_million_tokens: 0.75
+              cached_input_per_million_tokens: 0.02
+              cache_write_per_million_tokens: 0.25
+              cache_write_12h_per_million_tokens: 0.5
+          - multiplier: 0.5
+            service_tiers:
+            - flex
+          - service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 0.2
+              output_per_million_tokens: 1.0
+              cached_input_per_million_tokens: 0.02
+              cache_write_per_million_tokens: 0.25
+              cache_write_12h_per_million_tokens: 0.5
+          - min_input_tokens: 272001
+            service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 0.4
+              output_per_million_tokens: 1.5
+              cached_input_per_million_tokens: 0.04
+              cache_write_per_million_tokens: 0.5
+              cache_write_12h_per_million_tokens: 1.0
+          - multiplier: 1.1
+            endpoint_hosts:
+            - us.api.openai.com
+            - eu.api.openai.com
       - id: gpt-6-astra
         label: GPT-6 Astra
         capabilities:
@@ -76,11 +193,54 @@ providers:
           max_output_tokens: 128000
         cost:
           currency: USD
-          input_per_million_tokens: 10
-          output_per_million_tokens: 50
-          source: https://developers.openai.com/api/docs/models/gpt-6-astra
-          source_note: Standard short-context rates. Cache writes use default retention where listed; long-context and
-            extended-retention surcharges are excluded.
+          input_per_million_tokens: 10.0
+          output_per_million_tokens: 50.0
+          cached_input_per_million_tokens: 1.0
+          cache_write_per_million_tokens: 12.5
+          cache_write_12h_per_million_tokens: 25.0
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.openai.com
+          - us.api.openai.com
+          - eu.api.openai.com
+          rules:
+          - min_input_tokens: 272001
+            rates:
+              input_per_million_tokens: 20.0
+              output_per_million_tokens: 75.0
+              cached_input_per_million_tokens: 2.0
+              cache_write_per_million_tokens: 25.0
+              cache_write_12h_per_million_tokens: 50.0
+          - multiplier: 0.5
+            service_tiers:
+            - flex
+          - service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 20.0
+              output_per_million_tokens: 100.0
+              cached_input_per_million_tokens: 2.0
+              cache_write_per_million_tokens: 25.0
+              cache_write_12h_per_million_tokens: 50.0
+          - min_input_tokens: 272001
+            service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 40.0
+              output_per_million_tokens: 150.0
+              cached_input_per_million_tokens: 4.0
+              cache_write_per_million_tokens: 50.0
+              cache_write_12h_per_million_tokens: 100.0
+          - multiplier: 6
+            service_tiers:
+            - ultrafast
+          - multiplier: 1.1
+            endpoint_hosts:
+            - us.api.openai.com
+            - eu.api.openai.com
       - id: gpt-5.6
         label: GPT-5.6 Sol
         capabilities:
@@ -93,10 +253,61 @@ providers:
           max_output_tokens: 128000
         cost:
           currency: USD
-          input_per_million_tokens: 5.0
-          cached_input_per_million_tokens: 0.5
-          output_per_million_tokens: 30.0
-          source: https://developers.openai.com/api/docs/models/gpt-5.6
+          input_per_million_tokens: 4.0
+          output_per_million_tokens: 20.0
+          cached_input_per_million_tokens: 0.4
+          cache_write_per_million_tokens: 5.0
+          cache_write_12h_per_million_tokens: 10.0
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.openai.com
+          - us.api.openai.com
+          - eu.api.openai.com
+          rules:
+          - min_input_tokens: 272001
+            rates:
+              input_per_million_tokens: 8.0
+              output_per_million_tokens: 30.0
+              cached_input_per_million_tokens: 0.8
+              cache_write_per_million_tokens: 10.0
+              cache_write_12h_per_million_tokens: 20.0
+          - multiplier: 0.5
+            service_tiers:
+            - flex
+          - service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 8.0
+              output_per_million_tokens: 40.0
+              cached_input_per_million_tokens: 0.8
+              cache_write_per_million_tokens: 10.0
+              cache_write_12h_per_million_tokens: 20.0
+          - min_input_tokens: 272001
+            service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 16.0
+              output_per_million_tokens: 60.0
+              cached_input_per_million_tokens: 1.6
+              cache_write_per_million_tokens: 20.0
+              cache_write_12h_per_million_tokens: 40.0
+          - multiplier: 1.1
+            endpoint_hosts:
+            - us.api.openai.com
+            - eu.api.openai.com
+          - starts_at: '2026-12-01T00:00:00Z'
+            rates:
+              input_per_million_tokens: null
+              output_per_million_tokens: null
+              cached_input_per_million_tokens: null
+              cache_write_per_million_tokens: null
+              cache_write_1h_per_million_tokens: null
+              cache_write_12h_per_million_tokens: null
+          source_note: Per-request input length selects short/long rates. The published 5.6 promotional rate expires on November
+            30; unknown successor rates are not guessed.
       - id: gpt-5.6-terra
         label: GPT-5.6 Terra
         capabilities:
@@ -109,10 +320,51 @@ providers:
           max_output_tokens: 128000
         cost:
           currency: USD
-          input_per_million_tokens: 2.5
-          cached_input_per_million_tokens: 0.25
-          output_per_million_tokens: 15.0
-          source: https://developers.openai.com/api/docs/models/gpt-5.6-terra
+          input_per_million_tokens: 2.0
+          output_per_million_tokens: 12.0
+          cached_input_per_million_tokens: 0.2
+          cache_write_per_million_tokens: 2.5
+          cache_write_12h_per_million_tokens: 5.0
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.openai.com
+          - us.api.openai.com
+          - eu.api.openai.com
+          rules:
+          - min_input_tokens: 272001
+            rates:
+              input_per_million_tokens: 4.0
+              output_per_million_tokens: 18.0
+              cached_input_per_million_tokens: 0.4
+              cache_write_per_million_tokens: 5.0
+              cache_write_12h_per_million_tokens: 10.0
+          - multiplier: 0.5
+            service_tiers:
+            - flex
+          - service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 4.0
+              output_per_million_tokens: 24.0
+              cached_input_per_million_tokens: 0.4
+              cache_write_per_million_tokens: 5.0
+              cache_write_12h_per_million_tokens: 10.0
+          - min_input_tokens: 272001
+            service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 8.0
+              output_per_million_tokens: 36.0
+              cached_input_per_million_tokens: 0.8
+              cache_write_per_million_tokens: 10.0
+              cache_write_12h_per_million_tokens: 20.0
+          - multiplier: 1.1
+            endpoint_hosts:
+            - us.api.openai.com
+            - eu.api.openai.com
       - id: gpt-5.6-luna
         label: GPT-5.6 Luna
         capabilities:
@@ -125,10 +377,51 @@ providers:
           max_output_tokens: 128000
         cost:
           currency: USD
-          input_per_million_tokens: 1.0
-          cached_input_per_million_tokens: 0.1
-          output_per_million_tokens: 6.0
-          source: https://developers.openai.com/api/docs/models/gpt-5.6-luna
+          input_per_million_tokens: 0.2
+          output_per_million_tokens: 1.2
+          cached_input_per_million_tokens: 0.02
+          cache_write_per_million_tokens: 0.25
+          cache_write_12h_per_million_tokens: 0.5
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.openai.com
+          - us.api.openai.com
+          - eu.api.openai.com
+          rules:
+          - min_input_tokens: 272001
+            rates:
+              input_per_million_tokens: 0.4
+              output_per_million_tokens: 1.8
+              cached_input_per_million_tokens: 0.04
+              cache_write_per_million_tokens: 0.5
+              cache_write_12h_per_million_tokens: 1.0
+          - multiplier: 0.5
+            service_tiers:
+            - flex
+          - service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 0.4
+              output_per_million_tokens: 2.4
+              cached_input_per_million_tokens: 0.04
+              cache_write_per_million_tokens: 0.5
+              cache_write_12h_per_million_tokens: 1.0
+          - min_input_tokens: 272001
+            service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 0.8
+              output_per_million_tokens: 3.6
+              cached_input_per_million_tokens: 0.08
+              cache_write_per_million_tokens: 1.0
+              cache_write_12h_per_million_tokens: 2.0
+          - multiplier: 1.1
+            endpoint_hosts:
+            - us.api.openai.com
+            - eu.api.openai.com
       - id: gpt-5.5
         label: GPT-5.5
         capabilities:
@@ -142,9 +435,45 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 5.0
-          cached_input_per_million_tokens: 0.5
           output_per_million_tokens: 30.0
-          source: https://developers.openai.com/api/docs/models/gpt-5.5
+          cached_input_per_million_tokens: 0.5
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.openai.com
+          - us.api.openai.com
+          - eu.api.openai.com
+          rules:
+          - min_input_tokens: 272001
+            rates:
+              input_per_million_tokens: 10.0
+              output_per_million_tokens: 45.0
+              cached_input_per_million_tokens: 1.0
+          - multiplier: 0.5
+            service_tiers:
+            - flex
+          - service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 12.5
+              output_per_million_tokens: 75.0
+              cached_input_per_million_tokens: 1.25
+          - min_input_tokens: 272001
+            service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: null
+              output_per_million_tokens: null
+              cached_input_per_million_tokens: null
+              cache_write_per_million_tokens: null
+              cache_write_1h_per_million_tokens: null
+              cache_write_12h_per_million_tokens: null
+          - multiplier: 1.1
+            endpoint_hosts:
+            - us.api.openai.com
+            - eu.api.openai.com
       - id: gpt-5.4
         label: GPT-5.4
         capabilities:
@@ -158,9 +487,45 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 2.5
-          cached_input_per_million_tokens: 0.25
           output_per_million_tokens: 15.0
-          source: https://developers.openai.com/api/docs/models/gpt-5.4
+          cached_input_per_million_tokens: 0.25
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.openai.com
+          - us.api.openai.com
+          - eu.api.openai.com
+          rules:
+          - min_input_tokens: 272001
+            rates:
+              input_per_million_tokens: 5.0
+              output_per_million_tokens: 22.5
+              cached_input_per_million_tokens: 0.5
+          - multiplier: 0.5
+            service_tiers:
+            - flex
+          - service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 5.0
+              output_per_million_tokens: 30.0
+              cached_input_per_million_tokens: 0.5
+          - min_input_tokens: 272001
+            service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: null
+              output_per_million_tokens: null
+              cached_input_per_million_tokens: null
+              cache_write_per_million_tokens: null
+              cache_write_1h_per_million_tokens: null
+              cache_write_12h_per_million_tokens: null
+          - multiplier: 1.1
+            endpoint_hosts:
+            - us.api.openai.com
+            - eu.api.openai.com
       - id: gpt-5.2
         label: GPT-5.2
         capabilities:
@@ -174,9 +539,25 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.75
-          cached_input_per_million_tokens: 0.175
           output_per_million_tokens: 14.0
-          source: https://openai.com/api/pricing/
+          cached_input_per_million_tokens: 0.175
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.openai.com
+          - us.api.openai.com
+          - eu.api.openai.com
+          rules:
+          - multiplier: 0.5
+            service_tiers:
+            - flex
+          - service_tiers:
+            - priority
+            - fast
+            rates:
+              input_per_million_tokens: 3.5
+              output_per_million_tokens: 28.0
+              cached_input_per_million_tokens: 0.35
     embedding_models:
       - id: text-embedding-3-small
         label: Text Embedding 3 Small
@@ -266,8 +647,14 @@ providers:
           output_per_million_tokens: 10
           cached_input_per_million_tokens: 0.1
           cache_write_per_million_tokens: 2.5
+          cache_write_1h_per_million_tokens: 4
           source: https://platform.claude.com/docs/en/about-claude/pricing
-          source_note: Standard base rates; cache writes use 5-minute TTL.
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.anthropic.com
+          rules:
+          - multiplier: 1.1
+            inference_geo: us
       - id: claude-haiku-5-5
         label: Claude Haiku 5.5
         capabilities:
@@ -280,8 +667,25 @@ providers:
           max_output_tokens: 131072
         cost:
           currency: USD
+          input_per_million_tokens: 0.1
+          output_per_million_tokens: 0.5
+          cached_input_per_million_tokens: 0.01
+          cache_write_per_million_tokens: 0.125
+          cache_write_1h_per_million_tokens: 0.2
           source: https://platform.claude.com/docs/en/about-claude/pricing
-          source_note: Published rates start at $0.10 input / $0.50 output per million tokens; no flat estimate is assigned.
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.anthropic.com
+          rules:
+          - min_input_tokens: 100001
+            rates:
+              input_per_million_tokens: 0.5
+              output_per_million_tokens: 2.5
+              cached_input_per_million_tokens: 0.05
+              cache_write_per_million_tokens: 0.625
+              cache_write_1h_per_million_tokens: 1
+          - multiplier: 1.1
+            inference_geo: us
       - id: claude-opus-5-5
         label: Claude Opus 5.5
         capabilities:
@@ -297,9 +701,18 @@ providers:
           input_per_million_tokens: 4
           output_per_million_tokens: 20
           cached_input_per_million_tokens: 0.2
-          cache_write_per_million_tokens: 5
+          cache_write_per_million_tokens: 5.0
+          cache_write_1h_per_million_tokens: 8
           source: https://platform.claude.com/docs/en/about-claude/pricing
-          source_note: Standard base rates; cache writes use 5-minute TTL.
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.anthropic.com
+          rules:
+          - multiplier: 2
+            service_tiers:
+            - fast
+          - multiplier: 1.1
+            inference_geo: us
       - id: claude-fable-5-1
         label: Claude Fable 5.1
         capabilities:
@@ -316,8 +729,14 @@ providers:
           output_per_million_tokens: 50
           cached_input_per_million_tokens: 0.25
           cache_write_per_million_tokens: 12.5
+          cache_write_1h_per_million_tokens: 20
           source: https://platform.claude.com/docs/en/about-claude/pricing
-          source_note: Standard base rates; cache writes use 5-minute TTL.
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.anthropic.com
+          rules:
+          - multiplier: 1.1
+            inference_geo: us
       - id: claude-sonnet-5
         label: Claude Sonnet 5
         capabilities:
@@ -331,11 +750,17 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 3.0
+          output_per_million_tokens: 15.0
           cached_input_per_million_tokens: 0.3
           cache_write_per_million_tokens: 3.75
-          output_per_million_tokens: 15.0
-          source: https://platform.claude.com/docs/en/about-claude/models/whats-new-sonnet-5
-          source_note: Cache write uses the 5-minute cache write price.
+          cache_write_1h_per_million_tokens: 6.0
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.anthropic.com
+          rules:
+          - multiplier: 1.1
+            inference_geo: us
       - id: claude-sonnet-4-6
         label: Claude Sonnet 4.6
         capabilities:
@@ -349,11 +774,17 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 3.0
+          output_per_million_tokens: 15.0
           cached_input_per_million_tokens: 0.3
           cache_write_per_million_tokens: 3.75
-          output_per_million_tokens: 15.0
-          source: https://docs.anthropic.com/en/docs/about-claude/pricing
-          source_note: Cache write uses the 5-minute cache write price.
+          cache_write_1h_per_million_tokens: 6.0
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.anthropic.com
+          rules:
+          - multiplier: 1.1
+            inference_geo: us
       - id: claude-opus-4-8
         label: Claude Opus 4.8
         capabilities:
@@ -367,11 +798,20 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 5.0
+          output_per_million_tokens: 25.0
           cached_input_per_million_tokens: 0.5
           cache_write_per_million_tokens: 6.25
-          output_per_million_tokens: 25.0
-          source: https://docs.anthropic.com/en/docs/about-claude/pricing
-          source_note: Cache write uses the 5-minute cache write price.
+          cache_write_1h_per_million_tokens: 10.0
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.anthropic.com
+          rules:
+          - multiplier: 2
+            service_tiers:
+            - fast
+          - multiplier: 1.1
+            inference_geo: us
       - id: claude-opus-4-6
         label: Claude Opus 4.6
         capabilities:
@@ -385,11 +825,17 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 5.0
+          output_per_million_tokens: 25.0
           cached_input_per_million_tokens: 0.5
           cache_write_per_million_tokens: 6.25
-          output_per_million_tokens: 25.0
-          source: https://docs.anthropic.com/en/docs/about-claude/pricing
-          source_note: Cache write uses the 5-minute cache write price.
+          cache_write_1h_per_million_tokens: 10.0
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.anthropic.com
+          rules:
+          - multiplier: 1.1
+            inference_geo: us
       - id: claude-haiku-4-5
         label: Claude Haiku 4.5
         capabilities:
@@ -403,11 +849,14 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.0
+          output_per_million_tokens: 5.0
           cached_input_per_million_tokens: 0.1
           cache_write_per_million_tokens: 1.25
-          output_per_million_tokens: 5.0
-          source: https://docs.anthropic.com/en/docs/about-claude/pricing
-          source_note: Cache write uses the 5-minute cache write price.
+          cache_write_1h_per_million_tokens: 2.0
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.anthropic.com
     fields:
       model:
         visible: true
@@ -438,9 +887,16 @@ providers:
           max_output_tokens: 128000
         cost:
           currency: CNY
-          source: https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3
-          source_note: Use the selected BigModel region/account price; international Z.ai USD rates are not applied
-            to the China endpoint.
+          input_per_million_tokens: 8
+          output_per_million_tokens: 28
+          cached_input_per_million_tokens: 2
+          cache_storage_per_million_token_hours: 0
+          source: https://docs.bigmodel.cn/cn/guide/start/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - open.bigmodel.cn
+          source_note: Published China standard prices. Cache storage is temporarily free; account-specific promotions are
+            excluded.
         provider_options_example:
           thinking:
             type: enabled
@@ -458,9 +914,16 @@ providers:
           max_output_tokens: 128000
         cost:
           currency: CNY
-          source: https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash
-          source_note: Use the selected BigModel region/account price; international Z.ai USD rates are not applied
-            to the China endpoint.
+          input_per_million_tokens: 0.8
+          output_per_million_tokens: 2.8
+          cached_input_per_million_tokens: 0.23
+          cache_storage_per_million_token_hours: 0
+          source: https://docs.bigmodel.cn/cn/guide/start/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - open.bigmodel.cn
+          source_note: Published China standard prices. Cache storage is temporarily free; account-specific promotions are
+            excluded.
         provider_options_example:
           thinking:
             type: enabled
@@ -478,9 +941,16 @@ providers:
           max_output_tokens: 128000
         cost:
           currency: CNY
-          source: https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash
-          source_note: Use the selected BigModel region/account price; international Z.ai USD rates are not applied
-            to the China endpoint.
+          input_per_million_tokens: 2
+          output_per_million_tokens: 7
+          cached_input_per_million_tokens: 0.57
+          cache_storage_per_million_token_hours: 0
+          source: https://docs.bigmodel.cn/cn/guide/start/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - open.bigmodel.cn
+          source_note: Published China standard prices. Cache storage is temporarily free; account-specific promotions are
+            excluded.
         provider_options_example:
           thinking:
             type: enabled
@@ -497,11 +967,17 @@ providers:
           context_window: 1000000
           max_output_tokens: 131072
         cost:
-          currency: USD
-          input_per_million_tokens: 1.4
-          cached_input_per_million_tokens: 0.26
-          output_per_million_tokens: 4.4
-          source: https://docs.z.ai/guides/llm/glm-5.2
+          currency: CNY
+          input_per_million_tokens: 8
+          output_per_million_tokens: 28
+          cached_input_per_million_tokens: 2
+          cache_storage_per_million_token_hours: 0
+          source: https://docs.bigmodel.cn/cn/guide/start/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - open.bigmodel.cn
+          source_note: Published China standard prices. Cache storage is temporarily free; account-specific promotions are
+            excluded.
         provider_options_example:
           thinking:
             type: disabled
@@ -516,11 +992,23 @@ providers:
           context_window: 204800
           max_output_tokens: 131072
         cost:
-          currency: USD
-          input_per_million_tokens: 1.4
-          cached_input_per_million_tokens: 0.26
-          output_per_million_tokens: 4.4
-          source: https://docs.z.ai/guides/overview/pricing
+          currency: CNY
+          input_per_million_tokens: 6
+          output_per_million_tokens: 24
+          cached_input_per_million_tokens: 1.3
+          cache_storage_per_million_token_hours: 0
+          source: https://docs.bigmodel.cn/cn/guide/start/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - open.bigmodel.cn
+          rules:
+          - min_input_tokens: 32000
+            rates:
+              input_per_million_tokens: 8
+              output_per_million_tokens: 28
+              cached_input_per_million_tokens: 2
+          source_note: Published China standard prices. Cache storage is temporarily free; account-specific promotions are
+            excluded.
         provider_options_example:
           thinking:
             type: disabled
@@ -535,11 +1023,23 @@ providers:
           context_window: 204800
           max_output_tokens: 131072
         cost:
-          currency: USD
-          input_per_million_tokens: 1.0
-          cached_input_per_million_tokens: 0.2
-          output_per_million_tokens: 3.2
-          source: https://docs.z.ai/guides/llm/price
+          currency: CNY
+          input_per_million_tokens: 4
+          output_per_million_tokens: 18
+          cached_input_per_million_tokens: 1
+          cache_storage_per_million_token_hours: 0
+          source: https://docs.bigmodel.cn/cn/guide/start/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - open.bigmodel.cn
+          rules:
+          - min_input_tokens: 32000
+            rates:
+              input_per_million_tokens: 6
+              output_per_million_tokens: 22
+              cached_input_per_million_tokens: 1.5
+          source_note: Published China standard prices. Cache storage is temporarily free; account-specific promotions are
+            excluded.
         provider_options_example:
           thinking:
             type: disabled
@@ -554,11 +1054,23 @@ providers:
           context_window: 204800
           max_output_tokens: 131072
         cost:
-          currency: USD
-          input_per_million_tokens: 1.2
-          cached_input_per_million_tokens: 0.24
-          output_per_million_tokens: 4.0
-          source: https://docs.z.ai/guides/overview/pricing
+          currency: CNY
+          input_per_million_tokens: 5
+          output_per_million_tokens: 22
+          cached_input_per_million_tokens: 1.2
+          cache_storage_per_million_token_hours: 0
+          source: https://docs.bigmodel.cn/cn/guide/start/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - open.bigmodel.cn
+          rules:
+          - min_input_tokens: 32000
+            rates:
+              input_per_million_tokens: 7
+              output_per_million_tokens: 26
+              cached_input_per_million_tokens: 1.8
+          source_note: Published China standard prices. Cache storage is temporarily free; account-specific promotions are
+            excluded.
         provider_options_example:
           thinking:
             type: disabled
@@ -573,11 +1085,29 @@ providers:
           context_window: 204800
           max_output_tokens: 131072
         cost:
-          currency: USD
-          input_per_million_tokens: 0.6
-          cached_input_per_million_tokens: 0.11
-          output_per_million_tokens: 2.2
-          source: https://docs.z.ai/guides/llm/price
+          currency: CNY
+          input_per_million_tokens: 2
+          output_per_million_tokens: 8
+          cached_input_per_million_tokens: 0.4
+          cache_storage_per_million_token_hours: 0
+          source: https://docs.bigmodel.cn/cn/guide/start/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - open.bigmodel.cn
+          rules:
+          - max_input_tokens: 31999
+            min_output_tokens: 200
+            rates:
+              input_per_million_tokens: 3
+              output_per_million_tokens: 14
+              cached_input_per_million_tokens: 0.6
+          - min_input_tokens: 32000
+            rates:
+              input_per_million_tokens: 4
+              output_per_million_tokens: 16
+              cached_input_per_million_tokens: 0.8
+          source_note: Published China standard prices. Cache storage is temporarily free; account-specific promotions are
+            excluded.
         provider_options_example:
           thinking:
             type: disabled
@@ -592,12 +1122,17 @@ providers:
           context_window: 204800
           max_output_tokens: 131072
         cost:
-          currency: USD
-          input_per_million_tokens: 0.0
-          cached_input_per_million_tokens: 0.0
-          output_per_million_tokens: 0.0
-          source: https://docs.z.ai/guides/llm/price
-          source_note: Listed as free on the provider pricing page.
+          currency: CNY
+          input_per_million_tokens: 0
+          output_per_million_tokens: 0
+          cached_input_per_million_tokens: 0
+          cache_storage_per_million_token_hours: 0
+          source: https://docs.bigmodel.cn/cn/guide/start/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - open.bigmodel.cn
+          source_note: Published China standard prices. Cache storage is temporarily free; account-specific promotions are
+            excluded.
         provider_options_example:
           thinking:
             type: disabled
@@ -612,17 +1147,24 @@ providers:
           context_window: 204800
           max_output_tokens: 131072
         cost:
-          currency: USD
-          input_per_million_tokens: 0.6
-          cached_input_per_million_tokens: 0.11
-          output_per_million_tokens: 2.2
-          source: https://docs.z.ai/guides/llm/price
+          currency: CNY
+          source: https://docs.bigmodel.cn/cn/guide/start/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - open.bigmodel.cn
+          source_note: Current China pricing table does not list this model. Previously stored international prices must not
+            be used for the China endpoint.
         provider_options_example:
           thinking:
             type: disabled
     embedding_models:
       - id: embedding-3
         label: Embedding-3
+        cost:
+          currency: CNY
+          input_per_million_tokens: 0.5
+          source: https://docs.bigmodel.cn/cn/guide/models/embedding/embedding-3
+          verified_on: '2026-11-07'
         dimensions: [1024, 2048]
     image_generation_models:
       - id: glm-image
@@ -746,9 +1288,20 @@ providers:
           input_per_million_tokens: 0.75
           output_per_million_tokens: 3.75
           cached_input_per_million_tokens: 0.075
+          cache_storage_per_million_token_hours: 0.5
           source: https://aistudio.google.com/docs/pricing
-          source_note: Promotional standard rates through 2026-12-31; input/output/cache become $1.50/$7.50/$0.15 on
-            2027-01-01. Cache storage and tools are billed separately.
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - generativelanguage.googleapis.com
+          rules:
+          - starts_at: '2027-01-01T00:00:00Z'
+            rates:
+              input_per_million_tokens: 1.5
+              output_per_million_tokens: 7.5
+              cached_input_per_million_tokens: 0.15
+              cache_storage_per_million_token_hours: 1
+          source_note: Paid text/image/video token rates. Implicit cache has no storage charge; separately created explicit
+            cache storage is billed by its lifetime, not by each read.
       - id: gemini-3.5-flash-lite
         label: Gemini 3.5 Flash-Lite
         capabilities:
@@ -764,8 +1317,13 @@ providers:
           input_per_million_tokens: 0.3
           output_per_million_tokens: 2.5
           cached_input_per_million_tokens: 0.03
+          cache_storage_per_million_token_hours: 1
           source: https://aistudio.google.com/docs/pricing
-          source_note: Standard token rates; cache storage and tools are billed separately.
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - generativelanguage.googleapis.com
+          source_note: Paid text/image/video token rates. Implicit cache has no storage charge; separately created explicit
+            cache storage is billed by its lifetime, not by each read.
       - id: gemini-3.5-flash
         label: Gemini 3.5 Flash
         capabilities:
@@ -778,10 +1336,23 @@ providers:
           max_output_tokens: 65536
         cost:
           currency: USD
-          input_per_million_tokens: 1.5
-          cached_input_per_million_tokens: 0.15
-          output_per_million_tokens: 9.0
-          source: https://ai.google.dev/pricing
+          input_per_million_tokens: 0.75
+          output_per_million_tokens: 3.75
+          cached_input_per_million_tokens: 0.075
+          cache_storage_per_million_token_hours: 0.5
+          source: https://aistudio.google.com/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - generativelanguage.googleapis.com
+          rules:
+          - starts_at: '2027-01-01T00:00:00Z'
+            rates:
+              input_per_million_tokens: 1.5
+              output_per_million_tokens: 7.5
+              cached_input_per_million_tokens: 0.15
+              cache_storage_per_million_token_hours: 1
+          source_note: Paid text/image/video token rates. Implicit cache has no storage charge; separately created explicit
+            cache storage is billed by its lifetime, not by each read.
       - id: gemini-3.1-pro-preview
         label: Gemini 3.1 Pro Preview
         capabilities:
@@ -794,12 +1365,22 @@ providers:
           max_output_tokens: 65536
         cost:
           currency: USD
-          input_per_million_tokens: 2.0
+          input_per_million_tokens: 2
+          output_per_million_tokens: 12
           cached_input_per_million_tokens: 0.2
-          output_per_million_tokens: 12.0
-          source: https://ai.google.dev/gemini-api/docs/pricing
-          source_note: Base tier for prompts up to 200k tokens; higher tier is 4.00 input and 18.00 output per million
-            tokens.
+          cache_storage_per_million_token_hours: 4.5
+          source: https://aistudio.google.com/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - generativelanguage.googleapis.com
+          rules:
+          - min_input_tokens: 200001
+            rates:
+              input_per_million_tokens: 4
+              output_per_million_tokens: 18
+              cached_input_per_million_tokens: 0.4
+          source_note: Paid text/image/video token rates. Implicit cache has no storage charge; separately created explicit
+            cache storage is billed by its lifetime, not by each read.
       - id: gemini-3.1-flash-lite
         label: Gemini 3.1 Flash-Lite
         capabilities:
@@ -814,7 +1395,14 @@ providers:
           currency: USD
           input_per_million_tokens: 0.25
           output_per_million_tokens: 1.5
-          source: https://ai.google.dev/gemini-api/docs/pricing
+          cached_input_per_million_tokens: 0.025
+          cache_storage_per_million_token_hours: 1
+          source: https://aistudio.google.com/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - generativelanguage.googleapis.com
+          source_note: Paid text/image/video token rates. Implicit cache has no storage charge; separately created explicit
+            cache storage is billed by its lifetime, not by each read.
     embedding_models:
       - id: gemini-embedding-2
         label: Gemini Embedding 2
@@ -867,8 +1455,24 @@ providers:
           currency: USD
           input_per_million_tokens: 2
           output_per_million_tokens: 6
-          source: https://docs.x.ai/developers/grok-4-7
-          source_note: Standard global rates; long-context and regional premiums are excluded.
+          cached_input_per_million_tokens: 0.5
+          source: https://docs.x.ai/developers/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.x.ai
+          - us.api.x.ai
+          rules:
+          - min_input_tokens: 200000
+            rates:
+              input_per_million_tokens: 4
+              output_per_million_tokens: 12
+              cached_input_per_million_tokens: 1.0
+          - multiplier: 2
+            service_tiers:
+            - priority
+          - multiplier: 1.1
+            endpoint_hosts:
+            - us.api.x.ai
       - id: grok-4.5
         label: Grok 4.5
         capabilities:
@@ -880,10 +1484,22 @@ providers:
           context_window: 500000
         cost:
           currency: USD
-          input_per_million_tokens: 2.0
-          cached_input_per_million_tokens: 0.5
-          output_per_million_tokens: 6.0
-          source: https://docs.x.ai/developers/grok-4-5
+          input_per_million_tokens: 2
+          output_per_million_tokens: 6
+          cached_input_per_million_tokens: 0.3
+          source: https://docs.x.ai/developers/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.x.ai
+          rules:
+          - min_input_tokens: 200000
+            rates:
+              input_per_million_tokens: 4
+              output_per_million_tokens: 12
+              cached_input_per_million_tokens: 0.6
+          - multiplier: 2
+            service_tiers:
+            - priority
       - id: grok-4.3
         label: Grok 4.3
         capabilities:
@@ -896,9 +1512,21 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
-          cached_input_per_million_tokens: 0.2
           output_per_million_tokens: 2.5
-          source: https://docs.x.ai/docs/models
+          cached_input_per_million_tokens: 0.2
+          source: https://docs.x.ai/developers/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.x.ai
+          rules:
+          - min_input_tokens: 200000
+            rates:
+              input_per_million_tokens: 2.5
+              output_per_million_tokens: 5.0
+              cached_input_per_million_tokens: 0.4
+          - multiplier: 2
+            service_tiers:
+            - priority
       - id: grok-4.20-multi-agent-0309
         label: Grok 4.20 Multi-Agent 0309
         capabilities:
@@ -911,9 +1539,21 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
-          cached_input_per_million_tokens: 0.2
           output_per_million_tokens: 2.5
-          source: https://docs.x.ai/docs/models
+          cached_input_per_million_tokens: 0.2
+          source: https://docs.x.ai/developers/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.x.ai
+          rules:
+          - min_input_tokens: 200000
+            rates:
+              input_per_million_tokens: 2.5
+              output_per_million_tokens: 5.0
+              cached_input_per_million_tokens: 0.4
+          - multiplier: 2
+            service_tiers:
+            - priority
       - id: grok-4.20-0309-reasoning
         label: Grok 4.20 0309 Reasoning
         capabilities:
@@ -926,9 +1566,21 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
-          cached_input_per_million_tokens: 0.2
           output_per_million_tokens: 2.5
-          source: https://docs.x.ai/docs/models
+          cached_input_per_million_tokens: 0.2
+          source: https://docs.x.ai/developers/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.x.ai
+          rules:
+          - min_input_tokens: 200000
+            rates:
+              input_per_million_tokens: 2.5
+              output_per_million_tokens: 5.0
+              cached_input_per_million_tokens: 0.4
+          - multiplier: 2
+            service_tiers:
+            - priority
       - id: grok-4.20-0309-non-reasoning
         label: Grok 4.20 0309 Non-Reasoning
         capabilities:
@@ -941,9 +1593,21 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
-          cached_input_per_million_tokens: 0.2
           output_per_million_tokens: 2.5
-          source: https://docs.x.ai/docs/models
+          cached_input_per_million_tokens: 0.2
+          source: https://docs.x.ai/developers/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.x.ai
+          rules:
+          - min_input_tokens: 200000
+            rates:
+              input_per_million_tokens: 2.5
+              output_per_million_tokens: 5.0
+              cached_input_per_million_tokens: 0.4
+          - multiplier: 2
+            service_tiers:
+            - priority
     fields:
       model:
         visible: true
@@ -974,9 +1638,57 @@ providers:
           max_output_tokens: 384000
         cost:
           currency: USD
+          input_per_million_tokens: 0.15
+          output_per_million_tokens: 0.6
+          cached_input_per_million_tokens: 0.003
           source: https://api-docs.deepseek.com/quick_start/pricing/
-          source_note: Peak and off-peak rates vary by UTC time and Chinese holidays; no flat per-request cost estimate
-            is assigned.
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.deepseek.com
+          source_note: Base rates are off-peak. UTC weekdays 01:00–04:00 and 06:00–10:00 cost twice as much, excluding Chinese
+            public holidays. Unpublished calendar years return unknown cost.
+          peak_pricing:
+            utc_windows:
+            - - 60
+              - 240
+            - - 360
+              - 600
+            multiplier: 2
+            calendar_years:
+            - 2026
+            - 2027
+            holidays:
+            - - '2026-01-01'
+              - '2026-01-03'
+            - - '2026-02-15'
+              - '2026-02-23'
+            - - '2026-04-04'
+              - '2026-04-06'
+            - - '2026-05-01'
+              - '2026-05-05'
+            - - '2026-06-19'
+              - '2026-06-21'
+            - - '2026-09-25'
+              - '2026-09-27'
+            - - '2026-10-01'
+              - '2026-10-07'
+            - - '2027-01-01'
+              - '2027-01-03'
+            - - '2027-02-05'
+              - '2027-02-13'
+            - - '2027-04-03'
+              - '2027-04-05'
+            - - '2027-05-01'
+              - '2027-05-05'
+            - - '2027-06-09'
+              - '2027-06-09'
+            - - '2027-09-15'
+              - '2027-09-15'
+            - - '2027-10-01'
+              - '2027-10-07'
+            sources:
+            - https://www.beijing.gov.cn/cs/gncs/zcwj/202603/t20260327_4568275.html
+            - https://www.forestry.gov.cn/lyj/1/szxx/20261105/695102.html
       - id: deepseek-v4-pro
         label: DeepSeek V4 Pro
         capabilities:
@@ -989,9 +1701,57 @@ providers:
           max_output_tokens: 384000
         cost:
           currency: USD
+          input_per_million_tokens: 0.66
+          output_per_million_tokens: 1.98
+          cached_input_per_million_tokens: 0.022
           source: https://api-docs.deepseek.com/quick_start/pricing/
-          source_note: Peak and off-peak rates vary by UTC time and Chinese holidays; no flat per-request cost estimate
-            is assigned.
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.deepseek.com
+          source_note: Base rates are off-peak. UTC weekdays 01:00–04:00 and 06:00–10:00 cost twice as much, excluding Chinese
+            public holidays. Unpublished calendar years return unknown cost.
+          peak_pricing:
+            utc_windows:
+            - - 60
+              - 240
+            - - 360
+              - 600
+            multiplier: 2
+            calendar_years:
+            - 2026
+            - 2027
+            holidays:
+            - - '2026-01-01'
+              - '2026-01-03'
+            - - '2026-02-15'
+              - '2026-02-23'
+            - - '2026-04-04'
+              - '2026-04-06'
+            - - '2026-05-01'
+              - '2026-05-05'
+            - - '2026-06-19'
+              - '2026-06-21'
+            - - '2026-09-25'
+              - '2026-09-27'
+            - - '2026-10-01'
+              - '2026-10-07'
+            - - '2027-01-01'
+              - '2027-01-03'
+            - - '2027-02-05'
+              - '2027-02-13'
+            - - '2027-04-03'
+              - '2027-04-05'
+            - - '2027-05-01'
+              - '2027-05-05'
+            - - '2027-06-09'
+              - '2027-06-09'
+            - - '2027-09-15'
+              - '2027-09-15'
+            - - '2027-10-01'
+              - '2027-10-07'
+            sources:
+            - https://www.beijing.gov.cn/cs/gncs/zcwj/202603/t20260327_4568275.html
+            - https://www.forestry.gov.cn/lyj/1/szxx/20261105/695102.html
     fields:
       model:
         visible: true
@@ -1022,8 +1782,34 @@ providers:
           max_output_tokens: 128000
         cost:
           currency: CNY
-          source: https://help.aliyun.com/zh/model-studio/text-generation-model
-          source_note: Pricing depends on region, input length and thinking mode; no flat estimate is assigned.
+          input_per_million_tokens: 12
+          output_per_million_tokens: 36
+          cached_input_per_million_tokens: 1.5
+          cache_write_per_million_tokens: 15
+          source: https://help.aliyun.com/zh/model-studio/qwen3-8-max
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - dashscope.aliyuncs.com
+          - dashscope-intl.aliyuncs.com
+          rules:
+          - cache_mode: explicit
+            min_input_tokens: 0
+            rates:
+              cached_input_per_million_tokens: 1
+          - endpoint_hosts:
+            - dashscope-intl.aliyuncs.com
+            rates:
+              input_per_million_tokens: 14.988
+              output_per_million_tokens: 44.965
+              cached_input_per_million_tokens: 1.874
+              cache_write_per_million_tokens: 18.736
+          - endpoint_hosts:
+            - dashscope-intl.aliyuncs.com
+            cache_mode: explicit
+            rates:
+              cached_input_per_million_tokens: 1.274
+          source_note: Published list prices; account promotions are excluded. K = 1,000. Total input selects the tier. Explicit
+            and implicit cache hits have separate prices.
       - id: qwen3.8-flash
         label: Qwen3.8 Flash
         capabilities:
@@ -1036,8 +1822,34 @@ providers:
           max_output_tokens: 128000
         cost:
           currency: CNY
-          source: https://help.aliyun.com/zh/model-studio/text-generation-model
-          source_note: Pricing depends on region, input length and thinking mode; no flat estimate is assigned.
+          input_per_million_tokens: 0.8
+          output_per_million_tokens: 2.7
+          cached_input_per_million_tokens: 0.1
+          cache_write_per_million_tokens: 1.25
+          source: https://help.aliyun.com/zh/model-studio/qwen3-8-flash
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - dashscope.aliyuncs.com
+          - dashscope-intl.aliyuncs.com
+          rules:
+          - cache_mode: explicit
+            min_input_tokens: 0
+            rates:
+              cached_input_per_million_tokens: 0.1
+          - endpoint_hosts:
+            - dashscope-intl.aliyuncs.com
+            rates:
+              input_per_million_tokens: 1.094
+              output_per_million_tokens: 3.427
+              cached_input_per_million_tokens: 0.117
+              cache_write_per_million_tokens: 1.458
+          - endpoint_hosts:
+            - dashscope-intl.aliyuncs.com
+            cache_mode: explicit
+            rates:
+              cached_input_per_million_tokens: 0.117
+          source_note: Published list prices; account promotions are excluded. K = 1,000. Total input selects the tier. Explicit
+            and implicit cache hits have separate prices.
       - id: qwen3.7-plus
         label: qwen3.7-plus
         capabilities:
@@ -1050,12 +1862,31 @@ providers:
           max_output_tokens: 128000
         cost:
           currency: CNY
-          input_per_million_tokens: 2.0
+          input_per_million_tokens: 2
+          output_per_million_tokens: 8
           cached_input_per_million_tokens: 0.4
-          output_per_million_tokens: 8.0
-          source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 256k tokens (tiered pricing); cached_input is the implicit context-cache
-            hit price. max_output_tokens mirrored from qwen3.6-plus (not officially published).
+          cache_write_per_million_tokens: 2.5
+          source: https://help.aliyun.com/zh/model-studio/model-pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - dashscope.aliyuncs.com
+          rules:
+          - cache_mode: explicit
+            min_input_tokens: 0
+            rates:
+              cached_input_per_million_tokens: 0.2
+          - min_input_tokens: 256001
+            rates:
+              input_per_million_tokens: 6
+              output_per_million_tokens: 24
+              cached_input_per_million_tokens: 1.2
+              cache_write_per_million_tokens: 7.5
+          - cache_mode: explicit
+            min_input_tokens: 256001
+            rates:
+              cached_input_per_million_tokens: 0.6
+          source_note: Published list prices; account promotions are excluded. K = 1,000. Total input selects the tier. Explicit
+            and implicit cache hits have separate prices.
       - id: qwen3.7-max
         label: qwen3.7-max
         capabilities:
@@ -1068,12 +1899,21 @@ providers:
           max_output_tokens: 64000
         cost:
           currency: CNY
-          input_per_million_tokens: 12.0
+          input_per_million_tokens: 12
+          output_per_million_tokens: 36
           cached_input_per_million_tokens: 2.4
-          output_per_million_tokens: 36.0
-          source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: cached_input is the implicit context-cache hit price. max_output_tokens mirrored from family
-            (not officially published).
+          cache_write_per_million_tokens: 15
+          source: https://help.aliyun.com/zh/model-studio/model-pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - dashscope.aliyuncs.com
+          rules:
+          - cache_mode: explicit
+            min_input_tokens: 0
+            rates:
+              cached_input_per_million_tokens: 1.2
+          source_note: Published list prices; account promotions are excluded. K = 1,000. Total input selects the tier. Explicit
+            and implicit cache hits have separate prices.
       - id: qwen3.6-plus
         label: qwen3.6-plus
         capabilities:
@@ -1086,12 +1926,31 @@ providers:
           max_output_tokens: 64000
         cost:
           currency: CNY
-          input_per_million_tokens: 2.0
+          input_per_million_tokens: 2
+          output_per_million_tokens: 12
           cached_input_per_million_tokens: 0.4
-          output_per_million_tokens: 12.0
-          source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 256k tokens; 256k-1M tier is 8 input and 48 output CNY per million
-            tokens. cached_input is the implicit context-cache hit price (= input × 20%).
+          cache_write_per_million_tokens: 2.5
+          source: https://help.aliyun.com/zh/model-studio/model-pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - dashscope.aliyuncs.com
+          rules:
+          - cache_mode: explicit
+            min_input_tokens: 0
+            rates:
+              cached_input_per_million_tokens: 0.2
+          - min_input_tokens: 256001
+            rates:
+              input_per_million_tokens: 8
+              output_per_million_tokens: 48
+              cached_input_per_million_tokens: 1.6
+              cache_write_per_million_tokens: 10
+          - cache_mode: explicit
+            min_input_tokens: 256001
+            rates:
+              cached_input_per_million_tokens: 0.8
+          source_note: Published list prices; account promotions are excluded. K = 1,000. Total input selects the tier. Explicit
+            and implicit cache hits have separate prices.
       - id: qwen3.6-flash
         label: qwen3.6-flash
         capabilities:
@@ -1105,11 +1964,30 @@ providers:
         cost:
           currency: CNY
           input_per_million_tokens: 1.2
-          cached_input_per_million_tokens: 0.24
           output_per_million_tokens: 7.2
-          source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 256k tokens; 256k-1M tier is 4.8 input and 28.8 output CNY per million
-            tokens. cached_input is the implicit context-cache hit price (= input × 20%).
+          cached_input_per_million_tokens: 0.24
+          cache_write_per_million_tokens: 1.5
+          source: https://help.aliyun.com/zh/model-studio/model-pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - dashscope.aliyuncs.com
+          rules:
+          - cache_mode: explicit
+            min_input_tokens: 0
+            rates:
+              cached_input_per_million_tokens: 0.12
+          - min_input_tokens: 256001
+            rates:
+              input_per_million_tokens: 4.8
+              output_per_million_tokens: 28.8
+              cached_input_per_million_tokens: 0.96
+              cache_write_per_million_tokens: 6
+          - cache_mode: explicit
+            min_input_tokens: 256001
+            rates:
+              cached_input_per_million_tokens: 0.48
+          source_note: Published list prices; account promotions are excluded. K = 1,000. Total input selects the tier. Explicit
+            and implicit cache hits have separate prices.
       - id: qwen3.5-plus
         label: qwen3.5-plus
         capabilities:
@@ -1123,11 +2001,40 @@ providers:
         cost:
           currency: CNY
           input_per_million_tokens: 0.8
-          cached_input_per_million_tokens: 0.16
           output_per_million_tokens: 4.8
-          source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 128k tokens; higher tiers are 2/12 CNY at 128k-256k and 4/24 CNY
-            at 256k-1M. cached_input is the implicit context-cache hit price (= input × 20%).
+          cached_input_per_million_tokens: 0.16
+          cache_write_per_million_tokens: 1
+          source: https://help.aliyun.com/zh/model-studio/model-pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - dashscope.aliyuncs.com
+          rules:
+          - cache_mode: explicit
+            min_input_tokens: 0
+            rates:
+              cached_input_per_million_tokens: 0.08
+          - min_input_tokens: 128001
+            rates:
+              input_per_million_tokens: 2
+              output_per_million_tokens: 12
+              cached_input_per_million_tokens: 0.4
+              cache_write_per_million_tokens: 2.5
+          - cache_mode: explicit
+            min_input_tokens: 128001
+            rates:
+              cached_input_per_million_tokens: 0.2
+          - min_input_tokens: 256001
+            rates:
+              input_per_million_tokens: 4
+              output_per_million_tokens: 24
+              cached_input_per_million_tokens: 0.8
+              cache_write_per_million_tokens: 5
+          - cache_mode: explicit
+            min_input_tokens: 256001
+            rates:
+              cached_input_per_million_tokens: 0.4
+          source_note: Published list prices; account promotions are excluded. K = 1,000. Total input selects the tier. Explicit
+            and implicit cache hits have separate prices.
       - id: qwen3.5-flash
         label: qwen3.5-flash
         capabilities:
@@ -1141,11 +2048,40 @@ providers:
         cost:
           currency: CNY
           input_per_million_tokens: 0.2
+          output_per_million_tokens: 2
           cached_input_per_million_tokens: 0.04
-          output_per_million_tokens: 2.0
-          source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 128k tokens; higher tiers are 0.8/8 CNY at 128k-256k and 1.2/12 CNY
-            at 256k-1M. cached_input is the implicit context-cache hit price (= input × 20%).
+          cache_write_per_million_tokens: 0.25
+          source: https://help.aliyun.com/zh/model-studio/model-pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - dashscope.aliyuncs.com
+          rules:
+          - cache_mode: explicit
+            min_input_tokens: 0
+            rates:
+              cached_input_per_million_tokens: 0.02
+          - min_input_tokens: 128001
+            rates:
+              input_per_million_tokens: 0.8
+              output_per_million_tokens: 8
+              cached_input_per_million_tokens: 0.16
+              cache_write_per_million_tokens: 1
+          - cache_mode: explicit
+            min_input_tokens: 128001
+            rates:
+              cached_input_per_million_tokens: 0.08
+          - min_input_tokens: 256001
+            rates:
+              input_per_million_tokens: 1.2
+              output_per_million_tokens: 12
+              cached_input_per_million_tokens: 0.24
+              cache_write_per_million_tokens: 1.5
+          - cache_mode: explicit
+            min_input_tokens: 256001
+            rates:
+              cached_input_per_million_tokens: 0.12
+          source_note: Published list prices; account promotions are excluded. K = 1,000. Total input selects the tier. Explicit
+            and implicit cache hits have separate prices.
     embedding_models:
       - id: qwen3.7-text-embedding
         label: Qwen3.7 Text Embedding
@@ -1483,9 +2419,17 @@ providers:
           context_window: 1048576
         cost:
           currency: CNY
-          source: https://platform.kimi.com/docs/pricing/chat
-          source_note: Numeric rates were not verified from the official pricing table; rates and maximum output are left
-            unset rather than inherited from K2.
+          input_per_million_tokens: 13
+          output_per_million_tokens: 68
+          cached_input_per_million_tokens: 1.3
+          cache_write_per_million_tokens: 13
+          cache_write_1h_per_million_tokens: 26
+          source: https://platform.kimi.com/
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.moonshot.cn
+          source_note: 'China API prices; K3 cache writes use 5m or 1h TTL. Cache read/write/uncached input are exclusive
+            buckets. TTL rules: https://platform.kimi.com/docs/guide/context-caching'
       - id: kimi-k3.1-pro-highspeed
         label: Kimi K3.1 Pro Highspeed
         capabilities:
@@ -1497,9 +2441,17 @@ providers:
           context_window: 1048576
         cost:
           currency: CNY
-          source: https://platform.kimi.com/docs/pricing/chat
-          source_note: Numeric rates were not verified from the official pricing table; rates and maximum output are left
-            unset rather than inherited from K2.
+          input_per_million_tokens: 26
+          output_per_million_tokens: 136
+          cached_input_per_million_tokens: 1.3
+          cache_write_per_million_tokens: 26
+          cache_write_1h_per_million_tokens: 52
+          source: https://platform.kimi.com/
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.moonshot.cn
+          source_note: 'China API prices; K3 cache writes use 5m or 1h TTL. Cache read/write/uncached input are exclusive
+            buckets. TTL rules: https://platform.kimi.com/docs/guide/context-caching'
     embedding_models: []
     fields:
       model:
@@ -1534,6 +2486,19 @@ providers:
           output_per_million_tokens: 4
           cached_input_per_million_tokens: 0.1
           source: https://platform.minimax.cn/docs/pricing/overview
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.minimaxi.com
+          - api.minimax.io
+          rules:
+          - endpoint_hosts:
+            - api.minimax.io
+            rates:
+              input_per_million_tokens: 0.15
+              output_per_million_tokens: 0.6
+              cached_input_per_million_tokens: 0.015
+              currency: USD
+          source_note: 'China CNY and international USD standard prices. International source: https://platform.minimax.io/docs/pricing/overview'
       - id: MiniMax-M3
         label: MiniMax M3
         capabilities:
@@ -1549,7 +2514,37 @@ providers:
           output_per_million_tokens: 8.4
           cached_input_per_million_tokens: 0.42
           source: https://platform.minimax.cn/docs/pricing/overview
-          source_note: Standard service up to 512K input tokens; rates double above 512K. Priority service costs extra.
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.minimaxi.com
+          - api.minimax.io
+          rules:
+          - endpoint_hosts:
+            - api.minimax.io
+            rates:
+              input_per_million_tokens: 0.3
+              output_per_million_tokens: 1.2
+              cached_input_per_million_tokens: 0.06
+              currency: USD
+          - min_input_tokens: 512001
+            endpoint_hosts:
+            - api.minimaxi.com
+            rates:
+              input_per_million_tokens: 4.2
+              output_per_million_tokens: 16.8
+              cached_input_per_million_tokens: 0.84
+          - min_input_tokens: 512001
+            endpoint_hosts:
+            - api.minimax.io
+            rates:
+              input_per_million_tokens: 0.6
+              output_per_million_tokens: 2.4
+              cached_input_per_million_tokens: 0.12
+              currency: USD
+          - multiplier: 1.5
+            service_tiers:
+            - priority
+          source_note: 'China CNY and international USD standard prices. International source: https://platform.minimax.io/docs/pricing/overview'
       - id: MiniMax-M2.7
         label: MiniMax M2.7
         capabilities:
@@ -1560,11 +2555,16 @@ providers:
         limits:
           context_window: 204800
         cost:
-          currency: CNY
-          input_per_million_tokens: 2.1
-          cached_input_per_million_tokens: 0.42
-          output_per_million_tokens: 8.4
-          source: https://platform.minimax.io/docs/api-reference/text-openai-api
+          currency: USD
+          input_per_million_tokens: 0.3
+          output_per_million_tokens: 1.2
+          cached_input_per_million_tokens: 0.06
+          cache_write_per_million_tokens: 0.375
+          source: https://platform.minimax.io/subscribe/token-plan?tab=api-enterprise
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.minimax.io
+          source_note: Official international PAYG prices; China prices require an account override until verified.
       - id: MiniMax-M2.7-highspeed
         label: MiniMax M2.7 Highspeed
         capabilities:
@@ -1575,12 +2575,16 @@ providers:
         limits:
           context_window: 204800
         cost:
-          currency: CNY
-          input_per_million_tokens: 4.2
-          cached_input_per_million_tokens: 0.42
-          cache_write_per_million_tokens: 2.625
-          output_per_million_tokens: 16.8
-          source: https://platform.minimaxi.com/docs/guides/pricing-paygo
+          currency: USD
+          input_per_million_tokens: 0.6
+          output_per_million_tokens: 2.4
+          cached_input_per_million_tokens: 0.06
+          cache_write_per_million_tokens: 0.375
+          source: https://platform.minimax.io/subscribe/token-plan?tab=api-enterprise
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.minimax.io
+          source_note: Official international PAYG prices; China prices require an account override until verified.
     embedding_models: []
     image_generation_models:
       - id: image-01
@@ -1676,7 +2680,11 @@ providers:
           output_per_million_tokens: 6
           cached_input_per_million_tokens: 0.025
           source: https://mimo.mi.com/docs/zh-CN/price/pay-as-you-go
-          source_note: China standard API rates; overseas endpoints use USD pricing.
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.xiaomimimo.com
+          source_note: 'China account prices. The API host does not identify the account billing country; overseas accounts
+            must override prices with the official USD rates: (0.435, 0.87, 0.0036)'
       - id: mimo-v2.6-flash
         label: MiMo V2.6 Flash
         capabilities:
@@ -1693,7 +2701,11 @@ providers:
           output_per_million_tokens: 2
           cached_input_per_million_tokens: 0.02
           source: https://mimo.mi.com/docs/zh-CN/price/pay-as-you-go
-          source_note: China standard API rates; overseas endpoints use USD pricing.
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.xiaomimimo.com
+          source_note: 'China account prices. The API host does not identify the account billing country; overseas accounts
+            must override prices with the official USD rates: (0.14, 0.28, 0.0028)'
       - id: mimo-v2.6-pro-ultraspeed
         label: MiMo V2.6 Pro Ultraspeed
         capabilities:
@@ -1710,7 +2722,11 @@ providers:
           output_per_million_tokens: 60
           cached_input_per_million_tokens: 0.25
           source: https://mimo.mi.com/docs/zh-CN/price/pay-as-you-go
-          source_note: China standard API rates; overseas endpoints use USD pricing.
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.xiaomimimo.com
+          source_note: 'China account prices. The API host does not identify the account billing country; overseas accounts
+            must override prices with the official USD rates: (4.35, 8.7, 0.036)'
     plans:
       - id: tokenplan
         display_name: Xiaomi MiMo Token Plan

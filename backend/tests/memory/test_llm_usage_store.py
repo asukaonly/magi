@@ -262,3 +262,28 @@ async def test_clear_user_content_waits_for_active_usage_operations(
     async with sqlite_connection_async(db_path) as db:
         rows = await db.execute_fetchall("SELECT request_id FROM llm_usage")
     assert [row[0] for row in rows] == ["new-call"]
+
+
+@pytest.mark.asyncio
+async def test_mixed_currencies_stay_separate_in_every_aggregation(tmp_path):
+    db_path = tmp_path / 'usage.db'
+    apply_chain_schema('llm_usage', db_path)
+    store = LLMUsageStore(db_path=db_path)
+    for index, (amount, currency) in enumerate([(2, 'USD'), (3, 'CNY'), (0, 'USD'), (None, None)]):
+        await store.record_call({'request_id': str(index), 'provider': 'minimax', 'model': 'MiniMax-M3',
+                                 'request_kind': 'chat', 'cost_usd': amount, 'cost_currency': currency,
+                                 'prompt_tokens': 100, 'total_tokens': 100, 'success': True})
+    summary = await store.get_summary()
+    expected = [{'currency': 'CNY', 'amount': 3}, {'currency': 'USD', 'amount': 2}]
+    assert summary['totals']['unpriced_calls'] == 1
+    assert summary['totals']['total_cost_usd'] == 2
+    assert summary['totals']['cost_by_currency'] == expected
+    for group in ('providers', 'models', 'request_kinds'):
+        assert len(summary[group]) == 1
+        assert summary[group][0]['calls'] == 4
+        assert summary[group][0]['cost_by_currency'] == expected
+        assert summary[group][0]['cost_currency'] is None
+        assert summary[group][0]['cost_usd'] is None
+    point = (await store.get_timeseries())[0]
+    assert point['cost_by_currency'] == expected
+    assert point['cost_usd'] == 2

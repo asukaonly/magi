@@ -49,6 +49,8 @@ def test_openai_token_accounting(entry, details, read, write, reasoning, seen):
         "cache_read_tokens": read,
         "cache_write_tokens": write,
         "cache_write_1h_tokens": 0,
+        "cache_write_12h_tokens": 0,
+        "service_tier": None,
         "cache_fields_seen": seen,
     }
 
@@ -100,6 +102,8 @@ def test_anthropic_token_accounting(entry, details, prompt, read, write, write_1
         "cache_read_tokens": read,
         "cache_write_tokens": write,
         "cache_write_1h_tokens": write_1h,
+        "cache_write_12h_tokens": 0,
+        "service_tier": None,
         "cache_fields_seen": seen,
     }
 
@@ -114,7 +118,7 @@ def test_absent_usage_is_distinct_from_a_zero_token_record():
 def test_cache_read_tokens_drive_cached_pricing_for_qwen() -> None:
     """1M fully-cached prompt tokens bill at the cached rate, not the input rate.
 
-    dashscope qwen3.7-plus: input 2.0 CNY/M, cached 0.4 CNY/M.
+    dashscope qwen3.7-plus: long-context input 6.0 CNY/M, cached 1.2 CNY/M.
     """
     cached_amount, cached_currency = calculate_chat_cost(
         provider="dashscope",
@@ -133,8 +137,8 @@ def test_cache_read_tokens_drive_cached_pricing_for_qwen() -> None:
 
     assert cached_currency == "CNY"
     assert uncached_currency == "CNY"
-    assert cached_amount == pytest.approx(0.4)
-    assert uncached_amount == pytest.approx(2.0)
+    assert cached_amount == pytest.approx(1.2)
+    assert uncached_amount == pytest.approx(6.0)
     # The whole point: cached billing is materially cheaper now that
     # cache_read_tokens actually flows through.
     assert cached_amount < uncached_amount
@@ -178,3 +182,39 @@ def test_mixed_5m_and_1h_writes_split_correctly() -> None:
         cache_write_1h_tokens=500_000,
     )
     assert amount == pytest.approx(0.5 * 6.0 + 0.5 * 3.75)
+
+
+def test_sdk_extra_dict_fields_and_request_ttl_reach_billing_event():
+    from magi.llm.provider_bridge.billing import capture_billing_context
+
+    raw = NS(prompt_tokens=1000, completion_tokens=0, total_tokens=1000,
+             prompt_tokens_details={'cached_tokens': 200, 'cache_write_tokens': 500})
+    mixin = M()
+    mixin.llm = NS(model_name='kimi-k3.1-pro', base_url='https://api.moonshot.cn/v1')
+    mixin._provider_name = lambda: 'kimi'
+    context = {}
+    capture_billing_context(context, {'extra_body': {'prompt_cache_options': {'ttl': '1h'}}})
+    attrs = mixin._usage_event_attributes(context=context, usage=M._extract_openai_usage(NS(usage=raw)))
+    assert attrs['cache_write_1h_tokens'] == 500
+    assert attrs['cache_read_tokens'] == 200
+    assert attrs['billing']['endpoint_host'] == 'api.moonshot.cn'
+    assert attrs['billing']['cache_ttl'] == '1h'
+    assert attrs['billing']['requested_at'] > 0
+
+
+def test_billing_context_survives_disabled_cache_diagnostics(monkeypatch):
+    from magi.config.models import AppConfig, LLMProviderSettings, LLMModelMetadataOverrideSettings
+    from magi.config.pricing_models import LLMModelCostModel
+    from magi.llm.provider_bridge.options import ProviderBridgeOptionsMixin
+
+    config = AppConfig()
+    config.lifecycle.llm_usage.cache_observability.enabled = False
+    config.llm.providers['account-us'] = LLMProviderSettings(
+        provider_type='xiaomimimo', model_metadata_overrides={'mimo-v2.6-pro':
+            LLMModelMetadataOverrideSettings(cost=LLMModelCostModel(input_per_million_tokens=.435, output_per_million_tokens=.87))})
+    monkeypatch.setattr('magi.llm.provider_bridge.options.get_config', lambda: config)
+    bridge = ProviderBridgeOptionsMixin()
+    bridge.llm = NS(provider_instance_id='account-us', model_name='mimo-v2.6-pro')
+    context = bridge._with_cache_observation(None, system_prompt='private prompt', tools=None)
+    assert context['cost_override']['input_per_million_tokens'] == .435
+    assert 'private prompt' not in str(context)

@@ -27,6 +27,7 @@ SELECT
     SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
     SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
     SUM(CASE WHEN usage_available = 1 THEN 1 ELSE 0 END) AS calls_with_usage,
+    SUM(CASE WHEN cost_usd IS NULL OR cost_currency IS NULL THEN 1 ELSE 0 END) AS unpriced_calls,
     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
     COALESCE(SUM(total_tokens), 0) AS total_tokens,
@@ -40,7 +41,7 @@ SELECT
     END AS cache_hit_rate,
     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
-    COALESCE(SUM(cost_usd), 0) AS total_cost_usd
+    COALESCE(SUM(CASE WHEN cost_currency = 'USD' THEN cost_usd END), 0) AS total_cost_usd
 FROM llm_usage
 WHERE created_at >= ?
 """
@@ -64,8 +65,8 @@ SELECT
     END AS cache_hit_rate,
     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
-    COALESCE(SUM(cost_usd), 0) AS cost_usd,
-    MAX(cost_currency) AS cost_currency
+    CASE WHEN COUNT(DISTINCT cost_currency) = 1 THEN SUM(cost_usd) END AS cost_usd,
+    CASE WHEN COUNT(DISTINCT cost_currency) = 1 THEN MAX(cost_currency) END AS cost_currency
 FROM llm_usage
 WHERE created_at >= ?
 GROUP BY provider
@@ -92,8 +93,8 @@ SELECT
     END AS cache_hit_rate,
     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
-    COALESCE(SUM(cost_usd), 0) AS cost_usd,
-    MAX(cost_currency) AS cost_currency
+    CASE WHEN COUNT(DISTINCT cost_currency) = 1 THEN SUM(cost_usd) END AS cost_usd,
+    CASE WHEN COUNT(DISTINCT cost_currency) = 1 THEN MAX(cost_currency) END AS cost_currency
 FROM llm_usage
 WHERE created_at >= ?
 GROUP BY provider, model
@@ -120,8 +121,8 @@ SELECT
     END AS cache_hit_rate,
     COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
     COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
-    COALESCE(SUM(cost_usd), 0) AS cost_usd,
-    MAX(cost_currency) AS cost_currency
+    CASE WHEN COUNT(DISTINCT cost_currency) = 1 THEN SUM(cost_usd) END AS cost_usd,
+    CASE WHEN COUNT(DISTINCT cost_currency) = 1 THEN MAX(cost_currency) END AS cost_currency
 FROM llm_usage
 WHERE created_at >= ?
 GROUP BY request_kind
@@ -462,10 +463,10 @@ class LLMUsageStore:
         async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
             db.row_factory = aiosqlite.Row
             totals = await self._fetch_summary_totals(db, cutoff)
-            providers = await self._fetch_grouped_usage(db, _SUMMARY_PROVIDERS_SQL, (cutoff,))
-            models = await self._fetch_grouped_usage(db, _SUMMARY_MODELS_SQL, (cutoff, model_limit))
+            providers = await self._fetch_grouped_usage(db, _SUMMARY_PROVIDERS_SQL, (cutoff,), ("provider",))
+            models = await self._fetch_grouped_usage(db, _SUMMARY_MODELS_SQL, (cutoff, model_limit), ("provider", "model"))
             request_kinds = await self._fetch_grouped_usage(
-                db, _SUMMARY_REQUEST_KINDS_SQL, (cutoff,)
+                db, _SUMMARY_REQUEST_KINDS_SQL, (cutoff,), ("request_kind",)
             )
             cost_by_currency = await self._fetch_cost_by_currency(db, cutoff)
 
@@ -521,6 +522,7 @@ class LLMUsageStore:
                     failed_calls if failed_calls >= 0 else max(total_calls - successful_calls, 0)
                 ),
                 "calls_with_usage": int(totals["calls_with_usage"] or 0),
+                "unpriced_calls": int(totals["unpriced_calls"] or 0),
                 "prompt_tokens": int(totals["prompt_tokens"] or 0),
                 "completion_tokens": int(totals["completion_tokens"] or 0),
                 "total_tokens": int(totals["total_tokens"] or 0),
@@ -560,7 +562,7 @@ class LLMUsageStore:
                         THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
                         ELSE 0
                     END AS cache_hit_rate,
-                    COALESCE(SUM(cost_usd), 0) AS cost_usd
+                    SUM(CASE WHEN cost_currency = 'USD' THEN cost_usd END) AS cost_usd
                 FROM llm_usage
                 WHERE created_at >= ?
                 GROUP BY day
@@ -568,7 +570,8 @@ class LLMUsageStore:
                 """,
                 (cutoff,),
             )
-            rows = await cursor.fetchall()
+            rows = [dict(row) for row in await cursor.fetchall()]
+            await self._attach_currency_costs(db, rows, cutoff, ("day",))
 
         return [
             {
@@ -581,7 +584,8 @@ class LLMUsageStore:
                 "cache_write_tokens": int(row["cache_write_tokens"] or 0),
                 "cache_write_1h_tokens": int(row["cache_write_1h_tokens"] or 0),
                 "cache_hit_rate": round(float(row["cache_hit_rate"] or 0), 2),
-                "cost_usd": round(float(row["cost_usd"] or 0), 4),
+                "cost_usd": round(float(row["cost_usd"]), 4) if row["cost_usd"] is not None else None,
+                "cost_by_currency": row["cost_by_currency"],
             }
             for row in rows
         ]
@@ -591,10 +595,43 @@ class LLMUsageStore:
         db: aiosqlite.Connection,
         query: str,
         params: tuple[Any, ...],
+        group_columns: tuple[str, ...],
     ) -> list[dict[str, Any]]:
         cursor = await db.execute(query, params)
         rows = await cursor.fetchall()
-        return [{key: row[key] for key in row.keys()} for row in rows]
+        result = [dict(row) for row in rows]
+        await self._attach_currency_costs(db, result, params[0], group_columns)
+        return result
+
+    @staticmethod
+    async def _attach_currency_costs(
+        db: aiosqlite.Connection,
+        rows: list[dict[str, Any]],
+        cutoff: float,
+        group_columns: tuple[str, ...],
+    ) -> None:
+        columns = ", ".join(group_columns)
+        cursor = await db.execute(
+            f"""
+            SELECT {columns}, cost_currency AS currency, SUM(cost_usd) AS amount
+            FROM (
+                SELECT *, strftime('%Y-%m-%d', datetime(created_at, 'unixepoch', 'localtime')) AS day
+                FROM llm_usage WHERE created_at >= ?
+            )
+            WHERE cost_currency IS NOT NULL AND cost_usd IS NOT NULL
+            GROUP BY {columns}, cost_currency
+            ORDER BY cost_currency
+            """,
+            (cutoff,),
+        )
+        costs: dict[tuple, list[dict[str, Any]]] = {}
+        for item in await cursor.fetchall():
+            key = tuple(item[column] for column in group_columns)
+            costs.setdefault(key, []).append({
+                "currency": item["currency"], "amount": round(float(item["amount"]), 4),
+            })
+        for row in rows:
+            row["cost_by_currency"] = costs.get(tuple(row[column] for column in group_columns), [])
 
     async def _fetch_previous_cache_observation(
         self,

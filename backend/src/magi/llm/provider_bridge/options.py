@@ -377,10 +377,16 @@ class ProviderBridgeOptionsMixin:
         lifecycle = getattr(config, "lifecycle", None)
         llm_usage = getattr(lifecycle, "llm_usage", None)
         settings = getattr(llm_usage, "cache_observability", None)
-        if settings is not None and not bool(getattr(settings, "enabled", True)):
-            return event_context
-
         context: Dict[str, Any] = dict(event_context or {})
+        provider_id = getattr(self.llm, "provider_instance_id", None) or self._provider_name()
+        provider_settings = config.llm.providers.get(provider_id)
+        if provider_settings is not None:
+            override = provider_settings.model_metadata_overrides.get(self.llm.model_name)
+            if override is not None and override.cost is not None:
+                context["cost_override"] = override.cost.model_dump(mode="json", exclude_unset=True)
+        if settings is not None and not bool(getattr(settings, "enabled", True)):
+            return context
+
         store_tool_names = True
         if settings is not None:
             store_tool_names = bool(getattr(settings, "store_tool_names", True))

@@ -14,6 +14,7 @@ from ..streaming_events import LLMStreamEvent, emit_stream_event
 from ..concurrency_limiter import LLMRequestPriority
 from .streaming_core import ProviderBridgeStreamingHostProtocol, ThinkTagScrubber
 from .tool_streaming import ProviderBridgeToolStreamingMixin
+from .billing import capture_billing_context
 from .logging import RawProviderResponseLogger
 from ...config.constants import DEFAULT_THINKING_TOKENS
 from ...config.models import ThinkingDepth
@@ -155,6 +156,7 @@ class ProviderBridgeChatStreamingMixin:
             timeout_seconds=timeout_seconds,
             thinking_depth=thinking_depth,
         )
+        capture_billing_context(event_context, anthropic_kwargs)
         stream = await host.llm._client.messages.create(**anthropic_kwargs)
         in_thinking = False
         raw_logger = RawProviderResponseLogger(host.llm, event_context)
@@ -309,6 +311,7 @@ class ProviderBridgeChatStreamingMixin:
         *,
         event_context: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[LLMStreamEvent]:
+        capture_billing_context(event_context, chat_kwargs)
         stream = await create_completion(host.llm._client,**chat_kwargs)
         scrubber = ThinkTagScrubber()
         raw_logger = RawProviderResponseLogger(host.llm, event_context)

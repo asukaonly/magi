@@ -77,7 +77,69 @@
             "custom_models": [],
             "display_name": "OpenAI",
             "enabled": true,
-            "model_metadata_overrides": {},
+            "model_metadata_overrides": {
+              "fixture-model": {
+                "capabilities": {
+                  "embedding": null,
+                  "image_output": null,
+                  "reasoning": null,
+                  "tool_calling": null,
+                  "vision": null
+                },
+                "cost": {
+                  "cache_storage_per_million_token_hours": null,
+                  "cache_write_12h_per_million_tokens": null,
+                  "cache_write_1h_per_million_tokens": null,
+                  "cache_write_per_million_tokens": null,
+                  "cached_input_per_million_tokens": null,
+                  "currency": "USD",
+                  "endpoint_hosts": [],
+                  "input_per_million_tokens": 2.0,
+                  "output_per_million_tokens": 10.0,
+                  "peak_pricing": null,
+                  "per_image": null,
+                  "rules": [
+                    {
+                      "cache_mode": null,
+                      "endpoint_hosts": [],
+                      "ends_at": null,
+                      "inference_geo": null,
+                      "max_input_tokens": null,
+                      "max_output_tokens": null,
+                      "min_input_tokens": 272001,
+                      "min_output_tokens": null,
+                      "multiplier": 1.0,
+                      "rates": {
+                        "input_per_million_tokens": 4.0
+                      },
+                      "service_tiers": [],
+                      "starts_at": null,
+                      "thinking": null
+                    }
+                  ],
+                  "source": null,
+                  "source_note": null,
+                  "verified_on": null
+                },
+                "description": null,
+                "dimensions": null,
+                "hidden": null,
+                "icon": null,
+                "input_modalities": null,
+                "label": null,
+                "limits": {
+                  "context_window": null,
+                  "max_output_tokens": null,
+                  "max_schema_tokens": null,
+                  "max_tool_schemas": null
+                },
+                "output_modalities": null,
+                "preferred": null,
+                "provider_options_example": null,
+                "source_note": null,
+                "vendor": null
+              }
+            },
             "provider_plan": null,
             "provider_type": "openai",
             "services": {
@@ -432,7 +494,69 @@
               "custom_models": [],
               "display_name": "OpenAI",
               "enabled": true,
-              "model_metadata_overrides": {},
+              "model_metadata_overrides": {
+                "fixture-model": {
+                  "capabilities": {
+                    "embedding": null,
+                    "image_output": null,
+                    "reasoning": null,
+                    "tool_calling": null,
+                    "vision": null
+                  },
+                  "cost": {
+                    "cache_storage_per_million_token_hours": null,
+                    "cache_write_12h_per_million_tokens": null,
+                    "cache_write_1h_per_million_tokens": null,
+                    "cache_write_per_million_tokens": null,
+                    "cached_input_per_million_tokens": null,
+                    "currency": "USD",
+                    "endpoint_hosts": [],
+                    "input_per_million_tokens": 2.0,
+                    "output_per_million_tokens": 10.0,
+                    "peak_pricing": null,
+                    "per_image": null,
+                    "rules": [
+                      {
+                        "cache_mode": null,
+                        "endpoint_hosts": [],
+                        "ends_at": null,
+                        "inference_geo": null,
+                        "max_input_tokens": null,
+                        "max_output_tokens": null,
+                        "min_input_tokens": 272001,
+                        "min_output_tokens": null,
+                        "multiplier": 1.0,
+                        "rates": {
+                          "input_per_million_tokens": 4.0
+                        },
+                        "service_tiers": [],
+                        "starts_at": null,
+                        "thinking": null
+                      }
+                    ],
+                    "source": null,
+                    "source_note": null,
+                    "verified_on": null
+                  },
+                  "description": null,
+                  "dimensions": null,
+                  "hidden": null,
+                  "icon": null,
+                  "input_modalities": null,
+                  "label": null,
+                  "limits": {
+                    "context_window": null,
+                    "max_output_tokens": null,
+                    "max_schema_tokens": null,
+                    "max_tool_schemas": null
+                  },
+                  "output_modalities": null,
+                  "preferred": null,
+                  "provider_options_example": null,
+                  "source_note": null,
+                  "vendor": null
+                }
+              },
               "provider_plan": null,
               "provider_type": "openai",
               "services": {

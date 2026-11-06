@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Protocol, cast
 
 from ..streaming_events import LLMStreamEvent, emit_stream_event
 from .models import ProviderResponse, ProviderToolCall, ToolStreamResult
+from .billing import capture_billing_context
 from .logging import RawProviderResponseLogger
 from .streaming_core import ProviderBridgeStreamingHostProtocol, ThinkTagScrubber
 from ...config.models import ThinkingDepth
@@ -130,6 +131,7 @@ class ProviderBridgeToolStreamingMixin:
             thinking_depth=thinking_depth,
             timeout_seconds=timeout_seconds,
         )
+        capture_billing_context(event_context, anthropic_kwargs)
         stream = await host.llm._client.messages.create(**anthropic_kwargs)
         state = _AnthropicToolStreamState()
         raw_logger = RawProviderResponseLogger(host.llm, event_context)
@@ -411,6 +413,7 @@ class ProviderBridgeToolStreamingMixin:
             timeout_seconds=timeout_seconds,
             event_context=event_context,
         )
+        capture_billing_context(event_context, kwargs)
         stream = await create_completion(host.llm._client,**kwargs)
         state = _OpenAIToolStreamState()
         raw_logger = RawProviderResponseLogger(host.llm, event_context)

@@ -82,9 +82,16 @@ def _response_usage(response: Any) -> dict[str, Any] | None:
     usage = response.usage
     if usage is None:
         return None
+    details = usage.input_tokens_details
+    writes = getattr(details, "cache_write_tokens_details", None)
+    if hasattr(writes, "model_dump"):
+        writes = writes.model_dump()
     return {"prompt_tokens": usage.input_tokens, "completion_tokens": usage.output_tokens,
             "total_tokens": usage.total_tokens,
-            "prompt_tokens_details": {"cached_tokens": getattr(usage.input_tokens_details, "cached_tokens", 0)},
+            "service_tier": getattr(response, "service_tier", None),
+            "prompt_tokens_details": {"cached_tokens": getattr(details, "cached_tokens", 0),
+                                      "cache_write_tokens": getattr(details, "cache_write_tokens", 0),
+                                      "cache_write_tokens_details": writes},
             "completion_tokens_details": {"reasoning_tokens": getattr(usage.output_tokens_details, "reasoning_tokens", 0)}}
 
 
@@ -173,7 +180,11 @@ async def _completion_chunks(stream: Any, model: str, *, responses: bool) -> Asy
             async for chunk in _response_chunks(stream, model):
                 yield chunk
         else:
+            service_tier = None
             async for chunk in stream:
+                service_tier = getattr(chunk, "service_tier", None) or service_tier
+                if getattr(chunk, "usage", None) is not None:
+                    chunk.usage.service_tier = service_tier
                 yield chunk
     finally:
         if hasattr(stream, "close"):
@@ -204,4 +215,6 @@ async def create_completion(client: Any, **kwargs: Any) -> Any:
         result = await client.chat.completions.create(**kwargs)
     if kwargs.get("stream"):
         return _completion_chunks(result, kwargs["model"], responses=responses)
-    return _completion_from_response(result) if responses else result
+    if responses:
+        return _completion_from_response(result)
+    return result
