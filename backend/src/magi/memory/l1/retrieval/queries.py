@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal, Optional, cast
 
 from ...event_contracts import MemoryDomain, MemoryEvent
 from ..ports import EventQuery, EventEvidenceReference, EventSourceIdentity
+from ..overview_contracts import EventOverview, EventOverviewQuery
 from .common import L1EventQueryHostProtocol
 from .idempotency import L1EventIdempotencyMixin
 from .maintenance import L1EventMaintenanceQueryMixin
@@ -220,6 +221,12 @@ class L1EventQueryMixin(
         """List the newest events, optionally constrained by event type."""
         return await self.query_events(event_type=event_type, limit=limit)
 
+
+    async def read_event_overview(self, query: EventOverviewQuery) -> EventOverview:
+        """Read counts and bounded previews without loading raw event payloads."""
+        host = cast(L1EventQueryHostProtocol, self)
+        await host.initialize()
+        return await host.event_repository.read_event_overview(query)
 
     async def query_events(
         self,

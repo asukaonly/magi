@@ -1033,7 +1033,7 @@ describe('sidebar navigation', () => {
 
     expect(screen.getByTestId('location')).toHaveTextContent('/timeline');
     expect(useChatShellStore.getState().activePanel).toBe('timeline');
-    expect(screen.getByTestId('sidebar-timeline-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('sidebar-timeline-panel')).not.toBeInTheDocument();
   });
 
   it('renders memory destinations and routes to the selected memory page', async () => {

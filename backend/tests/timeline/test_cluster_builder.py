@@ -5,7 +5,8 @@ import pytest
 from magi.timeline.cluster_builder import TimelineClusterBuilder
 
 
-async def test_cluster_builder_groups_adjacent_events_into_activity_blocks() -> None:
+@pytest.mark.parametrize('metadata_field', ['metadata', 'metadata_json'])
+async def test_cluster_builder_groups_adjacent_events_into_activity_blocks(metadata_field) -> None:
     builder = TimelineClusterBuilder()
 
     events = [
@@ -53,6 +54,9 @@ async def test_cluster_builder_groups_adjacent_events_into_activity_blocks() -> 
         },
     ]
 
+    if metadata_field == 'metadata_json':
+        for event in events:
+            event['metadata_json'] = event.pop('metadata')
     clusters = builder.build(events, scale="day")
 
     assert len(clusters) == 2

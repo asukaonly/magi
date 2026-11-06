@@ -590,15 +590,20 @@
       "queryInWindow": "Filter this period"
     },
     "period": {
-      "label": "Timeline period",
-      "jump": "Jump to period",
-      "apply": "Go",
-      "placeholder": {
-        "month": "YYYY-MM",
-        "week": "YYYY-Www",
-        "day": "YYYY-MM-DD",
-        "hour": "YYYY-MM-DD HH"
-      }
+      "topics": "Main themes",
+      "weekTopics": "In progress this week",
+      "weeks": "Week by week",
+      "days": "Each day",
+      "highlights": "Worth revisiting",
+      "showAll": "Show all",
+      "partial": "Browse available records while the full overview is pending.",
+      "empty": "No records in this period yet.",
+      "noRecords": "No records",
+      "recordedSources": "Records from {{sources}}",
+      "returnTo": "Return to a broader view",
+      "loadError": "This period could not be loaded.",
+      "filter": "Filter: {{query}}",
+      "clearFilter": "Clear filter"
     },
     "scale": {
       "month": "Month",

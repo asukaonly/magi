@@ -1,24 +1,18 @@
 import React, { useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { Image } from "lucide-react";
 
 import type {
   TimelineCoverCandidate,
   TimelineCoverState,
   TimelineViewportResponse,
+  TimelineReviewPeriod,
+  TimelineStandoutItem,
 } from "@/api/modules/timeline";
 import type { ManualEntry } from "@/api/modules/manualEntries";
-import { Button } from "@/components/ui/button";
 import { resolveTimelineAssetUrl } from "@/utils/timelineAssetUrl";
 
 import { CoverPickerSheet, type TimelineCoverChangeRequest } from "./CoverPickerSheet";
 import { DaySceneReader } from "./DaySceneReader";
-import { Hero, type HeroFallbackTone } from "./Hero";
-import { PeriodCardEmpty } from "./PeriodCardEmpty";
-import { Slice } from "./Slice";
-import { StateBand } from "./StateBand";
-import { ThemesRow } from "./ThemesRow";
-import { WeekStrip } from "./WeekStrip";
+import { PeriodReviewReader } from "./PeriodReviewReader";
 
 interface PeriodCardProps {
   scale: "month" | "week" | "day" | "hour";
@@ -41,16 +35,11 @@ interface PeriodCardProps {
   onOpenExperience?: (experienceId: string) => void;
   onOrganizeExperience?: () => void;
   onAddNote?: () => void;
-}
-
-function formatTimeRange(startSec: number, endSec: number): string {
-  const fmt = (s: number) => {
-    const d = new Date(s * 1000);
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${hh}:${mm}`;
-  };
-  return `${fmt(startSec)} – ${fmt(endSec)}`;
+  onSelectPeriod?: (period: TimelineReviewPeriod) => void;
+  standoutItems?: TimelineStandoutItem[];
+  onSelectStandout?: (item: TimelineStandoutItem) => void;
+  selectedTopic?: string;
+  onSelectTopic?: (topic: string) => void;
 }
 
 function pickHeroAssetRef(viewport: TimelineViewportResponse): string | null {
@@ -116,21 +105,11 @@ function resolveCoverForPicker(viewport: TimelineViewportResponse): TimelineCove
   };
 }
 
-function valenceToFallbackTone(dominant: string | undefined): HeroFallbackTone {
-  const allowed: HeroFallbackTone[] = ["warm", "cool", "neutral", "bright", "tense"];
-  if (dominant && (allowed as string[]).includes(dominant)) return dominant as HeroFallbackTone;
-  return "neutral";
-}
-
 export const PeriodCard: React.FC<PeriodCardProps> = ({
   scale,
   viewport,
   dateLabel,
   placeLine,
-  onTogglePinned,
-  onHide,
-  pendingAction,
-  onSelectDay,
   manualEntries,
   onEditManualEntry,
   onDeleteManualEntry,
@@ -140,22 +119,12 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
   onOpenExperience,
   onOrganizeExperience,
   onAddNote,
+  onSelectPeriod, standoutItems, onSelectStandout, selectedTopic = "", onSelectTopic = () => {},
 }) => {
-  const { t } = useTranslation("app");
   const [coverSheetOpen, setCoverSheetOpen] = useState(false);
-  const hasContent =
-    (viewport.clusters?.length ?? 0) > 0 ||
-    (viewport.summary?.event_count ?? 0) > 0 ||
-    (viewport.overview?.essence_prose ?? "").length > 0 ||
-    (scale === "day" && (manualEntries?.some((entry) => !entry.deleted_at) ?? false));
-
   const heroAssetRef = useMemo(() => pickHeroAssetRef(viewport), [viewport]);
   const coverForPicker = useMemo(() => resolveCoverForPicker(viewport), [viewport]);
   const photoUrl = useMemo(() => resolveTimelineAssetUrl(heroAssetRef), [heroAssetRef]);
-  // state_summary in the real type uses mood_label etc., but callers may pass
-  // a dominant_valence field (Plan 3 backend extension). Access via unknown cast.
-  const dominantValence = (viewport.state_summary as unknown as Record<string, unknown>)?.dominant_valence as string | undefined;
-  const fallbackTone = valenceToFallbackTone(dominantValence);
   // place_hints from the LocationResolver — primary chip on top, optional
   // secondary chips appended with a thin separator. Caller-provided
   // placeLine still wins so manual overrides remain possible.
@@ -197,76 +166,11 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
     );
   }
 
-  if (!hasContent) {
-    return <PeriodCardEmpty scale={scale} dateLabel={dateLabel} />;
-  }
-
-  return (
-    <div className="bg-background">
-      <Hero
-        dateLabel={dateLabel}
-        essenceProse={viewport.overview?.essence_prose ?? ""}
-        placeLine={resolvedPlaceLine}
-        photoUrl={photoUrl}
-        fallbackTone={fallbackTone}
-        action={
-          onChangeCover ? (
-            <Button
-              type="button"
-              size="icon"
-              variant="secondary"
-              aria-label={t("timeline.cover.open", { defaultValue: "更换封面" })}
-              title={t("timeline.cover.open", { defaultValue: "更换封面" })}
-              onClick={() => setCoverSheetOpen(true)}
-              className="bg-background/80 text-foreground shadow-xs backdrop-blur-sm hover:bg-background"
-            >
-              <Image className="h-4 w-4" />
-            </Button>
-          ) : null
-        }
-      />
-      {onChangeCover ? (
-        <CoverPickerSheet
-          open={coverSheetOpen}
-          cover={coverForPicker}
-          onOpenChange={setCoverSheetOpen}
-          onChangeCover={onChangeCover}
-          onUploadCover={onUploadCover}
-          saving={coverSaving}
-        />
-      ) : null}
-      <StateBand
-        bands={viewport.state_bands ?? []}
-        periodStart={viewport.viewport.start}
-        periodEnd={viewport.viewport.end}
-      />
-      <ThemesRow themes={viewport.theme_cards ?? []} />
-      {scale === "week" ? (
-        <WeekStrip
-          clusters={viewport.clusters ?? []}
-          weekStart={viewport.viewport.start}
-          onSelectDay={(iso) => onSelectDay?.(iso)}
-        />
-      ) : (
-        // Month scale: keep the original slice list (cluster-per-day rollups
-        // from L2 episodes already feel right at this granularity, and we
-        // don't have a richer treatment yet).
-        <div className="px-10 pb-7 pt-2">
-          {(viewport.clusters ?? []).map((cluster) => (
-            <Slice
-              key={cluster.block_id}
-              episodeId={cluster.episode_id ?? ""}
-              timeRangeLabel={formatTimeRange(cluster.time_start, cluster.time_end)}
-              narrative={cluster.slice_narrative || cluster.summary || cluster.label || ""}
-              sensoryDetail={cluster.slice_sensory_detail || undefined}
-              isPinned={Boolean(cluster.user_pinned)}
-              onTogglePinned={onTogglePinned}
-              onHide={onHide}
-              pendingAction={pendingAction[cluster.episode_id ?? ""] ?? null}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  return <div className="bg-background">
+    <PeriodReviewReader scale={scale === 'month' ? 'month' : 'week'} viewport={viewport} dateLabel={dateLabel}
+      coverUrl={photoUrl} onSelectPeriod={onSelectPeriod} onAddNote={onAddNote} onOpenCover={onChangeCover ? () => setCoverSheetOpen(true) : undefined}
+      standoutItems={standoutItems} onSelectStandout={onSelectStandout} selectedTopic={selectedTopic} onSelectTopic={onSelectTopic} />
+    {onChangeCover ? <CoverPickerSheet open={coverSheetOpen} cover={coverForPicker} onOpenChange={setCoverSheetOpen}
+      onChangeCover={onChangeCover} onUploadCover={onUploadCover} saving={coverSaving} /> : null}
+  </div>;
 };

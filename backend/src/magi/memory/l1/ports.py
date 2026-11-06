@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, List, Dict, Optional, 
 from ..event_contracts import MemoryEvent
 from .maintenance_contracts import EvidenceAnnotationUpdate, EvidenceBackfillQuery, EventClearState, EventScanItem
 from .embedding_contracts import EventChunkRecord, EventEmbeddingPublication, EventEmbeddingSource
+from .overview_contracts import EventOverview, EventOverviewQuery
 from ..evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
 
 if TYPE_CHECKING:
@@ -120,6 +121,8 @@ class MemoryEventRepository(Protocol):
     ) -> MemoryEventRecord | None: ...
 
     async def query_events(self, query: EventQuery) -> list[MemoryEventRecord]: ...
+
+    async def read_event_overview(self, query: EventOverviewQuery) -> EventOverview: ...
 
     async def get_event_timestamps(self, event_ids: list[str]) -> dict[str, float]: ...
 

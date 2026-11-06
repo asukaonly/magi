@@ -116,7 +116,7 @@ class _FakeL4Store:
         return []
 
 
-async def test_timeline_service_returns_month_viewport() -> None:
+async def test_timeline_service_returns_day_viewport() -> None:
     l1_store = _FakeL1Store()
     service = build_timeline_service(
         SimpleNamespace(
@@ -128,23 +128,22 @@ async def test_timeline_service_returns_month_viewport() -> None:
     )
 
     viewport = await service.get_viewport(
-        scale="month", start=940_000.0, end=960_000.0, focus="self"
+        scale="day", start=940_000.0, end=960_000.0, focus="self"
     )
 
-    assert viewport["viewport"]["scale"] == "month"
+    assert viewport["viewport"]["scale"] == "day"
     assert viewport["overview"]["summary"] == "A low evening centered on games."
     assert viewport["overview"]["key_takeaways"]
     assert viewport["overview"]["key_takeaways"][0] == "Main source: Chrome history"
     assert viewport["state_summary"]["mood_label"] == "Low"
     assert viewport["state_summary"]["stress_label"] == "Moderate stress"
-    assert viewport["reflections"][0]["summary"] == "A low evening centered on games."
     assert viewport["state_bands"][0]["source_summary_ids"] == ["summary-1"]
     assert viewport["source_mix"][0]["source_type"] == "chrome_history"
     assert viewport["source_mix"][0]["label"] == "Chrome history"
     assert viewport["source_mix"][0]["event_count"] == 1
     assert viewport["theme_cards"][0]["title"] == "Game, Recovery"
     assert viewport["theme_cards"][0]["anchor"]["anchor_id"] == "evt-1"
-    # Month view now includes clusters
+    # Day view includes clusters
     assert viewport["summary"]["cluster_count"] >= 1
     assert len(viewport["clusters"]) >= 1
     assert l1_store.last_query is not None
@@ -172,7 +171,7 @@ async def test_timeline_service_localizes_viewport_chrome(source_only) -> None:
     )
 
     viewport = await service.get_viewport(
-        scale="month",
+        scale="day",
         start=940_000.0,
         end=960_000.0,
         focus="self",
@@ -180,7 +179,7 @@ async def test_timeline_service_localizes_viewport_chrome(source_only) -> None:
     )
 
     assert viewport["viewport"]["locale"] == "zh-CN"
-    assert viewport["overview"]["title"] == "窗口概览"
+    assert viewport["overview"]["title"] == "当日概览"
     assert viewport["overview"]["key_takeaways"][0] == "主要来源：Chrome 历史"
     assert viewport["overview"]["key_takeaways"][-1] == "捕获 1 条事件"
     assert viewport["state_summary"]["mood_label"] == "低落"

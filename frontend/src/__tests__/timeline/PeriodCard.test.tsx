@@ -7,7 +7,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PeriodCard } from "@/components/timeline/immersive/PeriodCard";
 import type {
   TimelineClusterBlock,
-  TimelineThemeCard,
   TimelineViewportResponse,
 } from "@/api/modules/timeline";
 
@@ -60,6 +59,7 @@ describe("PeriodCard", () => {
         onTogglePinned={vi.fn()}
         onHide={vi.fn()}
         pendingAction={{}}
+        onChangeCover={vi.fn()}
       />
     );
 
@@ -94,6 +94,7 @@ describe("PeriodCard", () => {
         onTogglePinned={vi.fn()}
         onHide={vi.fn()}
         pendingAction={{}}
+        onChangeCover={vi.fn()}
       />
     );
 
@@ -101,24 +102,13 @@ describe("PeriodCard", () => {
     expect(screen.getAllByText("下午你换了一个新方向。").length).toBeGreaterThan(0);
   });
 
-  it("renders ThemesRow when theme_cards is non-empty", () => {
-    const themes: TimelineThemeCard[] = [
-      { theme_id: "t1", title: "portrait rail", source_count: 0, evidence_anchors: [] } as unknown as TimelineThemeCard,
-      { theme_id: "t2", title: "timeline-domain", source_count: 0, evidence_anchors: [] } as unknown as TimelineThemeCard,
-    ];
-    render(
-      <PeriodCard
-        scale="week"
-        viewport={makeViewport({ theme_cards: themes })}
-        dateLabel="2026 · 5 · 17 · 周日"
-        onTogglePinned={vi.fn()}
-        onHide={vi.fn()}
-        pendingAction={{}}
-      />
-    );
-
-    expect(screen.getByText("portrait rail")).toBeInTheDocument();
-    expect(screen.getByText("timeline-domain")).toBeInTheDocument();
+  it("renders bounded period topics and ignores raw clusters on a month", () => {
+    render(<PeriodCard scale="month" viewport={makeViewport({
+      clusters: Array.from({ length: 5000 }, (_, index) => ({ block_id: String(index), label: 'Raw event' } as TimelineClusterBlock)),
+      period_review: { periods: [], topics: [{ topic_id: 'topic', title: 'Reporting', summary: 'Compare results', source_types: [], period_starts: [] }], summary_status: 'partial', summary_updated_at: null, active_days: 1 },
+    })} dateLabel="October" onTogglePinned={vi.fn()} onHide={vi.fn()} pendingAction={{}} />);
+    expect(screen.getByText('Reporting')).toBeInTheDocument();
+    expect(screen.queryByText('Raw event')).not.toBeInTheDocument();
   });
 
   it("keeps an inline note action visible on an empty day", async () => {
@@ -211,10 +201,11 @@ describe("PeriodCard", () => {
         onTogglePinned={vi.fn()}
         onHide={vi.fn()}
         pendingAction={{}}
+        onChangeCover={vi.fn()}
       />
     );
 
-    expect(screen.getByAltText("hero photo")).toHaveAttribute(
+    expect(screen.getByTestId("timeline-period-cover")).toHaveAttribute(
       "src",
       expect.stringContaining("photo-library%3A%2F%2Fmanual")
     );
@@ -248,10 +239,11 @@ describe("PeriodCard", () => {
         onTogglePinned={vi.fn()}
         onHide={vi.fn()}
         pendingAction={{}}
+        onChangeCover={vi.fn()}
       />
     );
 
-    expect(screen.queryByAltText("hero photo")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("timeline-period-cover")).not.toBeInTheDocument();
   });
 
   it("lets the user choose, hide, and restore the cover", async () => {
@@ -346,7 +338,7 @@ describe("PeriodCard", () => {
       />
     );
 
-    expect(screen.getByAltText("hero photo")).toHaveAttribute(
+    expect(screen.getByTestId("timeline-period-cover")).toHaveAttribute(
       "src",
       expect.stringContaining("photo-library%3A%2F%2Ffood-cover")
     );

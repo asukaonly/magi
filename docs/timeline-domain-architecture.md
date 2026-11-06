@@ -109,7 +109,9 @@ Assembled by `TimelineViewportBuilder`. Contains:
 - `source_mix` — source contribution aggregate for UI distribution panels
 - `theme_cards` — prioritized review cards with source counts and evidence anchors
 - `clusters` — grouped event blocks (transient or episode-backed)
-- `reflections` — L3 temporal summaries (month scale)
+- `period_review` — week/month topics, calendar period rows, summary availability,
+  and active-day coverage; bounded independently of source event volume
+- `reflections` — empty in viewport reads; full L3 evidence belongs in details
 - `raw_events` — individual events (hour scale)
 
 Viewport requests accept a `locale` parameter. Timeline-owned display strings
@@ -249,7 +251,24 @@ Service facade coordinating the domain:
 
 ### `viewport_builder.py` — TimelineViewportBuilder
 
-Loads events from L1, summaries from L3, assertions/episodes from L2. Applies scale-specific clustering gaps:
+Day/hour reads load events from L1, summaries from L3, and assertions/episodes
+from L2. Week/month reads dispatch directly to `period_review.py` and do not
+load full events, assertions, snapshots, episodes, or raw reflections. The L1
+owner aggregates exact visible-event counts per local-calendar day and source,
+then projects at most three short previews per day. SQLite and MySQL implement
+the same storage-neutral `EventOverviewQuery` contract. Boundaries are exclusive
+at the end and respect the requested IANA timezone, including DST changes.
+
+L3 reads use category and time-window filters in storage. Monthly reviews use
+available contained week/day summaries when a month summary is missing; partial
+cross-month weeks use only evidence inside the selected month. Full summaries
+outside the selected window never describe the current period. Filtered reviews
+use matching event previews rather than unrelated unfiltered summaries. There
+is no persistent review cache or synchronous model generation on this path;
+new reads immediately reflect event visibility and active-summary governance.
+
+Day/hour clustering uses these gaps (the cluster helper also supports broader
+gaps for non-viewport callers):
 
 | Scale | Clustering gap | Typical window |
 |-------|---------------|----------------|
@@ -258,7 +277,10 @@ Loads events from L1, summaries from L3, assertions/episodes from L2. Applies sc
 | week  | 1 hour        | 7 days         |
 | month | 4 hours       | 30 days        |
 
-For day and week scales, durable L2 episodes are preferred over transient clusters when available. Uncovered events fall back to gap-based transient clustering.
+For day scale, durable L2 episodes are preferred over transient clusters when
+available. Uncovered events fall back to gap-based transient clustering. Both
+stored `metadata_json` and timeline-owned in-memory metadata provide the neutral
+activity snapshot at their read boundary.
 
 `TimelineViewportBuilder` owns viewport orchestration only. Presentation-specific
 derivations live in smaller timeline-owned helpers: `viewport_clusters.py`
@@ -332,34 +354,39 @@ POST /timeline/digests/generate
 
 ## Frontend Components
 
-The timeline page renders a scale-specific review surface. The target
-component roles are:
+The timeline page renders a scale-specific review surface:
 
 | Scale | Components |
 |-------|-----------|
-| month | TimelineWindowOverview + TimelineStateSummary + MonthThemeLane + SourceMixPanel |
-| week  | TimelineWindowOverview + TimelineStateSummary + WeekRhythmLane |
-| day   | TimelineWindowOverview + TimelineStateSummary + DaySegmentLane |
-| hour  | HourEvidenceLane + SourceFilterBar |
+| month | ReviewDatePicker + PeriodReviewReader (themes, weeks, highlights) |
+| week  | ReviewDatePicker + PeriodReviewReader (themes, seven days, highlights) |
+| day   | ReviewDatePicker + DaySceneReader + EvidenceReader |
+| hour  | HourDetail |
 
 Key components:
 
-- `TimelineViewport` — master scale dispatcher
-- `TimelineToolbar` — scale/search/navigation controls
-- `TimelineWindowOverview` — user-facing summary and key takeaways for the selected window
-- `TimelineStateSummary` — aggregated mood, stress, engagement, and notable state changes
-- `MonthThemeLane` — prioritized monthly themes derived from reflections, clusters, and sources
-- `WeekRhythmLane` — day-grouped weekly rhythm and key periods
-- `DaySegmentLane` — episode-backed or time-of-day activity blocks
-- `HourEvidenceLane` — raw evidence list with timestamps and source labels
-- `SourceMixPanel` — compact source contribution summary
-- `TimelineContextDrawer` — right-side evidence and reasoning panel backed by context bundles
+- `TimelinePage` — request ownership, scale dispatch, and drill-down history
+- `AppTitleBar` — scale and search controls
+- `ReviewDatePicker` — date heading, calendar selection, and previous/next navigation
+- `PeriodReviewReader` — bounded week/month themes and calendar rows
+- `DaySceneReader` — chronological activities with readable labels and source artwork
+- `EvidenceReader` — wide activity/evidence reading surface
+- `HourDetail` — individual evidence with timestamps
+- `SourceIconProvider` — installed plugin artwork shared across the review surface
 
-Existing component names may be reused during implementation, but their output
-must follow the product hierarchy above. The main viewport must not render one
-row per state band as primary content. Digest generation remains a separate
+The main viewport must not render one row per state band as primary content.
+Digest generation remains a separate
 capability and should not be treated as a prerequisite for the core review
 surface.
+
+The permanent calendar sidebar is removed. Date selection lives in the heading;
+month/week/day share a compact reading surface and source artwork. Monthly rows
+show date ranges, weekly rows show weekday/date, and daily activities show times.
+Month → week → day navigation retains breadcrumbs, scroll position, and focus.
+Changing scale retains the historical anchor while respecting the latest
+complete-period limit. Manual-entry bodies are fetched only for day views;
+week/month highlights are a separate bounded read. Superseded viewport requests
+are aborted, and stale responses cannot replace the active period.
 
 ## Dependency Rules
 

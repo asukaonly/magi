@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from typing import Literal, Optional
+import math
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
@@ -11,6 +13,7 @@ from ... import i18n as core_i18n
 from ..runtime_dependencies import get_api_runtime_dependencies
 from ...timeline.cover_preferences import TimelineCoverAssetSource
 from ...timeline.service import TimelineService
+from ...timeline.period_review import calendar_boundaries
 
 timeline_router = APIRouter()
 
@@ -54,6 +57,22 @@ async def get_timeline_viewport(
     locale: str = Query(default="en"),
     focus: str = Query(default="self", pattern="^self$"),
 ):
+    if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+        raise HTTPException(status_code=422, detail="Timeline window must be finite and increasing")
+    if scale in ('week', 'month') and end - start > 32 * 86400:
+        raise HTTPException(status_code=422, detail="Period reviews support at most 32 days")
+    if timezone:
+        try:
+            ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="Invalid timeline timezone") from exc
+    if scale in ('week', 'month'):
+        try:
+            boundaries = calendar_boundaries(start, end, timezone)
+            if scale == 'week' and len(boundaries) > 8:
+                raise ValueError("Week reviews support at most seven calendar days")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     service = get_timeline_service()
     return await service.get_viewport(
         scale=scale,

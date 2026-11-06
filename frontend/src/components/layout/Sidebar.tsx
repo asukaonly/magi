@@ -52,8 +52,6 @@ import { useNotificationStore } from '@/stores/notifications';
 import { useSchedulesStore } from '@/stores/schedules';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
 import { PersonaHeader } from './PersonaHeader';
-import { MoodCalendar } from '@/components/timeline/immersive/sidebar/MoodCalendar';
-import { StandoutList } from '@/components/timeline/immersive/sidebar/StandoutList';
 
 const USER_ID = DEFAULT_USER_ID;
 interface SidebarProps {
@@ -115,7 +113,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const activePanel = useChatShellStore((state) => state.activePanel);
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const clearSettingsNavigationIntent = useChatShellStore((state) => state.clearSettingsNavigationIntent);
-  const timelinePanel = useChatShellStore((state) => state.timelinePanel);
   const pendingMemoryConflictCount = useNotificationStore((state) => (
     state.items.filter(isOpenProfileConflictNotification).length
   ));
@@ -128,6 +125,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const isMemoryRoute = location.pathname === '/events' || location.pathname.startsWith('/memory');
   const shouldRefreshSessions = isConversationRoute;
   const [openPanel, setOpenPanel] = useState<ActivityPanel | null>(null);
+  useEffect(() => { if (location.pathname === '/timeline') setOpenPanel(null); }, [location.pathname]);
   const [sessionMenu, setSessionMenu] = useState<{
     sessionId: string;
     x: number;
@@ -538,6 +536,15 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       return;
     }
 
+    if (panel === 'timeline') {
+      setOpenPanel(null);
+      setActivePanel('timeline');
+      if (location.pathname !== '/timeline') {
+        navigate('/timeline');
+      }
+      return;
+    }
+
     if (openPanel === panel) {
       setOpenPanel(null);
       return;
@@ -549,14 +556,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       setActivePanel('conversation');
       if (!isConversationRoute) {
         navigate('/chat');
-      }
-      return;
-    }
-
-    if (panel === 'timeline') {
-      setActivePanel('timeline');
-      if (location.pathname !== '/timeline') {
-        navigate('/timeline');
       }
       return;
     }
@@ -784,28 +783,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     );
   };
 
-  const renderTimelinePanel = () => (
-    <div
-      className="flex min-h-0 flex-1 flex-col pt-2"
-      data-testid="sidebar-timeline-panel"
-    >
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <MoodCalendar
-          month={timelinePanel.monthForCalendar}
-          days={timelinePanel.moodDays}
-          scale={timelinePanel.scale}
-          selectedRangeStart={timelinePanel.selectedRangeStart}
-          selectedRangeEnd={timelinePanel.selectedRangeEnd}
-          onSelectDate={(d) => timelinePanel.onSelectDate?.(d)}
-        />
-        <StandoutList
-          items={timelinePanel.standoutItems}
-          onSelectEpisode={(id) => timelinePanel.onSelectStandoutEpisode?.(id)}
-        />
-      </div>
-    </div>
-  );
-
   const renderPanelContent = () => {
     if (openPanel === 'tasks') {
       return renderTasksPanel();
@@ -818,9 +795,6 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       return renderMemoryPanel();
     }
 
-    if (openPanel === 'timeline') {
-      return renderTimelinePanel();
-    }
 
     if (!openPanel) {
       return null;

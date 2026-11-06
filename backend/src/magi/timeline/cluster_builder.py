@@ -404,7 +404,7 @@ class TimelineClusterBuilder:
 
     @staticmethod
     def _activity_snapshot(event: dict[str, Any]) -> dict[str, Any]:
-        metadata = event.get("metadata")
+        metadata = event.get("metadata_json") or event.get("metadata")
         if isinstance(metadata, dict):
             return dict(activity_snapshot_from_metadata(metadata))
         return {}

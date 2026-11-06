@@ -1,6 +1,23 @@
 import { api, unwrapGatewayPayload } from '../client';
 import { z } from 'zod';
 
+const reviewPeriodSchema = z.object({
+  start: z.number().finite(), end: z.number().finite(), target_start: z.number().finite(),
+  scale: z.enum(['day', 'week']), summary: z.string(), event_count: z.number().int().nonnegative(),
+  source_types: z.array(z.string()), has_summary: z.boolean(),
+});
+const periodReviewSchema = z.object({
+  periods: z.array(reviewPeriodSchema).max(7),
+  topics: z.array(z.object({
+    topic_id: z.string(), title: z.string(), summary: z.string(), source_types: z.array(z.string()),
+    period_starts: z.array(z.number().finite()).max(7),
+  })).max(3),
+  summary_status: z.enum(['ready', 'partial', 'pending']),
+  summary_updated_at: z.number().finite().nullable(), active_days: z.number().int().min(0).max(32),
+});
+export type TimelineReviewPeriod = z.infer<typeof reviewPeriodSchema>;
+export type TimelinePeriodReview = z.infer<typeof periodReviewSchema>;
+
 const contextSchema = z.object({
   anchor: z.object({ anchor_id: z.string(), anchor_type: z.string(), title: z.string(), summary: z.string() }).passthrough(),
   l1_events: z.array(z.object({
@@ -195,6 +212,7 @@ export interface TimelineViewportResponse {
   source_mix: TimelineSourceMixItem[];
   theme_cards: TimelineThemeCard[];
   cover?: TimelineCoverState;
+  period_review?: TimelinePeriodReview;
   /** Top labels for the period from LocationResolver (city/region/POI),
    *  ordered by aggregate time-weighted contribution. Index 0 is the
    *  primary chip; subsequent entries can be rendered as secondary chips. */
@@ -231,8 +249,10 @@ export const timelineApi = {
     timezone?: string;
     locale?: string;
     focus?: 'self';
+    signal?: AbortSignal;
   }): Promise<TimelineViewportResponse> => {
     const response = await api.get<TimelineViewportResponse>('/timeline/viewport', {
+      signal: options.signal,
       params: {
         scale: options.scale,
         start: options.start,
@@ -243,7 +263,11 @@ export const timelineApi = {
         focus: options.focus ?? 'self',
       },
     });
-    return unwrapGatewayPayload(response);
+    const viewport = unwrapGatewayPayload(response);
+    if (options.scale === 'week' || options.scale === 'month') {
+      return { ...viewport, period_review: periodReviewSchema.parse(viewport.period_review) };
+    }
+    return viewport;
   },
 
   getContext: async (anchorId: string): Promise<TimelineContextBundle> => {

@@ -4,7 +4,7 @@ import { asEventHandler } from '@/utils/as-event-handler';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { getErrorMessage } from '@/utils/error-handler';
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
@@ -16,6 +16,7 @@ import {
   type TimelineMoodCalendarDay,
   type TimelineStandoutItem,
   type TimelineViewportResponse,
+  type TimelineReviewPeriod,
 } from "@/api/modules/timeline";
 import type { TimelineCoverChangeRequest } from "@/components/timeline/immersive/CoverPickerSheet";
 import { HourDetail } from "@/components/timeline/immersive/HourDetail";
@@ -23,10 +24,10 @@ import { PeriodCard } from "@/components/timeline/immersive/PeriodCard";
 import { QuickEntrySheet } from "@/components/timeline/manual-entries/QuickEntrySheet";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useChatShellStore } from "@/stores";
-import { Feather } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ChevronRight, Feather } from "lucide-react";
 
 type TimelineScale = "month" | "week" | "day" | "hour";
+interface ReviewLocation { scale: TimelineScale; start: number; scrollTop: number; focusId?: string; }
 const NO_ENTRIES: ManualEntry[] = [];
 const NO_MOOD_DAYS: TimelineMoodCalendarDay[] = [];
 const NO_STANDOUT_ITEMS: TimelineStandoutItem[] = [];
@@ -73,7 +74,7 @@ function formatWindowLabel(scale: TimelineScale, start: number, end: number, loc
   if (scale === "month")
     return s.toLocaleDateString(locale, { year: "numeric", month: "long" });
   if (scale === "day")
-    return s.toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric", weekday: "short" });
+    return `${s.toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" })} · ${s.toLocaleDateString(locale, { weekday: "short" })}`;
   if (scale === "hour") {
     const e = new Date(end * 1000);
     const day = s.toLocaleDateString(locale, { month: "short", day: "numeric" });
@@ -107,7 +108,10 @@ const parsePeriodInputValue = (scale: TimelineScale, value: string): number | nu
     if (!match) return null;
     return toUnixSeconds(isoWeekStart(Number(match[1]), Number(match[2])));
   }
-  const parsed = new Date(value);
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const parsed = dateMatch
+    ? new Date(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]))
+    : new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   if (scale === "day") return toUnixSeconds(startOfLocalDay(parsed));
   return toUnixSeconds(startOfLocalHour(parsed));
@@ -134,6 +138,12 @@ export const TimelinePage: React.FC = () => {
   const [viewportStart, setViewportStart] = useState<number>(
     () => getLatestCompletePeriodStart("day"),
   );
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const viewportRequest = useRef<AbortController | null>(null);
+  const pendingScroll = useRef<{ top: number; focusId?: string } | null>(null);
+  const [trail, setTrail] = useState<ReviewLocation[]>([]);
+  const [topicSelections, setTopicSelections] = useState<Record<string, string>>({});
+  const [viewportError, setViewportError] = useState(false);
   const [draftQuery, setDraftQuery] = useState("");
   const [query, setQuery] = useState("");
   const scope = JSON.stringify([scale, viewportStart, query, timelineLocale]);
@@ -160,6 +170,10 @@ export const TimelinePage: React.FC = () => {
     const isCurrent = beginRequest('viewport');
     if (!isCurrent()) return;
     if (!silent) setLoading(true);
+    setViewportError(false);
+    viewportRequest.current?.abort();
+    const controller = new AbortController();
+    viewportRequest.current = controller;
     try {
       const response = await timelineApi.getViewport({
         scale,
@@ -168,10 +182,13 @@ export const TimelinePage: React.FC = () => {
         query: query || undefined,
         locale: timelineLocale,
         focus: "self",
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        signal: controller.signal,
       });
       if (isCurrent()) setViewportSnapshot({ scope, data: response });
     } catch (error) {
-      if (!isCurrent() || silent) return;
+      if (!isCurrent() || silent || controller.signal.aborted) return;
+      setViewportError(true);
       toast.error(
         t("timeline.errors.loadFailed", {
           message: getErrorMessage(error) || "unknown",
@@ -186,6 +203,7 @@ export const TimelinePage: React.FC = () => {
   const loadManualEntries = useCallback(async () => {
     const isCurrent = beginRequest('entries');
     if (!isCurrent()) return;
+    if (scale !== 'day') { setManualSnapshot({ scope, entries: NO_ENTRIES }); return; }
     try {
       const entries = await manualEntriesApi.list({
         timeStart: viewportStart,
@@ -195,26 +213,22 @@ export const TimelinePage: React.FC = () => {
     } catch {
       /* best-effort — clusters still render even if entries fetch fails */
     }
-  }, [beginRequest, scope, viewportStart, viewportEnd]);
+  }, [beginRequest, scope, scale, viewportStart, viewportEnd]);
 
   const loadSidebar = useCallback(async () => {
     const isCurrent = beginRequest('sidebar');
     if (!isCurrent()) return;
-    const month = monthKeyForDate(viewportStart);
+    if (scale === 'day' || scale === 'hour' || query) {
+      setSidebarSnapshot({ scope, mood: NO_MOOD_DAYS, standout: NO_STANDOUT_ITEMS });
+      return;
+    }
     try {
-      const [mood, standout] = await Promise.all([
-        timelineApi.getMoodCalendar(month),
-        timelineApi.getStandout({
-          periodStart: viewportStart,
-          periodEnd: viewportEnd,
-          limit: 50,
-        }),
-      ]);
-      if (isCurrent()) setSidebarSnapshot({ scope, mood: mood.days ?? [], standout: standout.items ?? [] });
+      const standout = await timelineApi.getStandout({ periodStart: viewportStart, periodEnd: viewportEnd, limit: 3 });
+      if (isCurrent()) setSidebarSnapshot({ scope, mood: NO_MOOD_DAYS, standout: standout.items ?? [] });
     } catch {
       /* sidebar is best-effort; failures don't block the main pane */
     }
-  }, [beginRequest, scope, viewportStart, viewportEnd]);
+  }, [beginRequest, scope, scale, query, viewportStart, viewportEnd]);
 
   useEffect(() => {
     setActivePanel("timeline");
@@ -227,7 +241,19 @@ export const TimelinePage: React.FC = () => {
 
   useEffect(() => {
     void loadViewport();
+    return () => viewportRequest.current?.abort();
   }, [loadViewport]);
+
+  useEffect(() => {
+    if (!viewport || !pendingScroll.current) return;
+    const restore = pendingScroll.current;
+    const frame = requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollTop = restore.top;
+      document.getElementById(restore.focusId ?? 'timeline-review-date')?.focus({ preventScroll: true });
+      pendingScroll.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [viewport]);
 
   useEffect(() => {
     void loadSidebar();
@@ -361,25 +387,37 @@ export const TimelinePage: React.FC = () => {
     setViewportStart(clampToLatestCompletePeriod(scale, newStart));
   }, [scale]);
 
-  /** Drill-down: jump from week-strip card into the day view of that date. */
-  const handleSelectDayFromWeek = useCallback((isoDate: string) => {
-    const [y, m, d] = isoDate.split("-").map(Number);
-    const dayStart = toUnixSeconds(startOfLocalDay(new Date(y, m - 1, d)));
-    setScale("day");
-    setViewportStart(clampToLatestCompletePeriod("day", dayStart));
-  }, []);
+  const selectPeriod = useCallback((period: TimelineReviewPeriod) => {
+    setTrail(current => [...current, { scale, start: viewportStart, scrollTop: scrollRef.current?.scrollTop ?? 0, focusId: `review-period-${period.target_start}` }]);
+    pendingScroll.current = { top: 0 };
+    setScale(period.scale);
+    setViewportStart(clampToLatestCompletePeriod(period.scale, period.target_start));
+  }, [scale, viewportStart]);
+
+  const returnToPeriod = (index: number) => {
+    const destination = trail[index];
+    if (!destination) return;
+    pendingScroll.current = { top: destination.scrollTop, focusId: destination.focusId };
+    setTrail(current => current.slice(0, index));
+    setScale(destination.scale); setViewportStart(destination.start);
+  };
 
   const handleScaleChange = useCallback((next: TimelineScale) => {
+    const date = new Date(viewportStart * 1000);
+    const start = next === 'month' ? startOfLocalMonth(date) : next === 'week' ? startOfLocalWeek(date) : next === 'day' ? startOfLocalDay(date) : startOfLocalHour(date);
+    setTrail([]); pendingScroll.current = { top: 0 };
     setScale(next);
-    setViewportStart(getLatestCompletePeriodStart(next));
-  }, []);
+    setViewportStart(clampToLatestCompletePeriod(next, toUnixSeconds(start)));
+  }, [viewportStart]);
 
   const handlePrevious = useCallback(() => {
-    setViewportStart((v) => shiftPeriodStart(scale, v, -1));
+    setTrail([]); pendingScroll.current = { top: 0 };
+    setViewportStart(value => shiftPeriodStart(scale, value, -1));
   }, [scale]);
 
   const handleNext = useCallback(() => {
-    setViewportStart((v) => clampToLatestCompletePeriod(scale, shiftPeriodStart(scale, v, 1)));
+    setTrail([]); pendingScroll.current = { top: 0 };
+    setViewportStart(value => clampToLatestCompletePeriod(scale, shiftPeriodStart(scale, value, 1)));
   }, [scale]);
 
   const handleDraftQueryChange = useCallback((next: string) => {
@@ -387,6 +425,7 @@ export const TimelinePage: React.FC = () => {
   }, []);
 
   const handleSubmitQuery = useCallback(() => {
+    setTrail([]); pendingScroll.current = { top: 0 };
     setQuery(draftQuery.trim());
   }, [draftQuery]);
 
@@ -407,6 +446,7 @@ export const TimelinePage: React.FC = () => {
   const handleSelectFromDateInput = useCallback((value: string) => {
     const parsed = parsePeriodInputValue(scale, value);
     if (parsed == null) return;
+    setTrail([]); pendingScroll.current = { top: 0 };
     setViewportStart(clampToLatestCompletePeriod(scale, parsed));
   }, [scale]);
 
@@ -529,12 +569,19 @@ export const TimelinePage: React.FC = () => {
   }, [loadManualEntries, loadViewport, t]);
 
   return (
-    <SourceIconProvider><main className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+    <SourceIconProvider><main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {/* Block layout (not flex) so PeriodCard/HourDetail fill the column width
           when the sidebar's secondary panel collapses. With flex-row, children
           size to content, leaving a white strip on the right after the
           sidebar shrinks. */}
-      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable" aria-busy={loading}>
+        {trail.length > 0 ? <nav aria-label={t('timeline.period.returnTo')} className="mx-auto flex w-full max-w-[1180px] flex-wrap items-center gap-2 px-5 pt-6 text-[12px] text-muted-foreground sm:px-8 lg:px-10">
+          {trail.map((entry, index) => <React.Fragment key={`${entry.scale}-${entry.start}`}><button type="button" onClick={() => returnToPeriod(index)} className="rounded hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">{formatWindowLabel(entry.scale, entry.start, getPeriodEnd(entry.scale, entry.start), timelineLocale)}</button><ChevronRight className="h-3 w-3" aria-hidden="true" /></React.Fragment>)}
+        </nav> : null}
+        {query ? <div className="mx-auto flex w-full max-w-[1180px] items-center gap-3 px-5 pt-4 text-[12px] text-muted-foreground sm:px-8 lg:px-10">
+          <span>{t('timeline.period.filter', { query })}</span>
+          <button type="button" onClick={() => { setDraftQuery(''); setQuery(''); setTrail([]); }} className="shrink-0 underline underline-offset-4">{t('timeline.period.clearFilter')}</button>
+        </div> : null}
         {loading && !viewport ? (
           <div className="flex h-full w-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <LoadingSpinner className="h-4 w-4" />
@@ -551,7 +598,11 @@ export const TimelinePage: React.FC = () => {
               onTogglePinned={handleTogglePinned}
               onHide={handleHide}
               pendingAction={pendingAction}
-              onSelectDay={handleSelectDayFromWeek}
+              onSelectPeriod={selectPeriod}
+              standoutItems={standoutItems}
+              onSelectStandout={item => selectPeriod({ scale: 'day', start: item.start, end: item.end, target_start: toUnixSeconds(startOfLocalDay(new Date(item.start * 1000))), summary: '', event_count: 0, source_types: [], has_summary: false })}
+              selectedTopic={topicSelections[scope] ?? ''}
+              onSelectTopic={topic => setTopicSelections(current => ({ ...current, [scope]: topic }))}
               manualEntries={manualEntries}
               onEditManualEntry={handleEditEntry}
               onDeleteManualEntry={asEventHandler(handleDeleteEntry)}
@@ -563,26 +614,14 @@ export const TimelinePage: React.FC = () => {
               onAddNote={() => setEntrySheetOpen(true)}
             />
           )
-        ) : null}
+        ) : viewportError ? <div className="flex flex-col items-center gap-3 py-16 text-sm text-muted-foreground"><p>{t('timeline.period.loadError')}</p><button type="button" onClick={() => void loadViewport()} className="underline underline-offset-4">{t('timeline.review.retry')}</button></div> : null}
       </div>
 
-      {/* Floating ✎ button for manual memory entries. Hidden while the
-          sheet is open so it doesn't sit on top of the dialog overlay. */}
-      {!entrySheetOpen && scale !== "day" ? (
-        <button
-          type="button"
-          onClick={() => setEntrySheetOpen(true)}
-          title={t('timeline.manualEntry.openButton', { defaultValue: '记一笔 (n)' })}
-          aria-label={t('timeline.manualEntry.openButton', { defaultValue: '记一笔' })}
-          className={cn(
-            'absolute bottom-6 right-6 z-20 flex h-12 w-12 items-center justify-center rounded-full',
-            'bg-foreground text-background shadow-lg',
-            'transition-transform hover:scale-105 active:scale-95',
-          )}
-        >
-          <Feather className="h-5 w-5" />
-        </button>
-      ) : null}
+      {!entrySheetOpen && scale === 'hour' ? <button type="button" onClick={() => setEntrySheetOpen(true)}
+        aria-label={t('timeline.review.addNote')}
+        className="absolute bottom-6 right-6 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background shadow-lg focus-visible:ring-2 focus-visible:ring-ring">
+        <Feather className="h-5 w-5" />
+      </button> : null}
 
       <QuickEntrySheet
         open={entrySheetOpen}

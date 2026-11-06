@@ -10,6 +10,8 @@ from magi.memory.evidence import L1RetrievalScope
 from ...ports import EventEvidenceReference, EventQuery, EventSourceIdentity, MemoryEventRecord
 from .common import event_select, identity, record
 from .schema import events as e
+from ...overview_contracts import EventOverview, EventOverviewQuery
+from .overview import read_event_overview
 
 
 def filters(query: EventQuery) -> list:
@@ -69,6 +71,10 @@ def filters(query: EventQuery) -> list:
 
 
 class MysqlEventQueries(MysqlEventConnection):
+    async def read_event_overview(self, query: EventOverviewQuery) -> EventOverview:
+        async with self._transaction() as connection:
+            return await read_event_overview(connection, query)
+
     async def query_events(self, query: EventQuery) -> list[MemoryEventRecord]:
         order = {
             "timestamp_desc": (e.c.timestamp.desc(),),

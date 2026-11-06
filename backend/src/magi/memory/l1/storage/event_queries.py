@@ -13,6 +13,8 @@ from ...event_contracts import MemoryDomain, author_type_label
 from ..ports import EventEvidenceReference, EventQuery, EventSourceIdentity, MemoryEventRecord
 from .event_filters import L1EventFilterMixin
 from .event_mapping import decode_event_metadata, event_record_from_mapping
+from ..overview_contracts import EventOverview, EventOverviewQuery
+from .event_overview import read_event_overview
 
 FACT_EVENTS_TABLE = "fact_events"
 
@@ -36,6 +38,9 @@ def _record(row: aiosqlite.Row, *, include_metadata: bool = True) -> MemoryEvent
 
 class SqliteEventQueries:
     _db_path: str
+
+    async def read_event_overview(self, query: EventOverviewQuery) -> EventOverview:
+        return await read_event_overview(self._db_path, query)
 
     async def get_event_timestamps(self, event_ids: List[str]) -> Dict[str, float]:
         """Return original occurrence timestamps for existing, active L1 events."""

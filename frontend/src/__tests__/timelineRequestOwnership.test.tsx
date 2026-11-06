@@ -33,6 +33,7 @@ it('retains the current period when an older response finishes last', async () =
   m.getViewport.mockImplementationOnce(() => new Promise(resolve => { finishB = resolve; }));
   act(() => panel().onPrevious());
   await waitFor(() => expect(m.getViewport).toHaveBeenCalledTimes(3));
+  expect(m.getViewport.mock.calls[1][0].signal.aborted).toBe(true);
   const newestLabel = panel().dateLabel;
   await act(async () => finishB({ marker: 'New period' }));
   expect(screen.getByTestId('viewport')).toHaveTextContent('New period');
@@ -41,7 +42,27 @@ it('retains the current period when an older response finishes last', async () =
   expect(screen.getByTestId('viewport')).toHaveAttribute('data-date', newestLabel);
 });
 
-it('keeps manual entries and sidebar data owned by the current period', async () => {
+it('drills from month to week to day and returns to the original month', async () => {
+  render(<TimelinePage />);
+  await screen.findByTestId('viewport');
+  act(() => panel().onScaleChange('month'));
+  await waitFor(() => expect(m.getViewport.mock.calls.at(-1)?.[0].scale).toBe('month'));
+  const monthStart = panel().viewportStart;
+  const entriesBefore = m.entries.mock.calls.length;
+  const weekStart = monthStart + 7 * 86400;
+  act(() => card().onSelectPeriod({ scale: 'week', target_start: weekStart }));
+  await waitFor(() => expect(m.getViewport.mock.calls.at(-1)?.[0].scale).toBe('week'));
+  expect(m.entries).toHaveBeenCalledTimes(entriesBefore);
+  act(() => card().onSelectPeriod({ scale: 'day', target_start: weekStart + 86400 }));
+  await waitFor(() => expect(m.getViewport.mock.calls.at(-1)?.[0].scale).toBe('day'));
+  const breadcrumbs = screen.getByRole('navigation');
+  act(() => (breadcrumbs.querySelector('button') as HTMLButtonElement).click());
+  await waitFor(() => expect(m.getViewport.mock.calls.at(-1)?.[0]).toMatchObject({ scale: 'month', start: monthStart }));
+  expect(m.mood).not.toHaveBeenCalled();
+  expect(m.standout.mock.calls.at(-1)?.[0].limit).toBe(3);
+});
+
+it('keeps manual entries owned by the current day without loading sidebar data', async () => {
   let finishEntries: (value: unknown) => void = () => {};
   let finishMood: (value: unknown) => void = () => {};
   m.entries.mockImplementationOnce(() => new Promise(resolve => { finishEntries = resolve; }));
@@ -57,7 +78,8 @@ it('keeps manual entries and sidebar data owned by the current period', async ()
     finishMood({ days: [{ date: 'old' }] });
   });
   expect(card().manualEntries).toEqual([{ entry_id: 'new' }]);
-  expect(panel().moodDays).toEqual([{ date: 'new' }]);
+  expect(m.mood).not.toHaveBeenCalled();
+  expect(panel().moodDays).toEqual([]);
 });
 
 it('does not apply a cover response to a different period or retain its pending state', async () => {

@@ -112,6 +112,18 @@ def _build_client(monkeypatch):
     return TestClient(app), service
 
 
+@pytest.mark.parametrize('params', [
+    {'scale': 'month', 'start': 5, 'end': 4},
+    {'scale': 'month', 'start': 0, 'end': 40 * 86400},
+    {'scale': 'week', 'start': 0, 'end': 8 * 86400},
+    {'scale': 'week', 'start': 0, 'end': 86400, 'timezone': 'not/a-zone'},
+])
+def test_public_viewport_rejects_invalid_windows(monkeypatch, params):
+    client, service = _build_client(monkeypatch)
+    assert client.get('/api/timeline/viewport', params=params).status_code == 422
+    assert not service.viewport_calls
+
+
 def test_selection_context_is_reachable_through_public_router(monkeypatch):
     client, service = _build_client(monkeypatch)
     response = client.post("/api/timeline/context", json={"event_ids": ["a", "b"]})
@@ -139,12 +151,13 @@ def test_viewport_http_forwards_parameters_and_preserves_service_payload(
     monkeypatch, scale, overrides
 ):
     client, service = _build_client(monkeypatch)
-    params = {"scale": scale, "start": 1710000000, "end": 1712592000, **overrides}
+    end = 1710432000 if scale == "week" else 1712592000
+    params = {"scale": scale, "start": 1710000000, "end": end, **overrides}
     response = client.get("/api/timeline/viewport", params=params)
     expected = {
         "scale": scale,
         "start": 1710000000.0,
-        "end": 1712592000.0,
+        "end": float(end),
         "query": None,
         "timezone": None,
         "locale": "en",

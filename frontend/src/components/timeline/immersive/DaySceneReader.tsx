@@ -11,6 +11,7 @@ import { SourceIcon, labelForSource } from "./SourceIcon";
 import { EvidenceReader } from "./EvidenceReader";
 import { formatClock, readableText, sceneBody, sceneTitle } from "./scene-presentation";
 import './day-scene-reader.css';
+import { ReviewDatePicker } from './ReviewDatePicker';
 
 interface DaySceneReaderProps {
   viewport: TimelineViewportResponse;
@@ -96,10 +97,10 @@ export const DaySceneReader: React.FC<DaySceneReaderProps> = ({
   };
 
   return <div ref={rootRef} className="timeline-reader min-h-full bg-background text-foreground" data-detail-open={Boolean(selectedCluster)}>
-    <div className="mx-auto w-full max-w-[1400px] px-5 py-7 sm:px-8 lg:px-10">
+    <div className="mx-auto w-full max-w-[1180px] px-5 py-7 sm:px-8 lg:px-10">
       <header className="timeline-day-summary mb-6">
-        <div className="flex items-center justify-between gap-4">
-          <h1 className="text-[25px] font-semibold leading-9 tracking-tight">{dateLabel}</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <ReviewDatePicker dateLabel={dateLabel} />
           <div className="flex shrink-0 items-center gap-2">
             {onAddNote ? <button type="button" onClick={onAddNote} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"><Feather className="h-4 w-4" aria-hidden="true" />{t('timeline.review.addNote')}</button> : null}
             {onOpenCover ? <button type="button" onClick={onOpenCover} aria-label={t('timeline.cover.open')} className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-md text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
@@ -107,7 +108,7 @@ export const DaySceneReader: React.FC<DaySceneReaderProps> = ({
             </button> : null}
           </div>
         </div>
-        {summary ? <div className="mt-3 max-w-[860px]"><p className={cn('text-[15px] leading-7 text-foreground/80', !summaryExpanded && 'line-clamp-2')}>{summary}</p>
+        {summary ? <div className="mt-3 max-w-[860px]"><p className={cn('text-[14px] leading-6 text-muted-foreground', !summaryExpanded && 'line-clamp-2')}>{summary}</p>
           {summary.length > 95 ? <button type="button" onClick={() => setSummaryExpanded(value => !value)} aria-expanded={summaryExpanded} className="mt-1 text-[12px] text-muted-foreground hover:text-foreground">{t(summaryExpanded ? 'timeline.review.less' : 'timeline.review.more')}</button> : null}
         </div> : !hasScenes && manualEntries.filter(entry => !entry.deleted_at).length === 0 ? <p className="mt-3 text-[14px] text-muted-foreground">{t('timeline.immersive.scene.emptyDayBody')}</p> : null}
         <p className="mt-3 text-[12px] text-muted-foreground">{t('timeline.review.records', { count: viewport.summary?.event_count || 0 })}{placeLine ? ` · ${placeLine}` : ''}</p>

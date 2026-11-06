@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useLocation } from 'react-router';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { isMacPlatform } from '@/lib/platform';
 import { cn } from '@/lib/utils';
-import { Sparkles } from 'lucide-react';
+import { Search, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { shouldRenderChatWorkspace } from '@/domain/chat/shell-routing';
 import { ChatWorkspacePicker } from './ChatWorkspacePicker';
@@ -11,19 +11,18 @@ import { DesktopTitleBar } from './DesktopTitleBar';
 import { NotificationBell } from './NotificationBell';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { MonthGridPicker } from '@/components/timeline/immersive/picker/MonthGridPicker';
-import { WeekListPicker } from '@/components/timeline/immersive/picker/WeekListPicker';
 
-const SCALE_OPTIONS = ['month', 'week', 'day', 'hour'] as const;
+const SCALE_OPTIONS = ['day', 'week', 'month', 'hour'] as const;
 
 
 const TimelineTitleBarSlot: React.FC = () => {
   const { t } = useTranslation('app');
   const panel = useChatShellStore((s) => s.timelinePanel);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   return (
     <div className="flex h-full flex-1 items-center gap-3 px-3 text-xs">
-      <div className="flex-1" />
+      <span className="min-w-0 flex-1 text-[13px] font-medium">{t('shell.timeline')}</span>
       {/* Scale tab group */}
       <div className="flex rounded-md bg-foreground/5 p-0.5">
         {SCALE_OPTIONS.map((s) => (
@@ -47,6 +46,7 @@ const TimelineTitleBarSlot: React.FC = () => {
           </button>
         ))}
       </div>
+      {panel.scale === "hour" ? <>
       {/* Date label + prev/next nav grouped together */}
       <div className="flex items-center gap-1">
         <button
@@ -74,20 +74,6 @@ const TimelineTitleBarSlot: React.FC = () => {
             className="w-auto p-0"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            {panel.scale === "month" ? (
-              <MonthGridPicker
-                selectedMonth={(() => {
-                  const d = new Date(panel.viewportStart * 1000);
-                  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-                })()}
-                onSelectMonth={(m) => panel.onSelectFromDateInput?.(m)}
-              />
-            ) : panel.scale === "week" ? (
-              <WeekListPicker
-                selectedWeekStart={panel.viewportStart}
-                onSelectWeek={(w) => panel.onSelectFromDateInput?.(w)}
-              />
-            ) : (
               <>
                 <Calendar
                   mode="single"
@@ -144,7 +130,6 @@ const TimelineTitleBarSlot: React.FC = () => {
                   </div>
                 ) : null}
               </>
-            )}
           </PopoverContent>
         </Popover>
         <button
@@ -158,20 +143,18 @@ const TimelineTitleBarSlot: React.FC = () => {
           ›
         </button>
       </div>
-      {/* Search input */}
-      <input
-        type="text"
-        data-no-drag
-        value={panel.draftQuery}
-        onChange={(e) => panel.onDraftQueryChange?.(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') panel.onSubmitQuery?.();
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-        placeholder={t('timeline.filters.queryInWindow', { defaultValue: '筛选当前时段' })}
-        aria-label={t('timeline.filters.queryInWindow', { defaultValue: '筛选当前时段' })}
-        className="h-6 w-40 rounded-md border-transparent bg-[hsl(var(--app-chrome-elevated)/0.72)] px-2 text-xs shadow-[inset_0_0_0_1px_hsl(var(--app-chrome-divider)/0.38)]"
-      />
+      </> : null}
+      <Popover open={searchOpen} onOpenChange={setSearchOpen}>
+        <PopoverTrigger asChild><button type="button" aria-label={t('timeline.filters.queryInWindow')} onMouseDown={event => event.stopPropagation()}
+          className={cn('rounded-md p-2 text-muted-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring', panel.draftQuery && 'text-primary')}><Search className="h-4 w-4" /></button></PopoverTrigger>
+        <PopoverContent align="end" className="w-72 p-3" onMouseDown={event => event.stopPropagation()}>
+          <form onSubmit={event => { event.preventDefault(); panel.onSubmitQuery?.(); setSearchOpen(false); }}>
+            <input type="search" value={panel.draftQuery} onChange={event => panel.onDraftQueryChange?.(event.target.value)}
+              placeholder={t('timeline.filters.queryInWindow')} aria-label={t('timeline.filters.queryInWindow')}
+              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm" />
+          </form>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 };

@@ -505,15 +505,20 @@
       "queryInWindow": "筛选当前时段"
     },
     "period": {
-      "label": "时间线时段",
-      "jump": "跳转到时段",
-      "apply": "前往",
-      "placeholder": {
-        "month": "YYYY-MM",
-        "week": "YYYY-Www",
-        "day": "YYYY-MM-DD",
-        "hour": "YYYY-MM-DD HH"
-      }
+      "topics": "主要事情",
+      "weekTopics": "这周在推进",
+      "weeks": "各周进展",
+      "days": "每天发生了什么",
+      "highlights": "值得回看",
+      "showAll": "查看全部",
+      "partial": "先回顾已有记录，完整概览尚未生成。",
+      "empty": "这个时段还没有记录。",
+      "noRecords": "暂无记录",
+      "recordedSources": "记录来自 {{sources}}",
+      "returnTo": "返回上一级",
+      "loadError": "暂时无法加载这个时段。",
+      "filter": "筛选：{{query}}",
+      "clearFilter": "清除筛选"
     },
     "scale": {
       "month": "月",

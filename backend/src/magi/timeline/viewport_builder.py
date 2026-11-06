@@ -22,6 +22,7 @@ from .viewport_i18n import is_zh_locale, normalize_locale, source_label, timelin
 from .viewport_overview import TimelineOverviewBuilder
 from .viewport_state_summary import TimelineStateSummaryBuilder
 from .viewport_themes import ThemeCardBuilder
+from .period_review import TimelinePeriodReviewBuilder
 
 logger = get_logger("magi.timeline.viewport_builder")
 _CANONICAL_SELF_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
@@ -137,6 +138,11 @@ class TimelineViewportBuilder:
     ) -> dict[str, Any]:
         locale = self._normalize_locale(locale)
         interpreted_query = self._query_interpreter.interpret(query=query, start=start, end=end)
+        if scale in ('week', 'month'):
+            return await TimelinePeriodReviewBuilder(l1_store=self._l1, l3_store=self._l3).build(
+                scale=scale, query=interpreted_query, timezone=timezone, locale=locale,
+                query_text=query, focus=focus,
+            )
         sources = await self._load_viewport_sources(scale=scale, query=interpreted_query)
         sources = self._filter_viewport_sources(sources, interpreted_query)
         derived = await self._derive_viewport_data(

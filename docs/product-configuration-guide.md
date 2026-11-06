@@ -1500,8 +1500,20 @@ Expected product behavior:
 - the day page prioritizes a compact date/overview, chronological activity rows,
   and readable evidence; source icons use installed plugin artwork when available
 - the primary timeline experience should support `month`, `week`, `day`, and `hour` scales without compatibility views for the older feed-style layout
-- `month` should emphasize reflection windows and self-state patterns derived from L2/L3 memory
-- `week` and `day` should emphasize clustered periods instead of raw one-line logs
+- `month` shows up to three recurring themes, four to six intersecting week
+  summaries, and up to three moments worth revisiting. `week` shows ongoing
+  themes and seven daily summaries. `day` shows chronological activities
+- day/week/month share a compact date picker, typography, source artwork, and
+  reading width. The calendar opens from the date heading; it does not occupy a
+  permanent sidebar. Scale changes keep the selected historical period in view
+- month → week → day navigation keeps return breadcrumbs and restores the
+  previous scroll position and focus. Evidence loads only after selecting a day
+  activity
+- week/month first reads contain aggregates and bounded short previews, never
+  a complete event list or raw captured metadata. Existing L3 summaries provide
+  the overview and themes; missing summaries leave a usable calendar outline
+  with available previews and an explicit pending-overview label. Opening the
+  page does not synchronously invoke a model
 - `hour` should reveal raw evidence and fine-grained events
 - selecting a day activity opens a wide detail column or a full-width reading
   view in narrower windows, backed by the shared context bundle. Back/Escape
