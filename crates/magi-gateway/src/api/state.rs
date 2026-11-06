@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
@@ -15,6 +16,8 @@ pub struct ApiState {
     pub storage_ready: Arc<AtomicBool>,
     pub background_deliveries: Arc<tokio::sync::Semaphore>,
     pub supervisor: Arc<RwLock<magi_service_contract::lifecycle::SupervisorStatus>>,
+    /// Actual bound listener, including the assigned port when port zero was requested.
+    pub listener_address: Option<SocketAddr>,
     /// Directory for builtin persona avatar images.
     pub builtin_avatar_dir: Option<PathBuf>,
     /// Directory for user-uploaded avatar images (~/.magi/personalities/avatar).
@@ -45,6 +48,7 @@ impl ApiState {
             storage_ready: Arc::new(AtomicBool::new(false)),
             background_deliveries: Arc::new(tokio::sync::Semaphore::new(4)),
             supervisor: Arc::new(RwLock::new(Default::default())),
+            listener_address: None,
             builtin_avatar_dir: None,
             user_avatar_dir: None,
         }

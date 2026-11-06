@@ -163,3 +163,28 @@ async fn pairing_exchange_and_revocation_are_enforced_through_the_router() {
         401
     );
 }
+
+#[tokio::test]
+async fn owner_pairing_reports_the_bound_port_without_exposing_network_info_publicly() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let security = Arc::new(GatewaySecurity::new("owner"));
+    let mut state = ApiState::with_runtime(Arc::new(RuntimeConnection::default()), security);
+    state.listener_address = Some(address);
+    let router = api::build_router(state);
+    let (status, rejected) = request(
+        &router, "POST", "/api/server/pairing-grants", "", Value::Null,
+    ).await;
+    assert_eq!(status, 401);
+    assert!(rejected["data"]["network"].is_null());
+
+    let (status, response) = request(
+        &router, "POST", "/api/server/pairing-grants", "owner", Value::Null,
+    ).await;
+    assert_eq!(status, 200);
+    assert_eq!(response["data"]["network"]["listen_host"], "127.0.0.1");
+    assert_eq!(response["data"]["network"]["listen_port"], address.port());
+    assert!(response["data"]["network"]["lan_ips"].is_array());
+    assert_eq!(response["data"]["pairing_token"].as_str().unwrap().len(), 64);
+    assert!(response["data"]["network"].get("public_ip").is_none());
+}

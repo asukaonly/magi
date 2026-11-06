@@ -262,7 +262,7 @@
                       "const": true
                     },
                     "data": {
-                      "$ref": "#/components/schemas/GatewayPairingGrant"
+                      "$ref": "#/components/schemas/GatewayOwnerPairingGrant"
                     }
                   },
                   "required": [
@@ -1244,6 +1244,65 @@
           "event_type",
           "data",
           "contract_version"
+        ]
+      },
+      "GatewayOwnerPairingGrant": {
+        "type": "object",
+        "properties": {
+          "pairing_token": {
+            "type": "string"
+          },
+          "expires_at_ms": {
+            "type": "integer"
+          },
+          "server_id": {
+            "type": "string"
+          },
+          "network": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GatewayPairingNetwork"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Center listener and private interface addresses. Null when listener metadata is unavailable. No public-IP lookup is performed."
+          }
+        },
+        "required": [
+          "pairing_token",
+          "expires_at_ms",
+          "server_id",
+          "network"
+        ]
+      },
+      "GatewayPairingNetwork": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "listen_host": {
+            "type": "string",
+            "description": "IP address of the bound HTTP listener."
+          },
+          "listen_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "lan_ips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 32,
+            "description": "Private LAN and VPN interface addresses of the center, for reference only; they do not imply listener reachability."
+          }
+        },
+        "required": [
+          "listen_host",
+          "listen_port",
+          "lan_ips"
         ]
       }
     }

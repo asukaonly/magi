@@ -28,6 +28,13 @@ const clientSchema = z.object({ client_id: z.string().uuid(), name: z.string(), 
 const notificationPolicySchema = z.object({ mode: z.enum(['single_device', 'all_devices']) });
 export type CenterNotificationMode = z.infer<typeof notificationPolicySchema>['mode'];
 
+const ipAddressSchema = z.union([z.ipv4(), z.ipv6()]);
+const pairingNetworkSchema = z.object({
+  listen_host: ipAddressSchema,
+  listen_port: z.number().int().min(1).max(65535),
+  lan_ips: z.array(ipAddressSchema).max(32),
+});
+
 export const serverApi = {
   async notificationPolicy() { return notificationPolicySchema.parse(unwrapGatewayPayload(await api.get<unknown>('/server/notification-policy'))); },
   async setNotificationPolicy(mode: CenterNotificationMode) { return notificationPolicySchema.parse(unwrapGatewayPayload(await api.put<unknown>('/server/notification-policy', { mode }))); },
@@ -66,6 +73,6 @@ export const serverApi = {
   async clients() { return z.array(clientSchema).parse(unwrapGatewayPayload(await api.get<unknown>('/server/clients'))); },
   async revoke(clientId: string): Promise<void> { await api.delete(`/server/clients/${encodeURIComponent(clientId)}`); },
   async pairingGrant() {
-    return z.object({ pairing_token: z.string(), expires_at_ms: z.number() }).parse(unwrapGatewayPayload(await api.post<unknown>('/server/pairing-grants')));
+    return z.object({ pairing_token: z.string(), expires_at_ms: z.number(), network: pairingNetworkSchema.nullable() }).parse(unwrapGatewayPayload(await api.post<unknown>('/server/pairing-grants')));
   },
 };

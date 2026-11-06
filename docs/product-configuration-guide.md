@@ -1719,10 +1719,19 @@ The Settings connection section separates saved connection profiles from the
 current center's device authorizations. The access panel lists paired devices,
 requires explicit confirmation before revocation, and can generate a one-use
 30-minute pairing code. Generating a code opens a focused dialog immediately,
-with loading, failure/retry and expiry states. The complete code is readable in
-a wrapping field alongside its expiration time and a copy action; no page scroll
-or reveal action is required. The dialog also shows the service origin with a
-separate copy action and explains loopback-address limits. Codes stay in component
+with loading, failure/retry and expiry states. A wider dialog presents the code
+in a compact, single-line field alongside its expiration time and a copy action;
+the field scrolls horizontally on narrow displays. No page scroll or reveal
+action is required. Connection guidance separates the current connection's
+usable origin from private LAN/VPN addresses and the center's actual bound port.
+The authenticated owner pairing response includes this network snapshot, read
+from the center rather than the viewing device. Private addresses are reference
+information: the service listens on loopback, so substituting a LAN IP does not
+enable remote access. For a remote connection, the existing HTTPS origin and its
+external port remain the copyable endpoint. For a local connection, the remote
+HTTPS address is explicitly unknown; the client does not invent an endpoint,
+probe public-IP services, or infer proxy configuration from request headers.
+Codes stay in component
 memory only while the dialog is open, are cleared on dismissal or expiry, and are
 copied only on user action; they are never stored in browser persistence. Revoking the
 current device disconnects its profile without stopping the center. The remote

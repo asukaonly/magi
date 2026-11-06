@@ -31,15 +31,15 @@ describe('center device access', () => {
     render(<CenterAccessPanel />);
     await screen.findByText('Living room');
     expect(pairing).not.toHaveBeenCalled();
-    pairing.mockResolvedValue({ pairing_token: 'temporary-private-code', expires_at_ms: Date.now() + 1000 });
+    pairing.mockResolvedValue({ network: { listen_host: '127.0.0.1', listen_port: 54321, lan_ips: ['192.168.1.9'] }, pairing_token: 'temporary-private-code', expires_at_ms: Date.now() + 1000 });
     vi.useFakeTimers();
     await act(async () => { fireEvent.click(screen.getByText('connections.access.createCode')); });
     expect(screen.getByRole('dialog')).toHaveAccessibleName('connections.access.pairingTitle');
-    expect(screen.getByLabelText('connections.pairingCode').tagName).toBe('TEXTAREA');
+    expect(screen.getByLabelText('connections.pairingCode').tagName).toBe('INPUT');
     expect(screen.getByLabelText('connections.pairingCode')).toHaveFocus();
     expect(screen.getByLabelText('connections.pairingCode')).toHaveValue('temporary-private-code');
     expect(screen.getByLabelText('connections.address')).toHaveValue('http://127.0.0.1:54321');
-    expect(screen.getByText('connections.access.localAddressHint')).toBeInTheDocument();
+    expect(screen.getByText('connections.access.localNetworkHint')).toBeInTheDocument();
     expect(JSON.stringify(window.localStorage)).not.toContain('temporary-private-code');
     await act(async () => { await vi.advanceTimersByTimeAsync(1001); });
     expect(screen.queryByLabelText('connections.pairingCode')).toBeNull();
@@ -53,12 +53,12 @@ describe('center device access', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     try {
       runtime.apiBaseUrl = 'https://magi.example:8443/api';
-      pairing.mockResolvedValue({ pairing_token: 'temporary-private-code', expires_at_ms: Date.now() + 60_000 });
+      pairing.mockResolvedValue({ network: { listen_host: '127.0.0.1', listen_port: 54321, lan_ips: ['192.168.1.9'] }, pairing_token: 'temporary-private-code', expires_at_ms: Date.now() + 60_000 });
       render(<CenterAccessPanel />);
       await screen.findByText('Living room');
       fireEvent.click(screen.getByText('connections.access.createCode'));
       expect(await screen.findByLabelText('connections.address')).toHaveValue('https://magi.example:8443');
-      expect(screen.queryByText('connections.access.localAddressHint')).toBeNull();
+      expect(screen.queryByText('connections.access.localNetworkHint')).toBeNull();
       fireEvent.click(screen.getByText('connections.access.copyAddress'));
       await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://magi.example:8443'));
     } finally {

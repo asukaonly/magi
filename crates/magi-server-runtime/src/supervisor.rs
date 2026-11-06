@@ -88,11 +88,13 @@ pub async fn run(
         .with_connection(Arc::clone(&connection)),
     );
     state.maintenance = Some(maintenance.clone());
-    let router = api::build_router(state);
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", config.port))
         .await
         .map_err(|e| format!("Failed to bind server listener: {e}"))?;
-    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let listener_address = listener.local_addr().map_err(|e| e.to_string())?;
+    let port = listener_address.port();
+    state.listener_address = Some(listener_address);
+    let router = api::build_router(state);
     #[cfg(unix)]
     let mut management = crate::management::ManagementServer::bind(
         &config.data_dir,

@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 use super::{security::PairingCredential, state::ApiState};
 use crate::auth::{AccessSession, AuthStore};
 
+#[path = "server_pairing.rs"]
+mod pairing;
+
 pub async fn info(State(state): State<ApiState>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "success": true,
@@ -46,7 +49,15 @@ pub async fn session(Extension(session): Extension<AccessSession>) -> Json<serde
 }
 
 pub async fn create_pairing(State(state): State<ApiState>) -> Response {
-    operation(state, |auth| auth.create_pairing_grant()).await
+    let listener = state.listener_address;
+    operation(state, move |auth| {
+        let grant = auth.create_pairing_grant()?;
+        Ok(pairing::OwnerPairingGrant {
+            grant,
+            network: listener.map(pairing::network_info),
+        })
+    })
+    .await
 }
 
 #[derive(Deserialize)]
