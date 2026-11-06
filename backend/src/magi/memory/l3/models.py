@@ -124,6 +124,11 @@ class TemporalEvidenceItem:
     memory_domain: str | None = None
     importance_score: float | None = None
     interpretation_context: dict[str, str] | None = None
+    source: str | None = None
+    author_type: str | None = None
+    activity: dict[str, object] | None = None
+    source_object_id: str | None = None
+    content_truncated: bool = False
 
 
 @dataclass(slots=True)

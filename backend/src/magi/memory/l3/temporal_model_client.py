@@ -83,6 +83,35 @@ class TemporalSummaryModelClient:
         )
         return self._parse_json_payload(raw, request_kind="memory:l3_temporal_summary_structure")
 
+    async def call_repair_model(
+        self,
+        pack: TemporalEvidencePack,
+        *,
+        draft: str,
+        issues: list[dict[str, object]],
+        timeout_seconds: float,
+        disable_thinking: bool,
+    ) -> str | None:
+        """Repair only claims flagged by the source-grounded structure pass."""
+        target = self._target_resolver()
+        if target is None:
+            return None
+        adapter, provider_bridge = target
+        return (
+            await self._chat_completion(
+                adapter=adapter,
+                provider_bridge=provider_bridge,
+                pack=pack,
+                request_kind="memory:l3_temporal_summary_repair",
+                prompt=self._prompt_renderer.render_repair_prompt(pack, draft=draft, issues=issues),
+                json_mode=False,
+                timeout_seconds=timeout_seconds,
+                disable_thinking=disable_thinking,
+                log_label="repair",
+            )
+            or None
+        )
+
     async def call_model(
         self,
         pack: TemporalEvidencePack,

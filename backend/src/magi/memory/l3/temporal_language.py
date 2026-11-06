@@ -36,7 +36,7 @@ def render_temporal_summary_system_prompt() -> str:
         TEMPORAL_SUMMARY_SYSTEM_PROMPT
         + "\nLanguage Rules:\n"
         + f"- Target language: {target_language_label()}.\n"
-        + "- All user-facing JSON string values MUST use the target language.\n"
+        + "- All user-facing prose and structured string values MUST use the target language.\n"
         + "- Evidence text may be in another language; summarize it in the target language unless preserving a name, URL, ID, path, title, or direct quote.\n"
     )
 
@@ -59,7 +59,8 @@ class TemporalLanguageGuard:
         strings = [output.content]
         if output.essence_prose:
             strings.append(output.essence_prose)
-        strings.extend(output.key_topics)
+        # Retrieval labels may be exact product/project names in another language.
+        # Validate the narrative fields, not names such as "Claude Code" or "MyGO".
         if isinstance(output.sentiment_summary, dict):
             strings.extend(
                 str(value) for value in output.sentiment_summary.values() if isinstance(value, str)

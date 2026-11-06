@@ -2713,7 +2713,29 @@ There is no separate digest layer or digest-specific scheduler. A digest-style v
 
 L3 summary LLM calls use the optional `memory_summarizer` runtime scenario. This scenario is intentionally not a required normal-settings choice: when it is absent, the scenario pool falls back to `core`, so users are not forced to understand or configure a separate summary model. Operators may still define `memory_summarizer` explicitly in configuration when summary generation should use a different model profile.
 
-Temporal LLM generation is split into two calls over the same stable evidence-prefix prompt. The first call produces the user-facing detail body and is the required product output. The second call reuses the same evidence prefix plus the accepted body to extract a short `essence_prose` preview and optional structured fields such as topics, entities, sentiment, and change/pattern metadata. If the structured extraction fails, the accepted body still writes as a `temporal-llm` summary with empty structured fields and no preview. Rule-backed summaries remain an internal fallback and retry/debug lower bound; they should not be treated as normal Summary-page content unless a UI-specific quality gate explicitly allows them.
+The readable recap serves future personal recall: select concrete events,
+meaningful changes, explicit decisions and distinctive experiences, then write
+only as much as those facts warrant. Day/week/month policies provide reading
+budgets, not mandatory headings or minimum bullet counts. A short period may
+need only one sentence. The writer must distinguish browsing, requests, plans
+and completed actions, and must not infer life priorities, mood, productivity
+or unresolved tasks from missing records or activity counts. Retrieval metadata
+is optional and must not dictate a report outline.
+
+Temporal LLM generation normally uses two calls over the same evidence-prefix
+prompt. The first produces the user-facing draft. The second checks its factual
+claims against source events and extracts an `essence_prose` card preview plus
+optional retrieval fields. Unsupported claims must quote the draft and reference
+only supplied event IDs. When a review flags an overclaim, the runtime allows
+one repair and one fresh review, for at most four calls. A still-flagged repair,
+an unavailable second review, or a malformed claim review produces an internal
+rule fallback rather than publishing the suspect draft. This model review is
+a bounded quality check, not proof that every claim is true.
+
+A failed optional extraction still preserves prose when no evidence violation
+has been identified. Rule-backed summaries remain an internal fallback and
+retry/debug lower bound; they are not normal Summary-page content unless a
+UI-specific quality gate explicitly allows them.
 
 The same product contract applies to thematic topic summaries and episodic/experience summaries: user-facing prose is generated first and structured fields are extracted afterward. A failed structure pass must not discard accepted prose. L3 insight renderers also apply a display-quality gate: incomplete host fact descriptions and text that still looks like a raw machine signal are skipped. The renderer never fabricates a replacement from a trait family or enum value.
 
@@ -2742,26 +2764,50 @@ The temporal evidence pack records:
 - `previous_period_summaries` — compact same-category summaries ending before this window, used only for comparison
 - `child_period_summaries` — compact lower-granularity summaries inside this window, such as week summaries inside a month
 
+Each selected event also carries its source, authorship, source-object identity
+and observed activity facets. Transcript sources retain cleaned user turns in
+canonical L1 narration; a compact timeline preview is never a substitute for
+that evidence. User requests and quoted material must not be promoted into
+completed work or personal beliefs. A session timestamp does not date every
+turn in a cumulative transcript, and repeated revisions are not independent
+observations. Existing first-line-only records need explicit source replay;
+changing the generator does not repair historical evidence or overwrite old
+summaries automatically.
+
+Raw event text has a per-event ceiling of 6,000 characters and a combined
+60,000-character budget. When necessary, bounded head/tail excerpts preserve
+both opening context and recent corrections, with an omission marker and a
+`content_truncated` flag. These are input limits, not a claim of full coverage.
+The deterministic hints include descriptive terms and source frequencies only;
+first/last keyword differences and repeated constraint words are not emitted
+as candidate focus shifts or personal constraints.
+
 This metadata is part of the prompt contract. The temporal summarizer must treat selected raw events as representative evidence, not as an exhaustive list of everything that happened in the window.
 
-Previous and child period summaries are timeline context, not new evidence. They may help the model describe drift, continuity, or phase changes, but current-window facts must still be grounded in the current evidence pack. By default, `hour` and `day` summaries receive one previous same-period summary; `week` and `month` summaries receive up to three previous same-period summaries; `quarter` and `year` summaries receive up to two previous same-period summaries. Child context uses the next lower timeline scale: day summaries may include hour summaries, week summaries may include day summaries, month summaries may include week summaries, quarter summaries may include month summaries, and year summaries may include quarter summaries.
+Previous and child period summaries are fallible navigation context, not new evidence or a mandatory narrative skeleton. They can locate a relevant subject, but their claims must be checked against current source evidence. Repeated summary interpretations do not corroborate a claim. By default, `hour` and `day` summaries receive one previous same-period summary; `week` and `month` summaries receive up to three previous same-period summaries; `quarter` and `year` summaries receive up to two previous same-period summaries. Child context uses the next lower timeline scale: day summaries may include hour summaries, week summaries may include day summaries, month summaries may include week summaries, quarter summaries may include month summaries, and year summaries may include quarter summaries.
 
-Temporal summary generation must honor the user's configured language preference even when running from scheduler contexts that do not carry an HTTP language header. The temporal summarizer passes the target language in both system and user prompts and rejects model outputs whose user-facing fields clearly violate the target language, falling back to deterministic rule text rather than storing mixed-language summaries.
+Temporal summary generation must honor the user's configured language preference even when running from scheduler contexts that do not carry an HTTP language header. The temporal summarizer passes the target language in both system and user prompts and rejects model outputs whose narrative fields clearly violate the target language. Retrieval topic labels may preserve original product or project names; an English proper name must not discard an otherwise valid Chinese card preview.
 
 Temporal LLM calls use period-specific generation profiles by default:
 
-- `hour` windows get up to `180` seconds, keep thinking disabled, and focus on local sequence, immediate context, and short-lived shifts.
-- `day` windows get up to `300` seconds, enable thinking, and focus on day blocks, attention shifts, explicit decisions, and repeated constraints.
-- `week` windows get up to `600` seconds, enable thinking, and focus on durable themes, recurring interests, cross-source patterns, and notable changes.
-- `month` windows get up to `600` seconds, enable thinking, and focus on cross-week themes, stage changes, sustained interests, project progress, and unusually frequent activities.
-- `quarter` windows get up to `600` seconds, enable thinking, and focus on durable projects, decisions, constraints, source-specific habits, and cross-month phase changes.
-- `year` windows get up to `600` seconds, enable thinking, and focus on year-scale durable themes, long-running projects, decisions, constraints, recurring interests, and unusually frequent activities.
+- `hour` windows get up to `180` seconds per call, keep thinking disabled, and recall a specific activity or question.
+- `day` windows get up to `300` seconds per call, enable thinking, and select a few concrete details that distinguish the day.
+- `week` windows get up to `600` seconds per call, enable thinking, and connect supported developments in the same subject across the week.
+- `month`, `quarter`, and `year` windows get up to `600` seconds per call, enable thinking, and select meaningful changes, decisions and experiences rather than concatenating shorter reports or imposing a growth narrative.
 
 The legacy flat `temporal_llm_timeout_seconds` setting remains an explicit override for testing or operator tuning; the previous default value `3.0` is treated as "use the period profile" so it does not force production summaries through a three-second budget.
 
 Rule fallback is a user-facing lower bound, not a debug dump. It should describe the dominant sources or themes first, then add compact source-specific signals such as focus domains or repeated sites when available. Raw event counts, internal event type names, and compression counters belong in summary metadata rather than in the summary body unless they materially change interpretation.
 
-Temporal summaries should remain compact, but they must not be over-compressed into a single generic paragraph for `day`, `week`, or `month` windows. The generated `content` field should preserve period-appropriate concrete anchors such as projects, tools, services, domains, media titles, decisions, and unresolved follow-up threads. The optional `essence_prose` field is the card-level preview for product surfaces: it should quickly answer what this period was about without replacing the richer `content`. The structured `change_and_pattern` payload may include `timeline`, `source_signals`, `decisions_and_actions`, `changes`, `patterns`, and `open_threads` arrays. These structured fields are part of the retrieval surface: L3 FTS and vector text include both the readable content and the structured summary fields so later recall can recover details even when the visible recap stays concise.
+Temporal summaries preserve the specific names and details needed to recognize
+an experience later, while omitting routine noise and repeated observations.
+The optional `essence_prose` is a concrete card preview, not another generic
+headline. The structured `change_and_pattern` payload remains available for
+retrieval, including timelines, source observations, explicit actions and open
+intentions when supported. Unsupported arrays stay empty; numeric psychological
+or productivity measurements must not be invented. L3 FTS and vector text
+include both readable content and structured anchors without requiring all
+retrieval detail to appear in the visible recap.
 
 #### Plugin Temporal Features
 

@@ -63,18 +63,8 @@ async def test_build_temporal_evidence_pack_filters_runtime_and_preserves_import
     assert {"growth", "salary", "remote-work"} <= set(pack.rule_hints["top_terms"])
     assert pack.rule_hints["high_importance_event_ids"] == ["evt-1", "evt-2"]
     assert pack.rule_hints["repeated_event_types"] == []
-    assert pack.rule_hints["window_change_candidates"] == [
-        {
-            "kind": "first_last_focus_shift",
-            "from_event_id": "evt-1",
-            "to_event_id": "evt-2",
-            "early_terms": ["growth", "salary"],
-            "late_terms": ["remote-work"],
-            "new_terms": ["remote-work"],
-            "dropped_terms": ["growth", "salary"],
-        }
-    ]
-    assert pack.rule_hints["recurring_constraints"] == []
+    assert "window_change_candidates" not in pack.rule_hints
+    assert "recurring_constraints" not in pack.rule_hints
 
 
 @pytest.mark.asyncio
@@ -592,6 +582,11 @@ async def test_live_temporal_requests_share_exact_evidence_and_resolve_language_
                 "importance_score": None,
                 "content": "growth matters",
                 "interpretation_context": None,
+                "source": None,
+                "author_type": None,
+                "activity": None,
+                "source_object_id": None,
+                "content_truncated": False,
             },
             {
                 "event_id": "evt-2",
@@ -601,6 +596,11 @@ async def test_live_temporal_requests_share_exact_evidence_and_resolve_language_
                 "importance_score": None,
                 "content": "finish portfolio",
                 "interpretation_context": None,
+                "source": None,
+                "author_type": None,
+                "activity": None,
+                "source_object_id": None,
+                "content_truncated": False,
             },
         ],
     }
@@ -615,7 +615,10 @@ async def test_live_temporal_requests_share_exact_evidence_and_resolve_language_
         assert payload == expected
         contexts.append(prompt[: offset + end])
     assert contexts[0] == contexts[1]
-    assert f"Accepted User-Facing Summary:\n{prose}" in calls[1]["messages"][0]["content"]
+    assert (
+        f"Draft User-Facing Summary (review before accepting):\n{prose}"
+        in calls[1]["messages"][0]["content"]
+    )
 
 
 def test_zh_week_fallback_is_theme_first_and_hides_debug_stats(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -661,7 +664,7 @@ def test_zh_week_fallback_is_theme_first_and_hides_debug_stats(monkeypatch: pyte
 
 
 @pytest.mark.asyncio
-async def test_build_temporal_evidence_pack_extracts_recurring_constraints() -> None:
+async def test_repeated_constraint_words_do_not_create_claims() -> None:
     service = TemporalSummaryLLMService()
 
     pack = service.build_evidence_pack(
@@ -688,9 +691,7 @@ async def test_build_temporal_evidence_pack_extracts_recurring_constraints() -> 
         period_end=200.0,
     )
 
-    assert pack.rule_hints["recurring_constraints"] == [
-        {"keyword": "remote", "event_ids": ["evt-1", "evt-2"]}
-    ]
+    assert "recurring_constraints" not in pack.rule_hints
 
 @pytest.mark.asyncio
 async def test_call_temporal_model_no_persona_uses_default_system_prompt(monkeypatch: pytest.MonkeyPatch) -> None:

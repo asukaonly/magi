@@ -22,6 +22,7 @@ from .temporal_output import TemporalOutputParsingMixin
 from .temporal_policy import LEGACY_FLAT_TIMEOUT_SECONDS, TemporalSummaryPolicy
 from .temporal_prompt_renderer import TemporalPromptRenderer
 from .temporal_prompts import TEMPORAL_SUMMARY_OUTPUT_SCHEMA, TEMPORAL_SUMMARY_SYSTEM_PROMPT
+from .temporal_review import TemporalStructureReview, parse_prose_issues
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         *,
         fallback_summary: str,
     ) -> TemporalGenerationResult:
-        """Generate user-facing prose first, then best-effort structured fields."""
+        """Generate prose, review evidence claims, and extract optional metadata."""
         fallback = self._build_fallback_result(pack, fallback_summary)
         if not self._should_use_temporal_llm(pack):
             return fallback
@@ -79,17 +80,69 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         if prose_content is None:
             return fallback
 
-        summary_overrides = await self._generate_temporal_structure_overrides(
+        review = await self._generate_temporal_structure_overrides(
             pack,
             prose_content=prose_content,
             timeout_seconds=timeout_seconds,
             disable_thinking=disable_thinking,
         )
+        if review.invalid:
+            return fallback
+        if review.issues:
+            prose_content = await self._repair_temporal_prose(
+                pack,
+                draft=prose_content,
+                issues=review.issues,
+                timeout_seconds=timeout_seconds,
+                disable_thinking=disable_thinking,
+            )
+            if prose_content is None:
+                return fallback
+            review = await self._generate_temporal_structure_overrides(
+                pack,
+                prose_content=prose_content,
+                timeout_seconds=timeout_seconds,
+                disable_thinking=disable_thinking,
+            )
+            # Once an overclaim is known, an unavailable or failed review cannot
+            # certify the repaired draft. Never loop through unlimited rewrites.
+            if review.invalid or review.issues or not review.checked:
+                logger.warning("L3 temporal evidence repair could not be verified")
+                return fallback
         return TemporalGenerationResult(
             candidate=self._candidate_from_temporal_prose(pack, prose_content),
-            summary_overrides=summary_overrides,
+            summary_overrides=review.summary_overrides,
             used_fallback=False,
         )
+
+    async def _repair_temporal_prose(
+        self,
+        pack: TemporalEvidencePack,
+        *,
+        draft: str,
+        issues: list[dict[str, object]],
+        timeout_seconds: float,
+        disable_thinking: bool,
+    ) -> str | None:
+        try:
+            repaired = await asyncio.wait_for(
+                self._model_client.call_repair_model(
+                    pack,
+                    draft=draft,
+                    issues=issues,
+                    timeout_seconds=timeout_seconds,
+                    disable_thinking=disable_thinking,
+                ),
+                timeout=timeout_seconds,
+            )
+            content = str(repaired or "").strip()
+            if not content:
+                return None
+            self._validate_temporal_prose(content)
+            return content
+        except Exception:
+            logger.warning("L3 temporal evidence repair failed")
+            return None
 
     def _should_use_temporal_llm(self, pack: TemporalEvidencePack) -> bool:
         return self._enabled and pack.source_event_count >= self._min_event_count_for_llm
@@ -137,8 +190,9 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         prose_content: str,
         timeout_seconds: float,
         disable_thinking: bool,
-    ) -> dict[str, object]:
+    ) -> TemporalStructureReview:
         summary_overrides = self._empty_temporal_summary_overrides()
+        review = TemporalStructureReview(summary_overrides=summary_overrides)
         payload = await self._call_temporal_structure_payload(
             pack,
             prose_content=prose_content,
@@ -146,6 +200,15 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
             disable_thinking=disable_thinking,
         )
         if isinstance(payload, dict):
+            try:
+                review.issues, review.checked = parse_prose_issues(
+                    payload,
+                    content=prose_content,
+                    event_ids=pack.source_event_ids,
+                )
+            except ValueError:
+                review.invalid = True
+                logger.warning("L3 temporal evidence review was malformed")
             try:
                 summary_overrides.update(
                     self.parse_structure_output(payload, pack=pack, content=prose_content)
@@ -159,7 +222,7 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
                         "error": str(exc),
                     },
                 )
-        return summary_overrides
+        return review
 
     async def _call_temporal_structure_payload(
         self,

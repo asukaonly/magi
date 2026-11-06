@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from typing import Any
@@ -41,21 +42,73 @@ _STOP_TERMS = {
     "you",
     "your",
 }
-_CONSTRAINT_KEYWORDS = {
-    "avoid",
-    "budget",
-    "cannot",
-    "deadline",
-    "hybrid",
-    "must",
-    "need",
-    "prefer",
-    "priority",
-    "remote",
-    "salary",
-    "should",
-    "time",
-}
+MAX_TEMPORAL_EVENT_CHARS = 6000
+MAX_TEMPORAL_EVIDENCE_CHARS = 60000
+_EXCERPT_MARKER = "\n[... source text omitted ...]\n"
+
+
+def _metadata(event: dict[str, Any]) -> dict[str, Any]:
+    value = event.get("metadata_json")
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError):
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _content_limit(events: list[dict[str, Any]]) -> int:
+    """Allocate a shared cap without letting a long transcript crowd out other sources."""
+    lengths = [len(str(event.get("content") or "")) for event in events]
+    low, high = 0, MAX_TEMPORAL_EVENT_CHARS
+    while low < high:
+        midpoint = (low + high + 1) // 2
+        if sum(min(length, midpoint) for length in lengths) <= MAX_TEMPORAL_EVIDENCE_CHARS:
+            low = midpoint
+        else:
+            high = midpoint - 1
+    return low
+
+
+def _excerpt(content: str, limit: int) -> str:
+    if len(content) <= limit:
+        return content
+    if limit <= len(_EXCERPT_MARKER):
+        return content[:limit]
+    remaining = limit - len(_EXCERPT_MARKER)
+    head = remaining * 2 // 3
+    tail = remaining - head
+    return content[:head] + _EXCERPT_MARKER + content[-tail:]
+
+
+def _evidence_item(event: dict[str, Any], content_limit: int) -> TemporalEvidenceItem:
+    content = str(event.get("content") or "")
+    metadata = _metadata(event)
+    activity = metadata.get("activity")
+    return TemporalEvidenceItem(
+        event_id=str(event.get("event_id") or ""),
+        event_type=str(event.get("event_type") or ""),
+        content=_excerpt(content, content_limit),
+        timestamp=float(event["timestamp"]) if event.get("timestamp") is not None else None,
+        memory_domain=str(event.get("memory_domain") or "") or None,
+        importance_score=(
+            float(event["importance_score"]) if event.get("importance_score") is not None else None
+        ),
+        interpretation_context=first_context_interpretation_context(event),
+        source=str(event.get("source") or "") or None,
+        author_type=str(event.get("author_type") or "") or None,
+        activity=(
+            {
+                key: activity[key]
+                for key in ("source_code", "action_code", "object_code", "qualifiers")
+                if key in activity
+            }
+            if isinstance(activity, dict)
+            else None
+        ),
+        source_object_id=str(metadata.get("source_object_id") or "") or None,
+        content_truncated=len(content) > content_limit,
+    )
 
 
 class TemporalEvidencePackMixin:
@@ -76,18 +129,9 @@ class TemporalEvidencePackMixin:
             if str(event.get("memory_domain") or "") != "runtime_telemetry"
             and str(event.get("retention_class") or "") != "disposable"
         ]
+        content_limit = _content_limit(kept_events)
         evidence_items = [
-            TemporalEvidenceItem(
-                event_id=str(event.get("event_id") or ""),
-                event_type=str(event.get("event_type") or ""),
-                content=str(event.get("content") or ""),
-                timestamp=float(event["timestamp"]) if event.get("timestamp") is not None else None,
-                memory_domain=str(event.get("memory_domain") or "") or None,
-                importance_score=float(event["importance_score"])
-                if event.get("importance_score") is not None
-                else None,
-                interpretation_context=first_context_interpretation_context(event),
-            )
+            _evidence_item(event, content_limit)
             for event in kept_events
             if str(event.get("event_id") or "").strip()
         ]
@@ -107,9 +151,9 @@ class TemporalEvidencePackMixin:
             source_event_count=len(source_event_ids),
             source_event_ids=source_event_ids,
             events=evidence_items,
-            importance_aggregate=(sum(importance_values) / len(importance_values))
-            if importance_values
-            else None,
+            importance_aggregate=(
+                (sum(importance_values) / len(importance_values)) if importance_values else None
+            ),
             event_type_distribution=event_type_distribution,
             rule_hints=self._build_rule_hints(evidence_items, event_type_distribution),
         )
@@ -137,73 +181,11 @@ class TemporalEvidencePackMixin:
         repeated_event_types = [
             event_type for event_type, count in sorted(event_type_distribution.items()) if count > 1
         ]
-        ordered_items = sorted(
-            evidence_items,
-            key=lambda item: float(item.timestamp) if item.timestamp is not None else float("inf"),
-        )
-        window_change_candidates = self._build_window_change_candidates(ordered_items)
-        recurring_constraints = self._build_recurring_constraints(evidence_items)
         return {
             "top_terms": [term for term, _count in term_counter.most_common(5)],
             "high_importance_event_ids": high_importance_event_ids,
             "repeated_event_types": repeated_event_types,
-            "window_change_candidates": window_change_candidates,
-            "recurring_constraints": recurring_constraints,
         }
-
-    def _build_window_change_candidates(
-        self,
-        evidence_items: list[TemporalEvidenceItem],
-    ) -> list[dict[str, object]]:
-        if len(evidence_items) < 2:
-            return []
-        early_terms = self._extract_ranked_terms(evidence_items[0].content)[:3]
-        late_terms = self._extract_ranked_terms(evidence_items[-1].content)[:3]
-        new_terms = [term for term in late_terms if term not in early_terms][:3]
-        dropped_terms = [term for term in early_terms if term not in late_terms][:3]
-        if not early_terms and not late_terms:
-            return []
-        return [
-            {
-                "kind": "first_last_focus_shift",
-                "from_event_id": evidence_items[0].event_id,
-                "to_event_id": evidence_items[-1].event_id,
-                "early_terms": early_terms,
-                "late_terms": late_terms,
-                "new_terms": new_terms,
-                "dropped_terms": dropped_terms,
-            }
-        ]
-
-    def _build_recurring_constraints(
-        self,
-        evidence_items: list[TemporalEvidenceItem],
-    ) -> list[dict[str, object]]:
-        hits: dict[str, list[str]] = {}
-        for item in evidence_items:
-            content = item.content.lower()
-            matched = [keyword for keyword in _CONSTRAINT_KEYWORDS if keyword in content]
-            for keyword in matched:
-                hits.setdefault(keyword, [])
-                if item.event_id not in hits[keyword]:
-                    hits[keyword].append(item.event_id)
-        recurring = [
-            {
-                "keyword": keyword,
-                "event_ids": event_ids,
-            }
-            for keyword, event_ids in sorted(hits.items())
-            if len(event_ids) >= 2
-        ]
-        return recurring
-
-    def _extract_ranked_terms(self, content: str) -> list[str]:
-        counter: Counter[str] = Counter()
-        for token in _TOP_TERM_PATTERN.findall(content.lower()):
-            if token in _STOP_TERMS:
-                continue
-            counter[token] += 1
-        return [term for term, _count in counter.most_common(5)]
 
 
 __all__ = ["TemporalEvidencePackMixin"]
