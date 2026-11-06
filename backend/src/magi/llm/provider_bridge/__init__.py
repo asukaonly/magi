@@ -120,6 +120,9 @@ class LLMProviderBridge:
     def is_anthropic(self) -> bool:
         return self._operations.is_anthropic()
 
+    def resolve_effective_reasoning_depth(self, requested: ThinkingDepth) -> ThinkingDepth:
+        return self._operations.resolve_effective_reasoning_depth(requested)
+
     def normalize_content_response(self, content: Any) -> ProviderResponse:
         return self._operations.normalize_content_response(content)
 

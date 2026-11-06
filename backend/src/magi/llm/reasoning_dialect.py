@@ -146,21 +146,17 @@ ANTHROPIC_THINKING_BUDGETS: Dict[ThinkingDepth, Optional[int]] = {
 
 
 def anthropic_thinking_is_adaptive_only(model_id: str) -> bool:
-    """Return True when an Anthropic model only supports *adaptive* thinking.
-
-    Adaptive-only models (Opus 4.7+, Fable 5) reject ``budget_tokens`` and
-    any sampling params (``temperature``/``top_p``/``top_k``) when thinking
-    is on; they must use ``thinking: {type: "adaptive"}`` instead. Shipped
-    budgeted models (Opus 4.6, Sonnet 4.6, Haiku 4.5) return False.
-
-    Heuristic, biased toward budgeted (returns False) when the id is
-    unrecognized — that path still works on every current model.
-    """
-    m = (model_id or "").lower()
-    if "fable" in m:
+    """Identify models that reject explicit thinking token budgets."""
+    m = model_id.lower()
+    if re.search(r"(?:opus|sonnet|haiku|fable)-5(?:-|$)", m):
         return True
     match = re.search(r"opus-4-(\d+)", m)
     return bool(match and int(match.group(1)) >= 7)
+
+
+def anthropic_thinking_is_required(model_id: str) -> bool:
+    """Identify models that cannot turn thinking off."""
+    return bool(re.search(r"(?:opus-5-5|sonnet-5-5|fable-5)(?:-|$)", model_id.lower()))
 
 
 def _anthropic_budget_builder(depth: ThinkingDepth) -> Dict[str, Any]:

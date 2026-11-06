@@ -45,6 +45,7 @@ class _AnthropicToolStreamState:
 class _OpenAIToolStreamState:
     tool_calls_by_index: Dict[int, Dict[str, Any]] = field(default_factory=dict)
     content_parts: List[str] = field(default_factory=list)
+    reasoning_parts: List[str] = field(default_factory=list)
     has_tool_calls: bool = False
     chunks_emitted: int = 0
     usage_data: Any = None
@@ -462,7 +463,7 @@ class ProviderBridgeToolStreamingMixin:
 
         if hasattr(delta, "tool_calls") and delta.tool_calls:
             await self._handle_openai_tool_call_deltas(delta.tool_calls, state)
-        await self._emit_openai_reasoning_delta(delta)
+        await self._emit_openai_reasoning_delta(delta, state)
         await self._handle_openai_content_delta(delta, state)
         if hasattr(chunk, "usage") and chunk.usage is not None:
             state.usage_data = chunk.usage
@@ -545,11 +546,12 @@ class ProviderBridgeToolStreamingMixin:
         )
 
     @staticmethod
-    async def _emit_openai_reasoning_delta(delta: Any) -> None:
+    async def _emit_openai_reasoning_delta(delta: Any, state: _OpenAIToolStreamState) -> None:
         reasoning_text = getattr(delta, "reasoning_content", None) or getattr(
             delta, "reasoning", None
         )
         if reasoning_text:
+            state.reasoning_parts.append(reasoning_text)
             await emit_stream_event(
                 LLMStreamEvent(kind="reasoning_delta", text=reasoning_text)
             )
@@ -640,6 +642,8 @@ class ProviderBridgeToolStreamingMixin:
                     "role": "assistant",
                     "content": content_text or "",
                     "tool_calls": raw_tool_calls,
+                    **({"reasoning_content": "".join(state.reasoning_parts)}
+                       if state.reasoning_parts else {}),
                 },
                 usage=usage,
             )
