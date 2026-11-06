@@ -6,6 +6,8 @@ from collections.abc import Callable
 import os
 from typing import Any
 
+from magi.utils.path_utils import expand_input_path, resolve_path_from_workspace
+
 from .classifier_models import ClassificationResult, RiskSignal
 from .contracts import RiskLevel
 
@@ -37,10 +39,9 @@ def _classify_powershell(
 def _classify_file_write(
     arguments: dict[str, Any], *, workspace: str | None = None
 ) -> ClassificationResult:
-    _ = workspace
     path = arguments.get("path") or arguments.get("file_path") or ""
     signals = [RiskSignal(key="fs_write", description="filesystem write")]
-    if isinstance(path, str) and _is_sensitive_user_path(path):
+    if isinstance(path, str) and _is_sensitive_user_path(path, workspace):
         signals.append(
             RiskSignal(key="sensitive_user_path", description="writes to user-sensitive path")
         )
@@ -57,10 +58,9 @@ def _classify_file_write(
 def _classify_file_edit(
     arguments: dict[str, Any], *, workspace: str | None = None
 ) -> ClassificationResult:
-    _ = workspace
     path = arguments.get("path") or arguments.get("file_path") or ""
     signals = [RiskSignal(key="fs_edit", description="filesystem edit")]
-    if isinstance(path, str) and _is_sensitive_user_path(path):
+    if isinstance(path, str) and _is_sensitive_user_path(path, workspace):
         signals.append(
             RiskSignal(key="sensitive_user_path", description="edits user-sensitive path")
         )
@@ -138,7 +138,7 @@ def _classify_file_read(
     path_text = str(path)
     signals = [RiskSignal(key="fs_read", description="filesystem read")]
 
-    if _is_sensitive_user_path(path_text):
+    if _is_sensitive_user_path(path_text, workspace):
         signals.append(
             RiskSignal(key="sensitive_user_path", description="reads user-sensitive path")
         )
@@ -174,27 +174,30 @@ _SENSITIVE_USER_PATH_SUFFIXES: tuple[str, ...] = (
 )
 
 
-def _is_sensitive_user_path(path: str) -> bool:
-    probe = "/" + path.replace("\\", "/").lstrip("/")
-    return any(marker in probe for marker in _SENSITIVE_USER_PATH_SUFFIXES)
+def _is_sensitive_user_path(path: str, workspace: str | None) -> bool:
+    try:
+        resolved = os.path.realpath(resolve_path_from_workspace(path, workspace=workspace))
+    except ValueError:
+        return True
+    return any(
+        marker in "/" + candidate.replace("\\", "/").lstrip("/")
+        for candidate in (path, resolved)
+        for marker in _SENSITIVE_USER_PATH_SUFFIXES
+    )
 
 
 def _is_outside_workspace(path: str, workspace: str | None) -> bool:
     if not path:
         return False
     try:
-        expanded_path = os.path.expanduser(path)
+        expanded_path = expand_input_path(path)
         if workspace:
-            expanded_workspace = os.path.expanduser(workspace)
-            target = (
-                expanded_path
-                if os.path.isabs(expanded_path)
-                else os.path.join(expanded_workspace, expanded_path)
+            resolved_target = os.path.realpath(
+                resolve_path_from_workspace(path, workspace=workspace)
             )
-            resolved_target = os.path.realpath(target)
-            resolved_workspace = os.path.realpath(expanded_workspace)
+            resolved_workspace = os.path.realpath(expand_input_path(workspace))
             return os.path.commonpath([resolved_target, resolved_workspace]) != resolved_workspace
-        return os.path.isabs(expanded_path) or path.startswith("~")
+        return os.path.isabs(expanded_path) or path.strip().startswith("~")
     except ValueError:
         return True
 

@@ -168,6 +168,42 @@ def test_file_read_classification_respects_workspace_and_sensitive_paths(
     assert {signal.key for signal in result.signals} == signals
 
 
+@pytest.mark.parametrize("path_kind", ["environment", "whitespace", "symlink"])
+@pytest.mark.parametrize("sensitive", [False, True])
+def test_file_read_classifies_resolved_target(
+    classifier, tmp_path, monkeypatch, path_kind, sensitive
+):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = tmp_path / (".ssh/id_rsa" if sensitive else "outside.txt")
+    target.parent.mkdir(exist_ok=True)
+    target.write_text("canary")
+    monkeypatch.setenv("MAGI_TEST_TARGET", str(target))
+    monkeypatch.setenv("MAGI_TEST_WORKSPACE", str(workspace))
+    link = workspace / "linked.txt"
+    link.symlink_to(target)
+    path = {
+        "environment": " $MAGI_TEST_TARGET ",
+        "whitespace": f" {target} ",
+        "symlink": "linked.txt",
+    }[path_kind]
+
+    result = classifier.classify(
+        tool_name="file_read", arguments={"path": path}, workspace="$MAGI_TEST_WORKSPACE"
+    )
+
+    assert result.level is (RiskLevel.DESTRUCTIVE if sensitive else RiskLevel.HIGH)
+
+
+def test_file_read_expanded_workspace_remains_low_risk(classifier, tmp_path, monkeypatch):
+    monkeypatch.setenv("MAGI_TEST_WORKSPACE", str(tmp_path))
+    result = classifier.classify(
+        tool_name="file_read", arguments={"path": " $MAGI_TEST_WORKSPACE/note.txt "},
+        workspace=" $MAGI_TEST_WORKSPACE ",
+    )
+    assert result.level is RiskLevel.LOW
+
+
 @pytest.mark.parametrize(
     "tool_name",
     [

@@ -15,7 +15,7 @@ from ..schema import (
     ToolResult,
     ToolSchema,
 )
-from ..utils.path_utils import resolve_path_from_workspace
+from ...utils.path_utils import resolve_path_from_workspace
 from ._read_constraint import record_read_in_session
 
 

@@ -28,7 +28,7 @@ from ..schema import (
     ParameterType,
     ToolErrorCode,
 )
-from ..utils.path_utils import (
+from ...utils.path_utils import (
     DEFAULT_EXCLUDE_PATTERNS,
     matches_exclude_path,
     normalize_exclude_patterns,

@@ -16,7 +16,7 @@ from ..schema import (
     ToolErrorCode,
 )
 from ..utils.batch_autodetect import suggest_batch
-from ..utils.path_utils import (
+from ...utils.path_utils import (
     DEFAULT_EXCLUDE_PATTERNS,
     has_hidden_path_component,
     matches_exclude_path,

@@ -65,6 +65,24 @@ async def _make_gateway(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [PermissionMode.ALL, PermissionMode.HIGH_ONLY])
+async def test_environment_path_cannot_bypass_file_read_denial(tmp_path, monkeypatch, mode):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("MAGI_TEST_TARGET", str(tmp_path / "outside.txt"))
+    prompter = _StubPrompter(UserPromptResponse(allow=False))
+    gateway, _ = await _make_gateway(mode=mode, prompter=prompter)
+
+    decision = await gateway.gate(
+        tool_name="file_read", arguments={"path": " $MAGI_TEST_TARGET "},
+        agent_id="a1", workspace=str(workspace),
+    )
+
+    assert decision.outcome is PermissionOutcome.DENIED
+    assert len(prompter.calls) == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mode,tool,arguments,prompted",
     [

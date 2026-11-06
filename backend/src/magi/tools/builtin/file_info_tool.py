@@ -19,7 +19,7 @@ from ..schema import (
     ToolResult,
     ToolSchema,
 )
-from ..utils.path_utils import resolve_path_from_workspace
+from ...utils.path_utils import resolve_path_from_workspace
 
 
 def _kind_from_mode(mode: int, is_symlink: bool) -> str:
