@@ -363,7 +363,7 @@ async def test_list_tasks_filters_by_status(store: BackgroundTaskStore) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_pending_returns_fifo_order(store: BackgroundTaskStore) -> None:
+async def test_list_pending_ids_returns_fifo_order(store: BackgroundTaskStore) -> None:
     first = BackgroundTask.new(_make_spec(origin_turn_id="t-a"))
     second = BackgroundTask.new(_make_spec(origin_turn_id="t-b"))
     third = BackgroundTask.new(_make_spec(origin_turn_id="t-c"))
@@ -383,9 +383,9 @@ async def test_list_pending_returns_fifo_order(store: BackgroundTaskStore) -> No
         excluded.created_at = 15.0
         await store.create_task(excluded)
 
-    pending = await store.list_pending()
+    pending = await store.list_pending_ids()
 
-    assert [task.task_id for task in pending] == [
+    assert pending == [
         first.task_id,
         second.task_id,
         third.task_id,

@@ -13,7 +13,7 @@ Lifecycle:
    ``pending`` rows into the in-memory queue, and spawns the dispatcher
    loop.
 2. During normal operation callers use :meth:`enqueue`, :meth:`cancel`,
-   :meth:`retry`, :meth:`list_active`, :meth:`list_pending`.
+   :meth:`retry`, :meth:`list_active`.
 3. On shutdown call :meth:`stop`: the dispatcher loop exits, all
    in-flight asyncio tasks are cancelled, and the manager waits for
    them to unwind gracefully.
@@ -135,7 +135,7 @@ class BackgroundTaskManager:
         self._max_concurrent = max_concurrent
         self._clock = clock
         self._executor: BackgroundTaskExecutor | None = None
-        self._queue: asyncio.Queue[BackgroundTask] | None = None
+        self._queue: asyncio.Queue[str] | None = None
         self._semaphore: asyncio.Semaphore | None = None
         self._dispatcher_task: asyncio.Task[None] | None = None
         # task_id -> (cancel token, asyncio task running the attempt).
@@ -200,9 +200,9 @@ class BackgroundTaskManager:
             for task in recovered:
                 await self._notify_listeners(task)
 
-        pending = await self._store.list_pending()
-        for task in pending:
-            self._queue.put_nowait(task)
+        pending = await self._store.list_pending_ids()
+        for task_id in pending:
+            self._queue.put_nowait(task_id)
 
         self._dispatcher_task = asyncio.create_task(
             self._dispatch_loop(), name="background-task-dispatcher"
@@ -278,7 +278,7 @@ class BackgroundTaskManager:
                 )
             )
             assert self._queue is not None
-            self._queue.put_nowait(task)
+            self._queue.put_nowait(task.task_id)
         logger.info(
             "background task enqueued",
             bg_task_id=task.task_id,
@@ -731,7 +731,7 @@ class BackgroundTaskManager:
                 )
             )
             assert self._queue is not None
-            self._queue.put_nowait(task)
+            self._queue.put_nowait(task.task_id)
         return task
 
     def _assert_admitted(
@@ -787,24 +787,23 @@ class BackgroundTaskManager:
         assert self._semaphore is not None
         assert self._executor is not None
         while True:
-            task = await self._queue.get()
+            task_id = await self._queue.get()
             if self._stopping:
                 return
             # A pending task may have been cancelled before we reached
             # it; re-read the authoritative status from the store.
-            latest = await self._store.get_task(task.task_id)
+            latest = await self._store.get_task(task_id)
             if latest is None or latest.status != BackgroundTaskStatus.PENDING:
                 continue
             if latest.task_id in self._running:
                 continue
-            task = latest
             await self._semaphore.acquire()
             if self._stopping:
                 self._semaphore.release()
                 return
             # Re-check after semaphore acquire: the task may have been
             # cancelled (or otherwise advanced) while we were blocked.
-            latest = await self._store.get_task(task.task_id)
+            latest = await self._store.get_task(task_id)
             if latest is None or latest.status != BackgroundTaskStatus.PENDING:
                 self._semaphore.release()
                 continue
@@ -849,7 +848,7 @@ class BackgroundTaskManager:
                     )
                 else:
                     if latest is not None and latest.status == BackgroundTaskStatus.PENDING:
-                        self._queue.put_nowait(latest)
+                        self._queue.put_nowait(latest.task_id)
 
     # ------------------------------------------------------------------
     # Listeners

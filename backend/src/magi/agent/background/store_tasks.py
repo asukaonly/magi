@@ -215,22 +215,20 @@ class BackgroundTaskRowStoreMixin:
             row = await cursor.fetchone()
         return int(row[0]) if row is not None else 0
 
-    async def list_pending(self, *, limit: int = 200) -> list[BackgroundTask]:
-        """Queue order: oldest pending first (FIFO within priority)."""
+    async def list_pending_ids(self) -> list[str]:
+        """Return every pending task ID in FIFO order for startup recovery."""
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            db.row_factory = aiosqlite.Row
+        async with sqlite_connection_async(self.db_path, profile="readonly") as db:
             cursor = await db.execute(
                 """
-                SELECT * FROM background_tasks
+                SELECT task_id FROM background_tasks
                 WHERE status = ?
-                ORDER BY created_at ASC
-                LIMIT ?
+                ORDER BY created_at ASC, task_id ASC
                 """,
-                (BackgroundTaskStatus.PENDING.value, int(limit)),
+                (BackgroundTaskStatus.PENDING.value,),
             )
             rows = await cursor.fetchall()
-        return [self._row_to_task(row) for row in rows]
+        return [row[0] for row in rows]
 
     async def recover_stale_running(
         self, *, reason: str = "backend_restart"

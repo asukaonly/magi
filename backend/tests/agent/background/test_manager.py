@@ -1036,6 +1036,32 @@ async def test_start_marks_stale_running_as_failed_and_rehydrates_pending(
 
 
 @pytest.mark.asyncio
+async def test_restart_dispatches_backlog_beyond_200_tasks(runtime_paths_with_schema):
+    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
+    tasks = [BackgroundTask.new(_make_spec(origin_turn_id=str(i))) for i in range(205)]
+    for task in tasks:
+        await store.create_task(task)
+    executed = []
+
+    async def run_fn(task, token):
+        executed.append(task.task_id)
+        return BackgroundTaskRunResult(summary="restored")
+
+    async def all_completed():
+        return await store.count_tasks(statuses=[BackgroundTaskStatus.SUCCEEDED]) == len(tasks)
+
+    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=2)
+    await manager.start()
+    try:
+        await _wait_until(all_completed, timeout=20)
+        assert len(executed) == len(tasks)
+        assert set(executed) == {task.task_id for task in tasks}
+        assert await store.list_pending_ids() == []
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
 async def test_repeated_start_preserves_dispatcher_and_runs_persisted_pending_once(
     runtime_paths_with_schema,
 ):
