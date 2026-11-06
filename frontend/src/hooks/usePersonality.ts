@@ -51,6 +51,9 @@ export interface UsePersonalityReturn {
   selectedId: string;
   isNewMode: boolean;
   loading: boolean;
+  loadError: boolean;
+  retrying: boolean;
+  detailReady: boolean;
   saving: boolean;
   conflict: boolean;
   generating: boolean;
@@ -85,6 +88,7 @@ export interface UsePersonalityReturn {
   confirmDeletePersonality: () => Promise<void>;
   cancelDeletePersonality: () => void;
   reload: () => Promise<void>;
+  retryLoad: () => Promise<void>;
 }
 
 // ============================================================================
@@ -194,6 +198,11 @@ export function usePersonality(
 
   // Loading states
   const [loading, setLoading] = useState(false);
+  const [listLoading, setListLoading] = useState(false);
+  const [activeLoading, setActiveLoading] = useState(false);
+  const [listError, setListError] = useState(false);
+  const [activeError, setActiveError] = useState(false);
+  const [detailError, setDetailError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generationStages, setGenerationStages] = useState<PersonaGenerationStage[]>(buildPendingGenerationStages);
@@ -209,6 +218,7 @@ export function usePersonality(
     beginRequest('generation');
     setSelectedIdState(id);
     setLoading(false);
+    setDetailError(false);
     generationPending.current = false;
     setGenerating(false);
     setConflict(false);
@@ -247,6 +257,7 @@ export function usePersonality(
 
   const loadList = useCallback(async () => {
     const isCurrent = beginRequest('list');
+    setListLoading(true);
     try {
       const result = await personasApi.list();
       const summaries: PersonaSummary[] = result.data || [];
@@ -257,22 +268,29 @@ export function usePersonality(
         subtitle: s.description || '',
         avatar: s.avatar_path || '',
       }));
-      if (isCurrent()) setList(items);
+      if (isCurrent()) { setList(items); setListError(false); }
     } catch {
-      // Keep the last usable registry during a temporary connection failure.
+      if (isCurrent()) setListError(true);
+    } finally {
+      if (isCurrent()) setListLoading(false);
     }
   }, [beginRequest]);
 
   const loadCurrent = useCallback(async (): Promise<string> => {
     const isCurrent = beginRequest('active');
+    setActiveLoading(true);
     try {
       const result = await personasApi.getActive();
       const activeId = result.persona_id ?? '';
       if (!isCurrent()) return '';
       setCurrentId(activeId);
+      setActiveError(false);
       return activeId;
     } catch {
+      if (isCurrent()) setActiveError(true);
       return '';
+    } finally {
+      if (isCurrent()) setActiveLoading(false);
     }
   }, [beginRequest]);
 
@@ -283,9 +301,9 @@ export function usePersonality(
       if (selected.id !== id) return;
       const saved = baseline.current;
       const draft = configRef.current;
-      if (silent && (!saved || JSON.stringify(draft) !== JSON.stringify(saved.config) || savePending.current || generationPending.current)) return;
+      if (silent && ((saved && JSON.stringify(draft) !== JSON.stringify(saved.config)) || savePending.current || generationPending.current)) return;
       const isCurrent = beginRequest('detail');
-      if (!silent) setLoading(true);
+      if (!silent || !saved) setLoading(true);
       try {
         const result = await personasApi.get(id);
         const detail = requirePersonaSnapshot(result.data, id);
@@ -294,34 +312,34 @@ export function usePersonality(
         baseline.current = { id, revision: detail.updated_at, config: next };
         setConfig(next);
         setConflict(false);
+        setDetailError(false);
       } catch {
-        if (isCurrent() && !silent) toast.error(t('personality.loadFailed'));
+        if (isCurrent() && view.current === selected && baseline.current === saved) setDetailError(true);
       } finally {
         if (isCurrent()) setLoading(false);
       }
     },
-    [t, beginRequest, setConfig]
+    [beginRequest, setConfig]
   );
 
-  // Initial load
-  useEffect(() => {
-    let active = true;
-    const init = async () => {
-      const [activeId] = await Promise.all([loadCurrent(), loadList()]);
-      if (!active) return;
-      const targetId = view.current.id || activeId;
-      if (targetId && targetId !== '__new__') {
-        if (!view.current.id) setSelectedId(targetId);
-        await loadOne(targetId, baseline.current !== null);
-      }
-    };
-    void init();
-    return () => { active = false; };
-  }, [loadCurrent, loadList, loadOne, setSelectedId]);
+  const retryLoad = useCallback(async () => {
+    const isCurrent = beginRequest('page');
+    const selected = view.current;
+    const [activeId] = await Promise.all([
+      loadCurrent(),
+      loadList(),
+      selected.id && selected.id !== '__new__' ? loadOne(selected.id, true) : Promise.resolve(),
+    ]);
+    if (!isCurrent() || view.current !== selected) return;
+    if (!selected.id && activeId) {
+      setSelectedId(activeId);
+      // Retrying a read must not discard unsaved edits or a new-persona draft.
+      await loadOne(activeId, true);
+    }
+  }, [beginRequest, loadCurrent, loadList, loadOne, setSelectedId]);
 
-  useCenterRefresh(async () => {
-    await Promise.all([loadList(), loadCurrent(), view.current.id === '__new__' ? Promise.resolve() : loadOne(view.current.id, true)]);
-  }, ["personality","personas"]);
+  useEffect(() => { void retryLoad(); }, [retryLoad]);
+  useCenterRefresh(retryLoad, ["personality","personas"]);
 
   // ============================================================================
   // Actions
@@ -408,6 +426,7 @@ export function usePersonality(
         baseline.current = { id: selected.id, revision: detail.updated_at, config: next };
         if (configRef.current === submitted) setConfig(next);
         setConflict(false);
+        setDetailError(false);
         toast.success(t('personality.saveSuccess'));
         await loadList();
       }
@@ -558,6 +577,9 @@ export function usePersonality(
     selectedId,
     isNewMode,
     loading,
+    loadError: listError || activeError || detailError,
+    retrying: loading || listLoading || activeLoading,
+    detailReady: isNewMode || baseline.current?.id === selectedId,
     saving,
     conflict,
     generating,
@@ -587,6 +609,7 @@ export function usePersonality(
     confirmDeletePersonality,
     cancelDeletePersonality,
     reload,
+    retryLoad,
   };
 }
 

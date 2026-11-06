@@ -32,7 +32,8 @@ export const ScheduleConfigPage: React.FC = () => {
   const hydrate = useSchedulesStore((s) => s.hydrate);
   const schedules = useSchedulesStore((s) => s.schedules);
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleDTO | null>(null);
   const [creating, setCreating] = useState(false);
   const [infoSchedule, setInfoSchedule] = useState<ScheduleDTO | null>(null);
@@ -51,13 +52,14 @@ export const ScheduleConfigPage: React.FC = () => {
       const res = await schedulesApi.list({ enabledOnly: !showDisabled });
       if (!isCurrent()) return;
       hydrate(res.schedules);
+      setLoadError(false);
       setInfoSchedule((current) => current ? res.schedules.find((item) => item.schedule_id === current.schedule_id) ?? null : null);
     } catch {
-      if (isCurrent() && !silent) toast.error(t('tasks.scheduled.feedback.loadFailed'));
+      if (isCurrent()) setLoadError(true);
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  }, [hydrate, showDisabled, t, beginRead]);
+  }, [hydrate, showDisabled, beginRead]);
 
   useEffect(() => { void loadSchedules(); }, [loadSchedules]);
   useCenterRefresh(() => loadSchedules(true), ["schedules"]);
@@ -138,12 +140,13 @@ export const ScheduleConfigPage: React.FC = () => {
   };
 
   const showUserCta =
-    category === 'user' && !loading && filtered.length === 0;
+    category === 'user' && !loading && !loadError && filtered.length === 0;
 
   return (
     <TasksPageFrame
       onRefresh={() => void loadSchedules()}
       refreshing={loading}
+      loadError={loadError ? t('tasks.scheduled.feedback.loadFailed') : null}
       actions={
         <Button
           size="sm"
@@ -186,7 +189,7 @@ export const ScheduleConfigPage: React.FC = () => {
               {t('tasks.scheduled.actions.create')}
             </Button>
           </div>
-        ) : (
+        ) : loadError && filtered.length === 0 ? null : (
           <ScheduleConfigTable
             schedules={filtered}
             groups={sourceGroups}

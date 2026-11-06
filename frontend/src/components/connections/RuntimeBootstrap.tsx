@@ -235,7 +235,7 @@ export const RuntimeBootstrap: React.FC = () => {
       if (!current || pending) return;
       pending = true;
       try { await recoverPendingCenterMaintenance(); }
-      catch { /* Connection failures remain visible through health and event status. */ }
+      catch { /* Temporary read failures retry here; admitted maintenance owns its visible state. */ }
       finally { pending = false; }
     };
     const timer = window.setInterval(() => { void inspect(); }, 10_000);

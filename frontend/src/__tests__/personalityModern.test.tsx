@@ -83,6 +83,10 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
   selectedId: 'uuid-seven',
   isNewMode: false,
   loading: false,
+  loadError: false,
+  retrying: false,
+  detailReady: true,
+  conflict: false,
   saving: false,
   generating: false,
   generationProgress: 0,
@@ -107,12 +111,24 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
   confirmDeletePersonality: vi.fn(),
   cancelDeletePersonality: vi.fn(),
   reload: vi.fn(),
+  retryLoad: vi.fn(),
   ...overrides,
 });
 
 describe('PersonalityModern', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('shows a persistent read error with retry and hides an unloaded editor', () => {
+    const state = buildHookState({ loadError: true, detailReady: false, selectedId: '' });
+    vi.mocked(usePersonality).mockReturnValue(state as ReturnType<typeof usePersonality>);
+    render(<PersonalityModern embedded />);
+    expect(screen.getByRole('alert')).toHaveTextContent('personality.loadFailed');
+    expect(screen.queryByRole('button', { name: 'personality.save' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '七号' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    expect(state.retryLoad).toHaveBeenCalledOnce();
   });
 
   it('shows the current badge beside the active personality name', () => {

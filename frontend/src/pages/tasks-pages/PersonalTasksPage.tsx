@@ -188,7 +188,7 @@ export const PersonalTasksPage = () => {
   };
 
   const current = detail?.item.id === selected ? detail : null;
-  return <TasksPageFrame onRefresh={refresh} refreshing={loading} actions={
+  return <TasksPageFrame onRefresh={refresh} refreshing={loading} loadError={error ? t('personalTasks.loadFailed') : null} actions={
     <Button onClick={() => setEditor({item: null})}><Plus className="mr-1 h-4 w-4" />{t('personalTasks.create')}</Button>
   } toolbar={<div className="flex flex-wrap gap-1">
     {views.map((value) => <Button key={value} size="sm" variant={view === value ? 'secondary' : 'ghost'}
@@ -201,7 +201,6 @@ export const PersonalTasksPage = () => {
         onChange={(e) => { setSearch(e.target.value); setOffset(0); }} />
       {view === 'inbox' ? <p className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">{t('personalTasks.inboxHint')}</p> : null}
       {view === 'review' ? <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground"><p>{t('personalTasks.reviewHint')}</p><Button disabled={pending} onClick={() => { void continueItem(); }}>{t('personalTasks.review')}</Button></div> : null}
-      {error ? <p role="alert" className="text-sm text-destructive">{t('personalTasks.loadFailed')}</p> : null}
       {loading && !page ? <p role="status">{t('personalTasks.loading')}</p> : null}
       {page?.items.length === 0 && !error ? <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">{t('personalTasks.empty')}</div> : null}
       <ul className="divide-y rounded-xl border">

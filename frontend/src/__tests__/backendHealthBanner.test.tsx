@@ -43,48 +43,31 @@ describe('BackendHealthBanner', () => {
     expect(screen.getByText('desktop.health.degradedDeferredSelectionPending')).toBeInTheDocument();
   });
 
-  it('renders a specific message when the runtime loop is unresponsive', () => {
-    useBackendHealthStore.setState({
-      status: 'degraded',
-      runtimeStatus: 'unresponsive',
-      startupState: 'unresponsive',
-      deferredReason: null,
-      llmReady: null,
-      agentRuntimeReady: null,
-      lastCheckedAt: Date.now(),
+  it('keeps invalid model configuration visible until readiness recovers', () => {
+    useBackendHealthStore.getState().setHealth('degraded', {
+      startupState: 'deferred', deferredReason: 'llm_configuration_invalid',
     });
-
-    render(<BackendHealthBanner />);
-
-    expect(screen.getByText('desktop.health.degradedRuntimeUnresponsive')).toBeInTheDocument();
+    const { rerender } = render(<BackendHealthBanner />);
+    expect(screen.getByRole('status')).toHaveTextContent('desktop.health.degradedDeferredInvalid');
+    useBackendHealthStore.getState().setHealth('healthy');
+    rerender(<BackendHealthBanner />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('renders a generic out-of-sync message for stale runtime status', () => {
-    useBackendHealthStore.setState({
-      status: 'degraded',
-      runtimeStatus: 'stale',
-      startupState: 'stale',
-      deferredReason: null,
-      llmReady: null,
-      agentRuntimeReady: null,
-      lastCheckedAt: Date.now(),
-    });
-
-    render(<BackendHealthBanner />);
-
-    expect(screen.getByText('desktop.health.degradedRuntimeOutOfSync')).toBeInTheDocument();
+  it.each(['healthy', 'offline', 'exited'] as const)('does not show a global warning for %s', (status) => {
+    useBackendHealthStore.getState().setHealth(status);
+    const { container } = render(<BackendHealthBanner />);
+    expect(container).toBeEmptyDOMElement();
   });
 
   it.each([
-    ['probe_timeout', 'degradedProbeTimeout'],
-    ['disconnected', 'degradedRuntimeDisconnected'],
-    ['recovering', 'degradedRuntimeRecovering'],
-    ['probe_busy', 'degradedProbeFailed'],
-    ['probe_failed', 'degradedProbeFailed'],
-  ])('describes %s without inventing loop failure or recovery', (runtimeStatus, key) => {
-    useBackendHealthStore.setState({ status: 'degraded', runtimeStatus });
-    render(<BackendHealthBanner />);
-    expect(screen.getByText(`desktop.health.${key}`)).toBeInTheDocument();
-    expect(screen.queryByText('desktop.health.degradedRuntimeUnresponsive')).not.toBeInTheDocument();
+    'starting', 'stale', 'unresponsive', 'probe_timeout', 'disconnected',
+    'recovering', 'probe_busy', 'probe_failed', 'deferred',
+  ])('keeps %s recovery quiet without hiding explicit configuration errors', (runtimeStatus) => {
+    useBackendHealthStore.getState().setHealth('degraded', {
+      runtimeStatus, startupState: runtimeStatus, llmReady: false, agentRuntimeReady: false,
+    });
+    const { container } = render(<BackendHealthBanner />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

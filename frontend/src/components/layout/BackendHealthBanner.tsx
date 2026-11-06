@@ -1,26 +1,14 @@
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, WifiOff, XCircle } from 'lucide-react';
-import { useBackendHealthStore, type BackendHealthState, type BackendStatus } from '@/stores/backend-health';
-
-const iconByStatus: Record<Exclude<BackendStatus, 'healthy'>, React.ElementType> = {
-  degraded: AlertTriangle,
-  offline: WifiOff,
-  exited: XCircle,
-};
+import { AlertTriangle } from 'lucide-react';
+import { useBackendHealthStore, type BackendHealthState } from '@/stores/backend-health';
 
 export function getBackendHealthMessageKey(
   health: Pick<
     BackendHealthState,
-    'status' | 'runtimeStatus' | 'startupState' | 'deferredReason' | 'llmReady' | 'agentRuntimeReady'
+    'status' | 'startupState' | 'deferredReason'
   >,
-): `desktop.health.${string}` {
-  if (health.status === 'offline' || health.status === 'exited') {
-    return `desktop.health.${health.status}`;
-  }
-
-  if (health.startupState === 'starting') {
-    return 'desktop.health.degradedStarting';
-  }
+): `desktop.health.${string}` | null {
+  if (health.status !== 'degraded') return null;
 
   if (health.startupState === 'deferred') {
     if (health.deferredReason === 'llm_selection_pending') {
@@ -31,63 +19,27 @@ export function getBackendHealthMessageKey(
     }
   }
 
-  if (health.runtimeStatus === 'stale') {
-    return 'desktop.health.degradedRuntimeOutOfSync';
-  }
-
-  if (health.runtimeStatus === 'unresponsive') {
-    return 'desktop.health.degradedRuntimeUnresponsive';
-  }
-
-  if (health.runtimeStatus === 'probe_timeout') {
-    return 'desktop.health.degradedProbeTimeout';
-  }
-
-  if (health.runtimeStatus === 'disconnected') {
-    return 'desktop.health.degradedRuntimeDisconnected';
-  }
-
-  if (health.runtimeStatus === 'recovering') {
-    return 'desktop.health.degradedRuntimeRecovering';
-  }
-
-  if (health.runtimeStatus === 'probe_busy' || health.runtimeStatus === 'probe_failed') {
-    return 'desktop.health.degradedProbeFailed';
-  }
-
-  if (health.llmReady === false) {
-    return 'desktop.health.degradedLlmNotReady';
-  }
-
-  if (health.agentRuntimeReady === false) {
-    return 'desktop.health.degradedAgentRuntimeNotReady';
-  }
-
-  return 'desktop.health.degraded';
+  // Transport recovery and optional runtime startup do not require user action.
+  return null;
 }
 
 const BackendHealthBanner: React.FC = () => {
   const { t } = useTranslation('app');
   const health = useBackendHealthStore((s) => ({
     status: s.status,
-    runtimeStatus: s.runtimeStatus,
     startupState: s.startupState,
     deferredReason: s.deferredReason,
-    llmReady: s.llmReady,
-    agentRuntimeReady: s.agentRuntimeReady,
   }));
 
-  if (health.status === 'healthy') return null;
-
-  const Icon = iconByStatus[health.status];
   const i18nKey = getBackendHealthMessageKey(health);
+  if (!i18nKey) return null;
 
   return (
     <div
       role="status"
       className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800"
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      <AlertTriangle className="h-4 w-4 shrink-0" />
       <span>{t(i18nKey)}</span>
     </div>
   );

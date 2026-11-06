@@ -764,6 +764,22 @@ for local profiles. A remote connection failure must not display unrelated local
 backend logs. Packaged workers redirect tracebacks to the service-owned backend
 log instead of displaying a PyInstaller exception dialog.
 
+During normal use, temporary connection loss, readiness timeouts and automatic
+service recovery do not show global banners or reconnect alerts. Event streams
+retry with bounded backoff and refresh mounted snapshots when they reconnect.
+Explicit authorization rejection and missing or invalid core-model configuration
+retain actionable prompts; startup diagnostics and maintenance recovery remain
+visible when the live application cannot safely open.
+
+Read failures belong to the affected page. Background tasks, schedule configuration,
+schedule activity and personal tasks show a persistent inline error with retry,
+retain loaded rows, and never present a failed read as a successful empty list.
+Persona list, active-persona and detail failures use the same inline recovery
+pattern. An unloaded persona does not expose a default or previous persona editor.
+Retry and background recovery reload missing data without discarding unsaved
+persona edits or new-persona drafts; the explicit editor reload still discards edits.
+Send and save failures continue to be reported at the operation that failed.
+
 Current log ownership:
 
 - Center Python: `<data-dir>/logs/backend.log`, owned and cleared by center maintenance.

@@ -113,3 +113,61 @@ it('keeps the create identity after a lost response', async () => {
   expect(mocks.create.mock.calls[1][0].persona_id).toBe(submitted.persona_id);
   expect(result.current.isNewMode).toBe(false);
 });
+
+it.each(['list', 'getActive', 'get'] as const)('exposes a failed %s read and retries all required data', async (resource) => {
+  const implementation = mocks[resource].getMockImplementation();
+  mocks[resource].mockRejectedValue(new TypeError('Offline'));
+  const { result } = renderHook(usePersonality);
+  await waitFor(() => expect(result.current.loadError).toBe(true));
+  await waitFor(() => expect(result.current.retrying).toBe(false));
+  if (resource !== 'list') expect(result.current.detailReady).toBe(false);
+  mocks[resource].mockImplementation(implementation!);
+  await act(() => result.current.retryLoad());
+  expect(result.current.loadError).toBe(false);
+  expect(result.current.detailReady).toBe(true);
+  expect(result.current.config.name).toBe('a');
+  expect(result.current.list).toHaveLength(2);
+});
+
+it('recovers the registry automatically after initial connection failure', async () => {
+  mocks.getActive.mockRejectedValueOnce(new TypeError('Offline'));
+  mocks.list.mockRejectedValueOnce(new TypeError('Offline'));
+  const { result } = renderHook(usePersonality);
+  await waitFor(() => expect(result.current.loadError).toBe(true));
+  await waitFor(() => expect(result.current.retrying).toBe(false));
+  await refresh();
+  expect(result.current.loadError).toBe(false);
+  expect(result.current.selectedId).toBe('a');
+  expect(result.current.detailReady).toBe(true);
+});
+
+it('keeps saved content and unsaved edits while retrying a failed registry read', async () => {
+  const { result } = renderHook(usePersonality);
+  await waitFor(() => expect(result.current.config.name).toBe('a'));
+  act(() => result.current.patch(draft => { draft.name = 'Unsaved name'; }));
+  mocks.list.mockRejectedValueOnce(new TypeError('Offline'));
+  await refresh();
+  expect(result.current.loadError).toBe(true);
+  expect(result.current.list).toHaveLength(2);
+  mocks.get.mockResolvedValue(snapshot('a', 2, 'Changed remotely'));
+  await act(() => result.current.retryLoad());
+  expect(result.current.loadError).toBe(false);
+  expect(result.current.config.name).toBe('Unsaved name');
+  act(() => { result.current.startNewPersonality(); result.current.patch(draft => { draft.name = 'New draft'; }); });
+  await act(() => result.current.retryLoad());
+  expect(result.current.isNewMode).toBe(true);
+  expect(result.current.config.name).toBe('New draft');
+});
+
+it('ignores a failed detail read from a previous selection', async () => {
+  const { result } = renderHook(usePersonality);
+  await waitFor(() => expect(result.current.config.name).toBe('a'));
+  let rejectRead: (error: Error) => void = () => {};
+  mocks.get.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectRead = reject; }));
+  act(() => result.current.selectPersonality('a'));
+  act(() => result.current.selectPersonality('b'));
+  await waitFor(() => expect(result.current.config.name).toBe('b'));
+  await act(async () => { rejectRead(new TypeError('Offline')); });
+  expect(result.current.loadError).toBe(false);
+  expect(result.current.detailReady).toBe(true);
+});

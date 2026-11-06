@@ -6,7 +6,7 @@ const event = (sequence: number, extra = {}) => ({ contract_version: 1, server_i
 function stream() {
   let controller: ReadableStreamDefaultController<Uint8Array>;
   const body = new ReadableStream<Uint8Array>({ start(value) { controller = value; } });
-  return { response: new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }), send: (payload: unknown) => controller.enqueue(new TextEncoder().encode(`event: magi\ndata: ${JSON.stringify(payload)}\n\n`)) };
+  return { response: new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }), interrupt: () => controller.error(new TypeError('Connection interrupted')), send: (payload: unknown) => controller.enqueue(new TextEncoder().encode(`event: magi\ndata: ${JSON.stringify(payload)}\n\n`)) };
 }
 const settle = async () => { for (let i = 0; i < 8; i += 1) await Promise.resolve(); };
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
@@ -57,9 +57,45 @@ it('automatically retries an initial failure and stops retries on disconnect', a
   await vi.advanceTimersByTimeAsync(1_100);
   expect(fetchMock).toHaveBeenCalledTimes(2);
   expect(status).toHaveBeenLastCalledWith(expect.objectContaining({ connected: true }));
+  expect(status.mock.calls.every(([state]) => !state.accessDenied)).toBe(true);
   client.disconnect();
   await vi.advanceTimersByTimeAsync(120_000);
   expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it('automatically resumes an interrupted stream and retains its last event cursor', async () => {
+  vi.useFakeTimers();
+  const first = stream();
+  const resumed = stream();
+  fetchMock.mockReset().mockResolvedValueOnce(first.response).mockRejectedValueOnce(new TypeError('offline')).mockResolvedValueOnce(resumed.response);
+  const client = new SseClient({ baseUrl: 'https://center.example/api', serverId: centerId, fetch: fetchMock });
+  const status = vi.fn();
+  client.subscribeStatus(status);
+  await client.connect();
+  first.send(event(1));
+  await settle();
+  first.interrupt();
+  await vi.advanceTimersByTimeAsync(3_100);
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(fetchMock.mock.calls[2][1].headers['Last-Event-ID']).toBe(`${epoch}:1`);
+  expect(status).toHaveBeenLastCalledWith(expect.objectContaining({ connected: true, accessDenied: false }));
+  client.disconnect();
+});
+
+it.each([401, 403])('retains an actionable %s rejection until a connection succeeds', async (code) => {
+  vi.useFakeTimers();
+  fetchMock.mockReset().mockResolvedValueOnce(new Response(null, { status: code }))
+    .mockRejectedValueOnce(new TypeError('offline')).mockResolvedValueOnce(stream().response);
+  const client = new SseClient({ baseUrl: 'https://center.example/api', serverId: centerId, fetch: fetchMock });
+  const status = vi.fn();
+  client.subscribeStatus(status);
+  await expect(client.connect()).rejects.toThrow('access was denied');
+  expect(status).toHaveBeenLastCalledWith(expect.objectContaining({ accessDenied: true }));
+  await vi.advanceTimersByTimeAsync(1_100);
+  expect(status).toHaveBeenLastCalledWith(expect.objectContaining({ accessDenied: true }));
+  await vi.advanceTimersByTimeAsync(2_000);
+  expect(status).toHaveBeenLastCalledWith(expect.objectContaining({ connected: true, accessDenied: false }));
+  client.disconnect();
 });
 
 it('does not retry a failed initial attempt after its owner is disconnected', async () => {

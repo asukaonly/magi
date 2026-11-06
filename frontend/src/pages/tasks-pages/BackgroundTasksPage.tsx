@@ -5,7 +5,6 @@ import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
-import { toast } from 'sonner';
 import { ListChecks } from 'lucide-react';
 
 import {
@@ -55,7 +54,8 @@ export const BackgroundTasksPage: React.FC = () => {
     [orderedIds, tasksById],
   );
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -107,12 +107,13 @@ export const BackgroundTasksPage: React.FC = () => {
         return;
       }
       setTotal(response.total);
+      setLoadError(false);
     } catch {
-      if (isCurrent() && !silent) toast.error(t('tasks.feedback.loadFailed'));
+      if (isCurrent()) setLoadError(true);
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  }, [offset, hydrate, t, beginRead]);
+  }, [offset, hydrate, beginRead]);
 
   useEffect(() => { void refresh(); }, [refresh]);
   useCenterRefresh(() => refresh(true), ["tasks","background-tasks"]);
@@ -129,12 +130,13 @@ export const BackgroundTasksPage: React.FC = () => {
     return { running: r, queued: q, finished: f };
   }, [orderedTasks]);
 
-  const isEmpty = !loading && total === 0;
+  const isEmpty = !loading && !loadError && total === 0 && orderedTasks.length === 0;
 
   return (
     <TasksPageFrame
       onRefresh={() => void refresh()}
       refreshing={loading}
+      loadError={loadError ? t('tasks.feedback.loadFailed') : null}
     >
       <div className="flex flex-col gap-4">
         {isEmpty ? (

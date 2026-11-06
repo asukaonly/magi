@@ -59,6 +59,27 @@ describe('ScheduleActivityPage', () => {
     schedulesListActivityMock.mockResolvedValue({ activities: [makeActivity()] });
   });
 
+  it('shows a read failure instead of an empty activity list and recovers on retry', async () => {
+    const user = userEvent.setup();
+    schedulesListActivityMock.mockRejectedValueOnce(new TypeError('Offline'));
+    render(<MemoryRouter><ScheduleActivityPage /></MemoryRouter>);
+    expect(await screen.findByRole('alert')).toHaveTextContent('tasks.scheduled.feedback.loadFailed');
+    expect(screen.queryByText('tasks.scheduled.empty.activity')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'common.retry' }));
+    await screen.findByText('Test activity');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps loaded activities visible when refreshing fails', async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><ScheduleActivityPage /></MemoryRouter>);
+    await screen.findByText('Test activity');
+    schedulesListActivityMock.mockRejectedValueOnce(new TypeError('Offline'));
+    await user.click(screen.getByRole('button', { name: 'tasks.page.refresh' }));
+    await screen.findByRole('alert');
+    expect(screen.getByText('Test activity')).toBeInTheDocument();
+  });
+
   it('renders activity rows from the API and calls listActivity with sinceSeconds', async () => {
     render(<MemoryRouter><ScheduleActivityPage /></MemoryRouter>);
     await screen.findByText('Test activity');

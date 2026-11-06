@@ -97,6 +97,30 @@ describe('ScheduleConfigPage', () => {
     useSchedulesStore.getState().reset();
   });
 
+  it('shows a read failure instead of an empty schedule list and recovers on retry', async () => {
+    const user = userEvent.setup();
+    schedulesListMock.mockRejectedValueOnce(new TypeError('Offline'));
+    render(<MemoryRouter><ScheduleConfigPage /></MemoryRouter>);
+    expect(await screen.findByRole('alert')).toHaveTextContent('tasks.scheduled.feedback.loadFailed');
+    expect(screen.queryByText('tasks.scheduled.empty.enabled')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /tasks.scheduled.categories.user/ }));
+    expect(screen.queryByText('tasks.scheduled.empty.userCtaTitle')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'common.retry' }));
+    await screen.findByText('tasks.scheduled.empty.userCtaTitle');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps loaded schedules visible when refreshing fails', async () => {
+    const user = userEvent.setup();
+    schedulesListMock.mockResolvedValueOnce({ schedules: [makeAgentSchedule()] });
+    render(<MemoryRouter><ScheduleConfigPage /></MemoryRouter>);
+    await screen.findByText('Drink water');
+    schedulesListMock.mockRejectedValueOnce(new TypeError('Offline'));
+    await user.click(screen.getByRole('button', { name: 'tasks.page.refresh' }));
+    await screen.findByRole('alert');
+    expect(screen.getByText('Drink water')).toBeInTheDocument();
+  });
+
   it('renders source schedule with openSettings (not edit/delete)', async () => {
     schedulesListMock.mockResolvedValue({ schedules: [makeSchedule()] });
     render(<MemoryRouter><ScheduleConfigPage /></MemoryRouter>);

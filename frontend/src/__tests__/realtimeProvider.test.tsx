@@ -4,10 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RealtimeProvider, useRealtime, type RealtimeMessage } from '@/realtime/provider';
 import { useChatTraceStore } from '@/stores';
 import { useConversationStore } from '@/stores/conversation-store';
+import { APP_EVENTS } from '@/constants/events';
+import type { EventConnectionStatus } from '@/realtime/sse-client';
+import { requestRuntimeReconnect } from '@/runtime/config';
 
 vi.mock('@/runtime/config', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/runtime/config')>(),
   getRuntimeConfig: () => ({ apiBaseUrl: 'https://center.example/api', serverId: 'cde1b1d1-7f23-4b95-a5d4-04e84d209af0' }),
+  requestRuntimeReconnect: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -19,6 +23,7 @@ vi.mock('react-i18next', () => ({
 const { connectMock } = vi.hoisted(() => ({ connectMock: vi.fn<() => Promise<void>>() }));
 
 let bridgeListener: ((message: Record<string, unknown>) => void) | null = null;
+let statusListener: ((status: EventConnectionStatus) => void) | null = null;
 
 vi.mock('@/realtime/sse-client', () => ({
   SseClient: class {
@@ -33,7 +38,10 @@ vi.mock('@/realtime/sse-client', () => ({
 
     connect() { return connectMock(); }
 
-    subscribeStatus() { return () => {}; }
+    subscribeStatus(listener: (status: EventConnectionStatus) => void) {
+      statusListener = listener;
+      return () => { statusListener = null; };
+    }
 
     disconnect() {
       bridgeListener = null;
@@ -76,14 +84,31 @@ describe('RealtimeProvider', () => {
     vi.clearAllMocks();
   });
 
-  it('shows a connection failure and reconnects without discarding the page', async () => {
+  it('leaves the draft mounted without a global warning while the client retries', async () => {
     connectMock.mockRejectedValueOnce(new Error('Bridge failed'));
-    render(<RealtimeProvider><div>Current draft</div></RealtimeProvider>);
-    expect(await screen.findByRole('alert')).toHaveTextContent('shell.realtimeUnavailable');
-    expect(screen.getByText('Current draft')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'shell.reconnect' }));
+    render(<RealtimeProvider><input aria-label="draft" defaultValue="Current draft" /></RealtimeProvider>);
+    await act(async () => {});
+    act(() => statusListener?.({ connected: false, reconnectAttempts: 1, lastError: 'Offline', accessDenied: false }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    const sync = vi.fn();
+    window.addEventListener(APP_EVENTS.SESSION_SYNC, sync);
+    act(() => statusListener?.({ connected: true, reconnectAttempts: 0, lastError: null, accessDenied: false }));
+    expect(sync).toHaveBeenCalledOnce();
+    expect(screen.getByRole('textbox', { name: 'draft' })).toHaveValue('Current draft');
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
-    expect(connectMock).toHaveBeenCalledTimes(2);
+    expect(connectMock).toHaveBeenCalledOnce();
+    window.removeEventListener(APP_EVENTS.SESSION_SYNC, sync);
+  });
+
+  it('keeps a repair entry for rejected authorization and clears it on recovery', async () => {
+    render(<RealtimeProvider><div>Current page</div></RealtimeProvider>);
+    act(() => statusListener?.({ connected: false, reconnectAttempts: 1, lastError: 'Denied', accessDenied: true }));
+    expect(screen.getByRole('alert')).toHaveTextContent('shell.connectionAccessDenied');
+    fireEvent.click(screen.getByRole('button', { name: 'shell.reconnect' }));
+    expect(requestRuntimeReconnect).toHaveBeenCalledOnce();
+    act(() => statusListener?.({ connected: true, reconnectAttempts: 0, lastError: null, accessDenied: false }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('Current page')).toBeInTheDocument();
   });
 
   it('projects execution trace updates into both the conversation and trace stores', async () => {

@@ -201,7 +201,7 @@
     "routeErrorTitle": "Something went wrong",
     "dismiss": "Dismiss",
     "reload": "Reload",
-    "realtimeUnavailable": "Realtime updates are unavailable. Reconnect to refresh task and chat status.",
+    "connectionAccessDenied": "Connection access has expired or was denied. Reconnect and check this device’s authorization.",
     "reconnect": "Reconnect",
     "windowMinimize": "Minimize window",
     "windowMaximize": "Maximize or restore window",

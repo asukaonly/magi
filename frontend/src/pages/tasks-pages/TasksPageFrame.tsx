@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { InlineLoadError } from '@/components/ui/inline-load-error';
 
 export interface TasksPageFrameProps {
   /**
@@ -18,6 +19,7 @@ export interface TasksPageFrameProps {
   actions?: ReactNode;
   onRefresh?: () => void;
   refreshing?: boolean;
+  loadError?: string | null;
   children: ReactNode;
 }
 
@@ -32,6 +34,7 @@ export const TasksPageFrame: React.FC<TasksPageFrameProps> = ({
   actions,
   onRefresh,
   refreshing,
+  loadError,
   children,
 }) => {
   const { t } = useTranslation('app');
@@ -61,7 +64,10 @@ export const TasksPageFrame: React.FC<TasksPageFrameProps> = ({
           </div>
         </div>
       ) : null}
-      <div className="px-6 py-5">{children}</div>
+      <div className="space-y-4 px-6 py-5">
+        {loadError ? <InlineLoadError message={loadError} onRetry={onRefresh} retrying={refreshing} /> : null}
+        {children}
+      </div>
     </div>
   );
 };

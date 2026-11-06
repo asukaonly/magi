@@ -23,11 +23,11 @@ import {
 } from '@/runtime/desktop-notifications';
 import { OPEN_ASK_REQUEST_EVENT } from '@/components/control/ui-events';
 import { APP_EVENTS } from '@/constants/events';
+import { requestRuntimeReconnect } from '@/runtime/config';
 import type { RealtimeStreamEvent } from './stream-events';
 import { normalizeRealtimeStreamEvent } from './stream-events';
 import { isRealtimeChatContentEvent } from './chat-projection-retirement';
 import { applyRealtimeStoreProjection } from './store-projection';
-import type { SseClient } from './sse-client';
 import { createDesktopEventClient } from './desktop-client';
 
 export interface RealtimeMessage {
@@ -81,11 +81,9 @@ class RealtimeDispatcher {
 
 export const RealtimeProvider = ({ children }: PropsWithChildren) => {
   const { t } = useTranslation('app');
-  const [connectionAttempt, setConnectionAttempt] = useState(0);
-  const [connectionState, setConnectionState] = useState<'connecting' | 'ready' | 'error'>('connecting');
+  const [accessDenied, setAccessDenied] = useState(false);
   const translationRef = useRef(t);
   useEffect(() => { translationRef.current = t; }, [t]);
-  const bridgeRef = useRef<SseClient>();
   const dispatcherRef = useRef<RealtimeDispatcher>();
 
   if (!dispatcherRef.current) {
@@ -97,7 +95,6 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
 
     // One center event connection serves all page subscribers.
     const bridge = createDesktopEventClient();
-    bridgeRef.current = bridge;
     let lastRejectedProjectionSyncAt = 0;
     const unsubscribeBridge = bridge.subscribe((message) => {
       if (message.event === 'state.changed' || message.event === 'resync_required') {
@@ -161,24 +158,20 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
       dispatcher.dispatch(normalizedMessage);
     });
     let cancelled = false;
-    setConnectionState('connecting');
+    setAccessDenied(false);
     let wasConnected = false;
     const unsubscribeStatus = bridge.subscribeStatus((status) => {
       if (cancelled) return;
-      setConnectionState(status.connected ? 'ready' : status.lastError ? 'error' : 'connecting');
+      setAccessDenied(status.accessDenied);
       if (!status.connected && wasConnected) dispatcher.dispatch({ event: 'connection_interrupted' });
       if (status.connected && !wasConnected) {
+        window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
         window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED));
       }
       wasConnected = status.connected;
     });
-    bridge.connect().then(() => {
-      if (cancelled) return;
-      setConnectionState('ready');
-      window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
-      window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED));
-    }).catch(() => {
-      if (!cancelled) setConnectionState('error');
+    void bridge.connect().catch(() => {
+      // The event client owns retries; only authorization failures need a prompt.
     });
 
     return () => {
@@ -186,9 +179,8 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
       unsubscribeStatus();
       unsubscribeBridge();
       bridge.disconnect();
-      bridgeRef.current = undefined;
     };
-  }, [connectionAttempt]);
+  }, []);
 
   useEffect(() => {
     let lastUnreadCount = -1;
@@ -211,10 +203,10 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
 
   return (
     <RealtimeContext.Provider value={value}>
-      {connectionState === 'error' ? (
+      {accessDenied ? (
         <div role="alert" className="fixed inset-x-4 top-12 z-200 flex items-center justify-between gap-4 rounded-md border border-destructive bg-background px-4 py-3 text-sm text-foreground shadow-lg">
-          <span>{t('shell.realtimeUnavailable')}</span>
-          <button type="button" className="shrink-0 rounded px-2 py-1 font-medium underline focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setConnectionAttempt((value) => value + 1)}>{t('shell.reconnect')}</button>
+          <span>{t('shell.connectionAccessDenied')}</span>
+          <button type="button" className="shrink-0 rounded px-2 py-1 font-medium underline focus-visible:ring-2 focus-visible:ring-primary" onClick={requestRuntimeReconnect}>{t('shell.reconnect')}</button>
         </div>
       ) : null}
       {children}

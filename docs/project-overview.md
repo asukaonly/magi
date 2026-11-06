@@ -541,9 +541,12 @@ status card instead of an ordinary answer bubble. The projection uses durable
 run state or the live trace summary, never error-text matching, and the same turn
 does not retain an additional running placeholder or trigger reply suggestions.
 
-Desktop event connection failures remain visible without replacing the current page;
-the reconnect action opens authenticated SSE and refreshes session state. Each
-subscription/request lifetime discards stale completions. Background history
+Desktop event streams retry temporary connection failures in the background without
+showing a global warning or replacing the current page. Every successful connection,
+including automatic recovery, refreshes chat and center snapshots. Confirmed access
+rejections after session renewal retain a reconnect prompt; bootstrap owns the
+subsequent authorization and connection repair flow. Each subscription/request
+lifetime discards stale completions. Background history
 reconciliation retries transport failures without inventing a terminal task outcome.
 Settings capture their initial loaders per mount and restart them when an effect
 lifetime restarts, including development StrictMode replay. Preview changes do not

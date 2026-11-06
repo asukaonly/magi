@@ -72,7 +72,8 @@ export const ScheduleActivityPage: React.FC = () => {
   const [targetTypeCounts, setTargetTypeCounts] = useState<Record<string, number>>({});
   const [serverStatusCounts, setServerStatusCounts] = useState<Record<string, number>>({});
   const [schedulesById, setSchedulesById] = useState<Record<string, ScheduleDTO>>({});
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [stoppingActivityId, setStoppingActivityId] = useState<string | null>(null);
   const [selectedActivity, setSelectedActivity] = useState<ScheduleActivityDTO | null>(null);
 
@@ -103,17 +104,18 @@ export const ScheduleActivityPage: React.FC = () => {
       ]);
       if (!isCurrent()) return;
       setActivities(act.activities);
+      setLoadError(false);
       setSelectedActivity((current) => current ? act.activities.find((item) => item.activity_id === current.activity_id) ?? current : null);
       setTotal(act.total ?? 0);
       setTargetTypeCounts(act.target_type_counts ?? {});
       setServerStatusCounts(act.status_counts ?? {});
       setSchedulesById(Object.fromEntries(sched.schedules.map((s) => [s.schedule_id, s])));
     } catch {
-      if (isCurrent() && !silent) toast.error(t('tasks.scheduled.feedback.loadFailed'));
+      if (isCurrent()) setLoadError(true);
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  }, [windowKey, targetTypes, statusFilter, offset, t, beginRead]);
+  }, [windowKey, targetTypes, statusFilter, offset, beginRead]);
 
   useEffect(() => { void reload(); }, [reload]);
   useCenterRefresh(() => reload(true), ["schedules","tasks"]);
@@ -162,6 +164,7 @@ export const ScheduleActivityPage: React.FC = () => {
     <TasksPageFrame
       onRefresh={() => void reload()}
       refreshing={loading}
+      loadError={loadError ? t('tasks.scheduled.feedback.loadFailed') : null}
       toolbar={
         <>
           <WindowSegmented value={windowKey} onChange={setWindowKey} />
@@ -171,7 +174,7 @@ export const ScheduleActivityPage: React.FC = () => {
       }
     >
       <div className="mx-auto w-full max-w-6xl">
-        <ScheduleActivityTable
+        {activities.length > 0 || (!loading && !loadError) ? <ScheduleActivityTable
           activities={activities}
           schedulesById={schedulesById}
           emptyMessage={t('tasks.scheduled.empty.activity')}
@@ -179,7 +182,7 @@ export const ScheduleActivityPage: React.FC = () => {
           onStop={asEventHandler(handleStop)}
           onOpenBackgroundTask={(taskId) => navigate(`/tasks/background?taskId=${encodeURIComponent(taskId)}`)}
           onSelectActivity={setSelectedActivity}
-        />
+        /> : null}
       </div>
       {total > PAGE_SIZE ? (
         <div className="sticky bottom-0 -mx-6 mt-4 border-t border-border/35 bg-background/96 px-6 py-2.5 backdrop-blur-sm supports-backdrop-filter:bg-background/90">

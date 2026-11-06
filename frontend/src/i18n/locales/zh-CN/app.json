@@ -201,7 +201,7 @@
     "routeErrorTitle": "出错了",
     "dismiss": "关闭",
     "reload": "重新加载",
-    "realtimeUnavailable": "实时更新不可用，请重新连接以刷新任务和聊天状态。",
+    "connectionAccessDenied": "连接授权已失效或被拒绝，请重新连接并检查设备授权。",
     "reconnect": "重新连接",
     "windowMinimize": "最小化窗口",
     "windowMaximize": "最大化或还原窗口",

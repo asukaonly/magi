@@ -16,7 +16,6 @@ vi.mock('@/stores/conversation-store', () => ({useConversationStore: {getState: 
 vi.mock('sonner', () => ({toast: {error: mocks.error, warning: mocks.warning}}));
 vi.mock('@/components/ui/markdown-block', () => ({MarkdownBlock: ({children}: {children: ReactNode}) => <div>{children}</div>}));
 vi.mock('@/components/memory/evidence/MemoryEvidenceButton', () => ({MemoryEvidenceButton: () => null}));
-vi.mock('@/pages/tasks-pages/TasksPageFrame', () => ({TasksPageFrame: ({children, toolbar, actions}: {children: ReactNode; toolbar: ReactNode; actions: ReactNode}) => <div>{actions}{toolbar}{children}</div>}));
 
 const page = (items = [personalItem()]) => ({items, total: items.length, next_offset: null, counts: {}});
 const renderPage = (selected = true) => render(<MemoryRouter initialEntries={[selected ? '/tasks/personal?item=item-one' : '/tasks/personal']}><PersonalTasksPage /></MemoryRouter>);
@@ -25,6 +24,20 @@ beforeEach(() => {
   mocks.list.mockImplementation(async ({view}: {view: string}) => view === 'projects' ? page([]) : page());
   mocks.get.mockResolvedValue(personalDetail());
   mocks.mutate.mockResolvedValue({item: personalItem({version: 2}), deleted_ids: [], replayed: false, reminders_pending: false});
+});
+
+it('shows an inline list failure with retry instead of a successful empty list', async () => {
+  mocks.list.mockImplementation(async ({view}: {view: string}) => {
+    if (view === 'projects') return page([]);
+    throw new TypeError('Offline');
+  });
+  renderPage(false);
+  expect(await screen.findByRole('alert')).toHaveTextContent('personalTasks.loadFailed');
+  expect(screen.queryByText('personalTasks.empty')).not.toBeInTheDocument();
+  mocks.list.mockResolvedValue(page());
+  fireEvent.click(screen.getByRole('button', {name: 'common.retry'}));
+  await screen.findByText('Prepare quote');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
 it('records progress with the current version and resulting state', async () => {

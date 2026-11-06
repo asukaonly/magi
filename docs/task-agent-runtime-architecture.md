@@ -468,11 +468,15 @@ connection, `probe_busy` for exhausted control capacity, and `probe_failed` for
 other query errors. `unresponsive` requires both a query deadline and the
 supervisor's failed event-loop probe. `recovering` is only reported during
 supervised restart backoff, cooldown or a retry startup. The desktop describes
-these separately and never promises recovery merely because a query failed.
-It validates readiness responses, requires two non-ready polls before warning,
-rechecks every four seconds while degraded, and hides the warning on the next
-ready response. A reachable gateway with an unreadable readiness response stays
-an unknown-status warning; it does not establish that Python is offline.
+these separately in health state and never infers recovery merely because a query
+failed. It validates readiness responses, requires two non-ready polls before
+recording degradation, and rechecks every four seconds while degraded. Temporary
+startup, probe failures, disconnection and supervised recovery do not show global
+warnings. Only explicit missing or invalid model configuration retains a global
+configuration prompt, cleared on readiness recovery. A reachable gateway with an
+unreadable readiness response remains unknown; it does not establish that Python
+is offline. Event authorization failures after session renewal remain actionable;
+ordinary event transport failures retry silently.
 
 Full-clear recovery is completed before ordinary runtime commands are admitted.
 This prevents pre-clear queue rows, projections, or plugin ingress from

@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { InlineLoadError } from '@/components/ui/inline-load-error';
 import { ProtectedImage } from '@/components/media/ProtectedImage';
 import { Input } from '@/components/ui/input';
 import {
@@ -49,6 +50,9 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     selectedId,
     isNewMode,
     loading,
+    loadError,
+    retrying,
+    detailReady,
     saving,
     conflict,
     generating,
@@ -77,6 +81,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     confirmDeletePersonality,
     cancelDeletePersonality,
     reload,
+    retryLoad,
   } = usePersonality();
 
   // Reset broken state whenever the selected persona or its avatar changes.
@@ -138,6 +143,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
       <div className={cn('flex-1 overflow-y-auto', embedded ? 'px-5 py-4' : 'p-6')}>
         <div className={cn('w-full space-y-3', embedded ? 'max-w-none' : 'mx-auto max-w-[1080px]')}>
           {conflict ? <p role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">{t('personality.conflict')}</p> : null}
+          {loadError ? <InlineLoadError message={t('personality.loadFailed')} onRetry={asEventHandler(retryLoad)} retrying={retrying} /> : null}
           <section className="space-y-3">
             <div className="flex gap-2 overflow-x-auto pb-1">
               <button
@@ -215,7 +221,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
               })}
             </div>
 
-            <div className="flex flex-col gap-4 rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.58)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            {detailReady ? <div className="flex flex-col gap-4 rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.58)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex min-w-0 flex-1 items-start gap-3">
                 <input
                   ref={avatarInputRef}
@@ -349,7 +355,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   </Button>
                 )}
               </div>
-            </div>
+            </div> : null}
 
             {isNewMode ? (
               <div className="space-y-3">
@@ -401,7 +407,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
             <div className="flex min-h-[360px] items-center justify-center rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.42)]">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
-          ) : (
+          ) : detailReady ? (
             <section className="pt-1">
               <PersonalityDetailEditor
                 config={config}
@@ -409,7 +415,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                 t={t}
               />
             </section>
-          )}
+          ) : null}
         </div>
       </div>
 

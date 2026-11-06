@@ -8,7 +8,15 @@ const envelopeSchema = z.object({
   server_id: z.string().uuid(), epoch: z.string().uuid(), sequence: z.number().int().nonnegative(),
   event_id: z.string().max(100), event_type: z.string().min(1).max(128), data: z.unknown(),
 });
-type Status = { connected: boolean; reconnectAttempts: number; lastError: string | null };
+export type EventConnectionStatus = {
+  connected: boolean;
+  reconnectAttempts: number;
+  lastError: string | null;
+  accessDenied: boolean;
+};
+
+/** Authorization was rejected after the transport attempted session renewal. */
+export class EventAccessError extends Error {}
 
 export interface EventTransport {
   baseUrl: string;
@@ -37,10 +45,10 @@ export class SseFrames {
 export class SseClient {
   constructor(private readonly transport: EventTransport, private readonly scope: 'product' | 'diagnostics' = 'product') {}
   private listeners = new Set<(message: RealtimeMessage) => void>();
-  private statusListeners = new Set<(status: Status) => void>();
+  private statusListeners = new Set<(status: EventConnectionStatus) => void>();
   private abort: AbortController | undefined;
   private connecting: Promise<void> | undefined;
-  private status: Status = { connected: false, reconnectAttempts: 0, lastError: null };
+  private status: EventConnectionStatus = { connected: false, reconnectAttempts: 0, lastError: null, accessDenied: false };
   private lastId: string | undefined;
   private epoch: string | undefined;
   private sequence = -1;
@@ -52,11 +60,11 @@ export class SseClient {
     this.abort = owner;
     const pending = this.open(owner).then((response) => {
       if (owner !== this.abort || owner.signal.aborted) { void response.body?.cancel().catch(() => undefined); return; }
-      this.setStatus({ connected: true, lastError: null });
+      this.setStatus({ connected: true, lastError: null, accessDenied: false });
       void this.run(owner, response).catch(() => undefined);
     }).catch((error: unknown) => {
       if (owner === this.abort) {
-        this.setStatus({ connected: false, lastError: 'Center event connection failed' });
+        this.recordFailure(error);
         void this.run(owner).catch(() => undefined);
       }
       throw error;
@@ -73,6 +81,10 @@ export class SseClient {
     const response = await this.transport.fetch(`${this.transport.baseUrl}/events?scope=${this.scope}`, {
       headers, signal: AbortSignal.any([owner.signal, opening.signal]),
     }).finally(() => clearTimeout(timer));
+    if (response.status === 401 || response.status === 403) {
+      await response.body?.cancel();
+      throw new EventAccessError('Center event access was denied');
+    }
     if (!response.ok || !response.headers.get('Content-Type')?.startsWith('text/event-stream') || !response.body) {
       await response.body?.cancel();
       throw new Error('Center event stream was rejected');
@@ -94,9 +106,11 @@ export class SseClient {
         try {
           response = await this.open(owner);
           if (owner !== this.abort || owner.signal.aborted) { await response.body?.cancel(); return; }
-          this.setStatus({ connected: true, lastError: null, reconnectAttempts: 0 });
+          this.setStatus({ connected: true, lastError: null, reconnectAttempts: 0, accessDenied: false });
           break;
-        } catch { /* Keep the disconnected state visible during bounded backoff. */ }
+        } catch (error) {
+          if (owner === this.abort && !owner.signal.aborted) this.recordFailure(error);
+        }
       }
     }
   }
@@ -158,7 +172,15 @@ export class SseClient {
   private emit(message: RealtimeMessage): void {
     this.listeners.forEach((listener) => { try { listener(message); } catch (error) { console.error('Realtime subscriber failed', error); } });
   }
-  private setStatus(next: Partial<Status>): void {
+  private recordFailure(error: unknown): void {
+    this.setStatus({
+      connected: false,
+      lastError: 'Center event connection failed',
+      // A later network outage cannot clear a confirmed authorization rejection.
+      accessDenied: this.status.accessDenied || error instanceof EventAccessError,
+    });
+  }
+  private setStatus(next: Partial<EventConnectionStatus>): void {
     this.status = { ...this.status, ...next };
     this.statusListeners.forEach((listener) => listener(this.status));
   }
@@ -172,12 +194,12 @@ export class SseClient {
   }
   disconnect(): void {
     this.abort?.abort(); this.abort = undefined; this.connecting = undefined;
-    this.setStatus({ connected: false, lastError: null });
+    this.setStatus({ connected: false, lastError: null, accessDenied: false });
   }
   subscribe(listener: (message: RealtimeMessage) => void): () => void {
     this.listeners.add(listener); return () => { this.listeners.delete(listener); };
   }
-  subscribeStatus(listener: (status: Status) => void): () => void {
+  subscribeStatus(listener: (status: EventConnectionStatus) => void): () => void {
     this.statusListeners.add(listener); listener(this.status); return () => { this.statusListeners.delete(listener); };
   }
 }
