@@ -258,10 +258,11 @@ class SourceStore:
                 "INSERT INTO source_resources VALUES (?, ?, ?, ?, 1)",
                 (evidence_id, checkpoint.connection_id, ref.model_dump_json(), content),
             )
+        sequence = await db.execute_fetchall("UPDATE source_read_sequence SET value=value+1 WHERE id=1 RETURNING value")
         await db.execute(
-            "INSERT INTO source_versions(connection_id, source_id, object_id, version, operation, digest, evidence_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (*key, change.operation, digest, evidence_id),
+            "INSERT INTO source_versions(connection_id, source_id, object_id, version, operation, digest, evidence_id, read_order) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (*key, change.operation, digest, evidence_id, sequence[0][0]),
         )
         for ref in change.resources:
             await db.execute("INSERT INTO source_resource_owners VALUES (?, ?, ?, ?, ?)", (*key, ref.resource_id))
@@ -452,7 +453,7 @@ class SourceStore:
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
             rows = await db.execute_fetchall(
-                "SELECT v.rowid AS id, v.object_id, v.version, r.content, "
+                "SELECT v.read_order AS id, v.object_id, v.version, r.content, "
                 "json_extract(v.receipt_json, '$.event_id') AS memory_event_id "
                 "FROM source_objects o JOIN source_versions v "
                 "ON v.connection_id=o.connection_id AND v.source_id=o.source_id "
@@ -461,11 +462,11 @@ class SourceStore:
                 "JOIN source_connections owner ON owner.connection_id=o.connection_id "
                 "WHERE o.connection_id=? AND o.source_id=? AND o.deleted=0 AND owner.disconnected=0 "
                 "AND v.accepted=1 AND json_extract(v.receipt_json, '$.outcome') IN ('persisted','duplicate') "
-                "AND (? IS NULL OR v.rowid < ?) "
+                "AND (? IS NULL OR v.read_order < ?) "
                 "AND (? IS NULL OR CAST(json_extract(CAST(r.content AS TEXT), ?) AS TEXT)=?) "
                 "AND (? IS NULL OR json_extract(CAST(r.content AS TEXT), ?) >= ?) "
                 "AND (? IS NULL OR json_extract(CAST(r.content AS TEXT), ?) < ?) "
-                "ORDER BY v.rowid DESC LIMIT ?",
+                "ORDER BY v.read_order DESC LIMIT ?",
                 (connection_id, source_id, before, before, field,
                  '$.' + field if field else None, value, since,
                  '$.' + date_field if date_field else None, since, until,

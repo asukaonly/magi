@@ -105,3 +105,21 @@ async def test_history_survives_payload_erasure_and_exact_retry(browser):
     assert (await reopened.source_delivery_history(connection_id='phone-a',source_type='apple_health'))[0]['status'] == 'completed'
     await trace.retire_connection_ingress('phone-a')
     assert (await client.get(base)).json()['items'] == []
+
+
+@pytest.mark.asyncio
+async def test_record_cursor_survives_other_connection_clear_and_vacuum(browser):
+    client, store, _, accept, _ = browser
+    await accept('phone-b', 'first', '1', {'value': 1})
+    await accept('phone-a', 'older', '1', {'value': 2})
+    await accept('phone-b', 'second', '1', {'value': 3})
+    await accept('phone-a', 'newer', '1', {'value': 4})
+    base = '/api/sources/shared/phone-a/health.records/records'
+    first = (await client.get(base, params={'limit': 1})).json()
+    assert first['items'][0]['object_id'] == 'newer'
+    await store.clear_user_content(connection_id='phone-b')
+    second = (await client.get(base, params={'before': first['next_before']})).json()
+    assert [item['object_id'] for item in second['items']] == ['older']
+    await store.clear_user_content(connection_id='phone-a')
+    await accept('phone-a', 'fresh', '1', {'value': 5})
+    assert (await client.get(base)).json()['items'][0]['id'] > first['items'][0]['id']

@@ -1681,3 +1681,8 @@ shares the existing 1,000-completed-row retention, epoch retirement, connection
 clear and full-clear lifecycle. No additional health payload journal is created.
 The shared-data browser reads current revisions from `plugin_sources.db` and
 checks governed L1 visibility before returning their existing evidence payload.
+
+Plugin source migration v3 assigns a monotonic `read_order` to retained revisions.
+Its content-free sequence survives connection clears so pagination never reuses
+identities after `VACUUM` or a clear/reimport. Cursor order describes source revision
+admission order, not the time of the underlying health activity.
