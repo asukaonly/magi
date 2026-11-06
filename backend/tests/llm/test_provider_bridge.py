@@ -675,7 +675,7 @@ async def test_chat_response_exposes_trace_metrics() -> None:
         usage=SimpleNamespace(prompt_tokens=12, completion_tokens=4, total_tokens=16),
     )
     client = DummyOpenAIClient(response=response)
-    llm = DummyLLMAdapter(provider="openai", client=client)
+    llm = DummyLLMAdapter(model="gpt-5.6", provider="openai", client=client)
     bridge = LLMProviderBridge(llm)
 
     result = await bridge.chat_response(
@@ -686,7 +686,7 @@ async def test_chat_response_exposes_trace_metrics() -> None:
 
     trace_metrics = result.metadata["trace_metrics"]
     assert trace_metrics["provider"] == "openai"
-    assert trace_metrics["model"] == "test-model"
+    assert trace_metrics["model"] == "gpt-5.6"
     assert trace_metrics["input_tokens"] == 12
     assert trace_metrics["output_tokens"] == 4
     assert trace_metrics["total_tokens"] == 16
@@ -835,3 +835,51 @@ async def test_dashscope_chat_with_tools_disables_thinking_for_openai_compatible
     )
 
     assert client.kwargs["extra_body"] == {"enable_thinking": False}
+
+@pytest.mark.parametrize("model", ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1"])
+@pytest.mark.parametrize("depth", list(ThinkingDepth))
+def test_current_mandatory_thinking_models_preserve_effort(model, depth):
+    host = TestAnthropicThinkingOptions._anthropic_host(model)
+    result = host._apply_provider_options(
+        {"max_tokens": 4096, "temperature": 0.7, "top_p": 0.99, "top_k": 5}, depth
+    )
+    assert result["thinking"] == {"type": "adaptive"}
+    assert result["output_config"]["effort"] == ("low" if depth is ThinkingDepth.NONE else depth.value)
+    assert not {"temperature", "top_p", "top_k"} & result.keys()
+    assert result["max_tokens"] == 4096
+
+
+def test_current_optional_thinking_model_explicitly_disables_thinking():
+    host = TestAnthropicThinkingOptions._anthropic_host("claude-haiku-5-5")
+    result = host._apply_provider_options({"temperature": 0.7}, ThinkingDepth.NONE)
+    assert result["thinking"] == {"type": "disabled"}
+    assert "temperature" not in result
+
+
+@pytest.mark.parametrize("model", ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx"])
+@pytest.mark.parametrize("depth,effort", [(ThinkingDepth.NONE, "low"), (ThinkingDepth.MEDIUM, "high"), (ThinkingDepth.MAX, "max")])
+def test_current_glm_models_always_think(model, depth, effort):
+    bridge = LLMProviderBridge(DummyLLMAdapter(model=model, provider="glm"))
+    result = bridge._operations._apply_provider_options({}, depth)
+    assert result["extra_body"]["thinking"] == {"type": "enabled", "clear_thinking": False}
+    assert result["reasoning_effort"] == effort
+    assert bridge.resolve_effective_reasoning_depth(depth).value == effort
+
+
+@pytest.mark.asyncio
+async def test_tool_roundtrip_preserves_provider_reasoning():
+    message = SimpleNamespace(content="", reasoning_content="provider reasoning", tool_calls=[
+        SimpleNamespace(id="call_1", function=SimpleNamespace(name="lookup", arguments='{"key":"value"}'))
+    ])
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="tool_calls")])
+    bridge = LLMProviderBridge(DummyLLMAdapter(provider="glm", client=DummyOpenAIClient(response=response)))
+    result = await bridge.chat_with_tools("sys", [{"role": "user", "content": "hi"}], [])
+    assert result.assistant_message["reasoning_content"] == "provider reasoning"
+    from magi.llm.provider_bridge.tool_streaming import _OpenAIToolStreamState
+    state = _OpenAIToolStreamState()
+    await bridge._operations._emit_openai_reasoning_delta(SimpleNamespace(reasoning_content="part 1"), state)
+    await bridge._operations._emit_openai_reasoning_delta(SimpleNamespace(reasoning_content=" part 2"), state)
+    state.tool_calls_by_index[0] = {"id": "call_1", "name": "lookup", "arguments_parts": ['{}']}
+    state.has_tool_calls = True
+    streamed = await bridge._operations._build_openai_tool_stream_result(bridge._operations, state)
+    assert streamed.provider_response.assistant_message["reasoning_content"] == "part 1 part 2"

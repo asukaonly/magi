@@ -1,0 +1,196 @@
+"""Native OpenAI transports normalized to the bridge's completion records."""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import Any, AsyncIterator
+
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
+
+
+def uses_responses_api(model: str) -> bool:
+    """GPT-6 tool calls with reasoning require the Responses API."""
+    return bool(re.match(r"^gpt-6(?:\.1)?-(?:astra|sol|terra|luna)(?:-|$)", model))
+
+
+def responses_effort(model: str, effort: str) -> str:
+    if effort == "none" and model.startswith(("gpt-6-astra", "gpt-6.1-sol")):
+        return "low"
+    return effort
+
+
+def _responses_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    result = dict(kwargs)
+    items: list[dict[str, Any]] = []
+    for message in result.pop("messages"):
+        role = message["role"]
+        if role == "tool":
+            items.append({"type": "function_call_output", "call_id": message["tool_call_id"],
+                          "output": message.get("content") or ""})
+            continue
+        items.extend(message.get("responses_reasoning", []))
+        content = message.get("content")
+        if content:
+            if isinstance(content, list):
+                parts = []
+                for part in content:
+                    if part["type"] == "text":
+                        parts.append({"type": "output_text" if role == "assistant" else "input_text",
+                                      "text": part["text"]})
+                    elif part["type"] == "image_url":
+                        image = part["image_url"]
+                        parts.append({"type": "input_image", "image_url": image["url"],
+                                      "detail": image.get("detail", "auto")})
+                    else:
+                        raise ValueError(f"Unsupported Responses input content: {part['type']}")
+                content = parts
+            items.append({"role": role, "content": content})
+        for call in message.get("tool_calls", []):
+            items.append({"type": "function_call", "call_id": call["id"],
+                          "name": call["function"]["name"], "arguments": call["function"]["arguments"]})
+    result["input"] = items
+    result["store"] = False
+    tokens = result.pop("max_tokens", None)
+    if tokens is not None:
+        result["max_output_tokens"] = tokens
+    effort = responses_effort(result["model"], result.pop("reasoning_effort", "medium"))
+    result["reasoning"] = {**result.get("reasoning", {}), "effort": effort}
+    if effort != "none":
+        for key in ("temperature", "top_p", "top_logprobs"):
+            result.pop(key, None)
+    result.pop("logprobs", None)
+    result.pop("stream_options", None)
+    response_format = result.pop("response_format", None)
+    if response_format:
+        if response_format["type"] == "json_schema":
+            response_format = {"type": "json_schema", **response_format["json_schema"]}
+        result["text"] = {**result.get("text", {}), "format": response_format}
+    tool_choice = result.get("tool_choice")
+    if isinstance(tool_choice, dict) and tool_choice.get("type") == "function":
+        result["tool_choice"] = {"type": "function", "name": tool_choice["function"]["name"]}
+    if result.get("tools"):
+        result["tools"] = [{"type": "function", **tool["function"],
+                            "strict": tool["function"].get("strict", False)} for tool in result["tools"]]
+    else:
+        result.pop("tools", None)
+        result.pop("tool_choice", None)
+    return result
+
+
+def _response_usage(response: Any) -> dict[str, Any] | None:
+    usage = response.usage
+    if usage is None:
+        return None
+    return {"prompt_tokens": usage.input_tokens, "completion_tokens": usage.output_tokens,
+            "total_tokens": usage.total_tokens,
+            "prompt_tokens_details": {"cached_tokens": getattr(usage.input_tokens_details, "cached_tokens", 0)},
+            "completion_tokens_details": {"reasoning_tokens": getattr(usage.output_tokens_details, "reasoning_tokens", 0)}}
+
+
+def _completion_from_response(response: Any) -> ChatCompletion:
+    if response.status != "completed":
+        # Partial tool arguments must never be executed after truncation or failure.
+        raise RuntimeError(f"Responses request did not complete: {response.status}")
+    content: list[str] = []
+    calls: list[dict[str, Any]] = []
+    reasoning: list[dict[str, Any]] = []
+    for item in response.output:
+        if item.type == "reasoning":
+            reasoning.append(item.model_dump(exclude_none=True))
+        elif item.type == "message":
+            for part in item.content:
+                if part.type == "output_text":
+                    content.append(part.text)
+                elif part.type == "refusal":
+                    content.append(part.refusal)
+        elif item.type == "function_call":
+            if not item.call_id or not item.name or not isinstance(json.loads(item.arguments), dict):
+                raise ValueError("Responses function call requires an ID, name and JSON object arguments")
+            calls.append({"id": item.call_id, "type": "function",
+                          "function": {"name": item.name, "arguments": item.arguments}})
+        else:
+            raise ValueError(f"Unsupported Responses output item: {item.type}")
+    return ChatCompletion.model_validate({
+        "id": response.id, "object": "chat.completion", "created": int(response.created_at),
+        "model": response.model, "usage": _response_usage(response),
+        "choices": [{"index": 0, "finish_reason": "tool_calls" if calls else "stop",
+                     "message": {"role": "assistant", "content": "".join(content),
+                                 "tool_calls": calls or None, "responses_reasoning": reasoning}}],
+    })
+
+
+async def _response_chunks(stream: Any, model: str) -> AsyncIterator[ChatCompletionChunk]:
+    calls: dict[str, tuple[int, str, str]] = {}
+    arguments: dict[str, str] = {}
+    terminal = False
+    async for event in stream:
+        delta: dict[str, Any] = {}
+        usage = None
+        finish_reason = None
+        if event.type in {"response.output_text.delta", "response.refusal.delta"}:
+            delta["content"] = event.delta
+        elif event.type == "response.reasoning_summary_text.delta":
+            delta["reasoning_content"] = event.delta
+        elif event.type == "response.output_item.added" and event.item.type == "function_call":
+            item = event.item
+            calls[item.id] = (len(calls), item.call_id, item.name)
+            arguments[item.id] = item.arguments or ""
+            delta["tool_calls"] = [{"index": calls[item.id][0], "id": item.call_id, "type": "function",
+                                    "function": {"name": item.name, "arguments": item.arguments or ""}}]
+        elif event.type == "response.function_call_arguments.delta":
+            if event.item_id not in calls:
+                raise ValueError("Responses tool arguments arrived without a function call")
+            index, _, _ = calls[event.item_id]
+            arguments[event.item_id] += event.delta
+            delta["tool_calls"] = [{"index": index, "function": {"arguments": event.delta}}]
+        elif event.type == "response.completed":
+            completion = _completion_from_response(event.response)
+            choice = completion.choices[0]
+            received = [(call_id, name, arguments[item_id]) for item_id, (_, call_id, name) in calls.items()]
+            expected = [(call.id, call.function.name, call.function.arguments) for call in choice.message.tool_calls or []]
+            if received != expected:
+                raise ValueError("Responses stream function calls do not match the completed response")
+            delta["responses_reasoning"] = choice.message.responses_reasoning
+            usage = completion.usage.model_dump() if completion.usage else None
+            finish_reason = choice.finish_reason
+            terminal = True
+        elif event.type in {"response.failed", "response.incomplete", "error"}:
+            raise RuntimeError(f"Responses stream failed: {event.type}")
+        else:
+            continue
+        yield ChatCompletionChunk.model_validate({
+            "id": "", "object": "chat.completion.chunk", "created": 0, "model": model,
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}], "usage": usage,
+        })
+    if not terminal:
+        raise RuntimeError("Responses stream ended before completion")
+
+
+async def _completion_chunks(stream: Any, model: str, *, responses: bool) -> AsyncIterator[Any]:
+    try:
+        if responses:
+            async for chunk in _response_chunks(stream, model):
+                yield chunk
+        else:
+            async for chunk in stream:
+                yield chunk
+    finally:
+        if hasattr(stream, "close"):
+            await stream.close()
+        elif hasattr(stream, "aclose"):
+            await stream.aclose()
+
+
+async def create_completion(client: Any, **kwargs: Any) -> Any:
+    """Select the native endpoint and keep one internal completion shape."""
+    responses = uses_responses_api(kwargs["model"])
+    if responses:
+        result = await client.responses.create(**_responses_kwargs(kwargs))
+    else:
+        kwargs["messages"] = [{k: v for k, v in message.items() if k != "responses_reasoning"}
+                              for message in kwargs["messages"]]
+        result = await client.chat.completions.create(**kwargs)
+    if kwargs.get("stream"):
+        return _completion_chunks(result, kwargs["model"], responses=responses)
+    return _completion_from_response(result) if responses else result

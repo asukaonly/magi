@@ -7,6 +7,7 @@ from functools import lru_cache
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, TypeVar, cast
 
 from ..anthropic import AnthropicAdapter
+from ..openai_transport import uses_responses_api, responses_effort
 from ..base import LLMAdapter
 from ..cache_observability import build_cache_observation
 from .cache_routing import (
@@ -26,6 +27,7 @@ from ..reasoning_dialect import (
     ANTHROPIC_THINKING_BUDGETS,
     ReasoningDialect,
     anthropic_thinking_is_adaptive_only,
+    anthropic_thinking_is_required,
     build_reasoning_payload,
     merge_payload,
     resolve_dialect,
@@ -150,6 +152,13 @@ class ProviderBridgeOptionsMixin:
         """Return the closest depth the active provider dialect can express."""
 
         dialect = self._resolve_reasoning_dialect()
+        model_id = self.llm.model_name.lower()
+        if dialect is ReasoningDialect.GLM_TOGGLE and model_id.startswith("glm-5.3"):
+            if requested in {ThinkingDepth.NONE, ThinkingDepth.LOW}:
+                return ThinkingDepth.LOW
+            return ThinkingDepth.MAX if requested is ThinkingDepth.MAX else ThinkingDepth.HIGH
+        if dialect is ReasoningDialect.OPENAI_EFFORT and uses_responses_api(model_id):
+            return ThinkingDepth(responses_effort(model_id, requested.value))
         if dialect is ReasoningDialect.NONE:
             return ThinkingDepth.NONE
         if dialect is ReasoningDialect.OPENAI_EFFORT:
@@ -164,10 +173,8 @@ class ProviderBridgeOptionsMixin:
             return ThinkingDepth.NONE if requested is ThinkingDepth.NONE else ThinkingDepth.HIGH
         if dialect is ReasoningDialect.ANTHROPIC_BUDGET:
             model_id = str(getattr(self.llm, "model_name", ""))
-            if requested is not ThinkingDepth.NONE and anthropic_thinking_is_adaptive_only(
-                model_id
-            ):
-                return ThinkingDepth.HIGH
+            if requested is ThinkingDepth.NONE and anthropic_thinking_is_required(model_id):
+                return ThinkingDepth.LOW
         return requested
 
     def _apply_anthropic_thinking_options(
@@ -186,11 +193,21 @@ class ProviderBridgeOptionsMixin:
         - Budgeted models need ``budget_tokens >= 1024`` and strictly
           ``< max_tokens``; we bump ``max_tokens`` to leave answer
           headroom when the budget would meet or exceed it.
-        - Adaptive-only models (Opus 4.7+, Fable 5) reject ``budget_tokens``
-          and sampling params; they must use ``{type: "adaptive"}``.
+        - Adaptive-only models use effort instead of token budgets and reject
+          sampling parameters. Required-thinking models clamp NONE to LOW.
         """
+        model_id = self.llm.model_name
+        if anthropic_thinking_is_adaptive_only(model_id):
+            for key in ("temperature", "top_p", "top_k"):
+                kwargs.pop(key, None)
+            depth = self.resolve_effective_reasoning_depth(thinking_depth)
+            kwargs["thinking"] = {"type": "disabled" if depth is ThinkingDepth.NONE else "adaptive"}
+            kwargs["output_config"] = {
+                **kwargs.get("output_config", {}),
+                "effort": "low" if depth is ThinkingDepth.NONE else depth.value,
+            }
+            return kwargs
         if thinking_depth == ThinkingDepth.NONE:
-            # No thinking requested: leave sampling params untouched.
             return kwargs
 
         kwargs.pop("temperature", None)
@@ -198,11 +215,6 @@ class ProviderBridgeOptionsMixin:
         top_p = kwargs.get("top_p")
         if top_p is not None and not (0.95 <= float(top_p) <= 1.0):
             kwargs.pop("top_p", None)
-
-        model_id = str(getattr(self.llm, "model_name", ""))
-        if anthropic_thinking_is_adaptive_only(model_id):
-            kwargs["thinking"] = {"type": "adaptive"}
-            return kwargs
 
         budget = ANTHROPIC_THINKING_BUDGETS.get(thinking_depth)
         if budget is None:
@@ -232,8 +244,17 @@ class ProviderBridgeOptionsMixin:
         # reasoning capability. Other dialects (DashScope toggle, GLM
         # toggle) are always meaningful when the user asks for a thinking
         # depth, so we don't gate them on capability.
+        if dialect is ReasoningDialect.OPENAI_EFFORT and uses_responses_api(self.llm.model_name):
+            kwargs["reasoning_effort"] = responses_effort(self.llm.model_name, thinking_depth.value)
+            return kwargs
         if dialect == ReasoningDialect.OPENAI_EFFORT and not self._model_supports_reasoning():
             return kwargs
+
+        if dialect is ReasoningDialect.GLM_TOGGLE and self.llm.model_name.lower().startswith("glm-5.3"):
+            return merge_payload(kwargs, {
+                "_kwargs": {"reasoning_effort": self.resolve_effective_reasoning_depth(thinking_depth).value},
+                "_extra_body": {"thinking": {"type": "enabled", "clear_thinking": False}},
+            })
 
         payload = build_reasoning_payload(dialect, thinking_depth)
         return cast(Dict[str, Any], merge_payload(kwargs, payload))

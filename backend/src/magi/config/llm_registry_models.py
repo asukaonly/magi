@@ -302,7 +302,7 @@ class LLMImageGenerationModelMetaModel(BaseModel):
     native_protocol: Literal[
         "dashscope_multimodal_image",
         "openai_images",
-        "gemini_predict",
+        "gemini_interactions",
         "minimax_image",
         "zai_images",
         "doubao_seedream",

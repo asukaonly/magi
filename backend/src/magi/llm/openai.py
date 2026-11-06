@@ -3,6 +3,10 @@ LLMAdapter - OpenAI Implementation
 """
 
 from typing import Optional, Dict, Any, AsyncIterator, List
+from contextlib import aclosing
+
+from .openai_transport import create_completion
+
 import httpx
 from openai import AsyncOpenAI
 from .base import LLMAdapter
@@ -110,7 +114,7 @@ class OpenAIAdapter(LLMAdapter):
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
 
-        response = await self._client.chat.completions.create(
+        response = await create_completion(self._client,
             model=self._model,
             messages=messages,
             max_tokens=max_tokens,
@@ -137,7 +141,7 @@ class OpenAIAdapter(LLMAdapter):
         Yields:
             Text chunks
         """
-        stream = await self._client.chat.completions.create(
+        stream = await create_completion(self._client,
             model=self._model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens,
@@ -146,16 +150,17 @@ class OpenAIAdapter(LLMAdapter):
             **kwargs,
         )
 
-        async for chunk in stream:
-            # Some OpenAI-compatible providers emit chunks with an empty
-            # ``choices`` list — e.g. a final usage-only chunk (when
-            # stream_options.include_usage is set) or a keep-alive. Skip them
-            # instead of indexing ``[0]`` (which would IndexError).
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            if delta and delta.content:
-                yield delta.content
+        async with aclosing(stream):
+            async for chunk in stream:
+                # Some OpenAI-compatible providers emit chunks with an empty
+                # ``choices`` list — e.g. a final usage-only chunk (when
+                # stream_options.include_usage is set) or a keep-alive. Skip them
+                # instead of indexing ``[0]`` (which would IndexError).
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
 
     async def chat(
         self,
@@ -176,7 +181,7 @@ class OpenAIAdapter(LLMAdapter):
         Returns:
             Assistant response
         """
-        response = await self._client.chat.completions.create(
+        response = await create_completion(self._client,
             model=self._model,
             messages=messages,
             max_tokens=max_tokens,
@@ -207,7 +212,7 @@ class OpenAIAdapter(LLMAdapter):
         Yields:
             Text chunks
         """
-        stream = await self._client.chat.completions.create(
+        stream = await create_completion(self._client,
             model=self._model,
             messages=messages,
             max_tokens=max_tokens,
@@ -216,16 +221,17 @@ class OpenAIAdapter(LLMAdapter):
             **kwargs,
         )
 
-        async for chunk in stream:
-            # Some OpenAI-compatible providers emit chunks with an empty
-            # ``choices`` list — e.g. a final usage-only chunk (when
-            # stream_options.include_usage is set) or a keep-alive. Skip them
-            # instead of indexing ``[0]`` (which would IndexError).
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            if delta and delta.content:
-                yield delta.content
+        async with aclosing(stream):
+            async for chunk in stream:
+                # Some OpenAI-compatible providers emit chunks with an empty
+                # ``choices`` list — e.g. a final usage-only chunk (when
+                # stream_options.include_usage is set) or a keep-alive. Skip them
+                # instead of indexing ``[0]`` (which would IndexError).
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
 
     @property
     def model_name(self) -> str:

@@ -366,6 +366,10 @@ class ProviderBridgeResponseMixin:
                     "role": "assistant",
                     "content": message.content or "",
                     "tool_calls": raw_tool_calls,
+                    **({"reasoning_content": message.reasoning_content}
+                       if getattr(message, "reasoning_content", None) else {}),
+                    **({"responses_reasoning": message.responses_reasoning}
+                       if getattr(message, "responses_reasoning", None) else {}),
                 },
                 metadata=self._build_openai_metadata(choice, message, raw_tool_calls),
                 usage=self._extract_openai_usage(response),
@@ -393,6 +397,7 @@ class ProviderBridgeResponseMixin:
         if hasattr(message, "model_dump"):
             try:
                 dumped = message.model_dump()
+                dumped.pop("responses_reasoning", None)
                 metadata["raw_message"] = dumped
             except Exception:
                 pass
@@ -479,6 +484,7 @@ class ProviderBridgeResponseMixin:
         thinking_depth: ThinkingDepth,
         disable_thinking: bool | None = None,
     ) -> None:
+        thinking_depth = self.resolve_effective_reasoning_depth(thinking_depth)
         metadata = dict(provider_response.metadata or {})
         metadata["trace_metrics"] = {
             "provider": self._provider_name() or type(self.llm).__name__,

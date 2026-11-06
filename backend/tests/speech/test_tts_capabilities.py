@@ -31,7 +31,7 @@ def test_catalog_and_validation_agree_on_model_specific_capabilities(tmp_path):
     catalog = choices(config, TTSModelStore(tmp_path))
     melo = next(item for item in catalog if item.model_id == MELO_ID)
     assert len(melo.voices) == 1 and melo.download_bytes == 177481452
-    assert all(item.speed_min is None for item in catalog if item.engine == "remote")
+    assert all(item.speed_min is None for item in catalog if item.engine == "remote" and item.model_id.startswith("qwen3-tts"))
     config.speech.tts.remote_speed = 1.2
     with pytest.raises(ValueError, match="unsupported_parameter"):
         resolve_options(config)
@@ -165,3 +165,40 @@ async def test_slow_remote_speech_uses_shorter_complete_segments(tmp_path):
     segments = service.receipts[job.job_id].segments
     assert "".join(segments) == text
     assert max(map(len, segments)) <= 35
+
+
+def test_current_speech_catalog_validates_endpoint_voice_and_speed():
+    config = remote_config("dashscope", "qwen-audio-3.1-tts-flash", "longanhuan_v3.1")
+    with pytest.raises(ValueError, match="invalid_endpoint"):
+        resolve_options(config)
+    provider = next(iter(config.llm.providers.values()))
+    provider.services.tts.base_url = "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1"
+    config.speech.tts.remote_speed = 1.5
+    config.speech.tts.instructions = "Calm"
+    assert resolve_options(config).speed == 1.5
+    provider.services.tts.protocol = "openai"
+    provider.services.tts.base_url = "https://api.openai.com/v1"
+    config.speech.tts.remote_model = "gpt-realtime-2.1-mini"
+    config.speech.tts.remote_voice = "marin"
+    assert resolve_options(config).instructions == "Calm"
+    config.speech.tts.remote_speed = 2
+    with pytest.raises(ValueError, match="unsupported_parameter"):
+        resolve_options(config)
+
+
+@pytest.mark.asyncio
+async def test_current_dashscope_tts_uses_speech_endpoint(tmp_path, monkeypatch):
+    clip = pcm_wav(b"\x01\x00" * 100, 24000)
+    def serve(request):
+        if request.method == "GET":
+            assert "authorization" not in request.headers
+            return httpx.Response(200, content=clip.data)
+        assert request.url.path == "/api/v1/services/audio/tts/SpeechSynthesizer"
+        payload = json.loads(request.content)
+        assert payload["input"] == {"text": "Hi", "voice": "longanhuan_v3.1", "format": "wav", "sample_rate": 24000, "rate": 1.2, "instruction": "Calm"}
+        return httpx.Response(200, json={"output": {"finish_reason": "stop", "audio": {"url": "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/test.wav"}}})
+    factory = httpx.AsyncClient
+    monkeypatch.setattr("magi.speech.tts.engines.httpx.AsyncClient", lambda **kw: factory(transport=httpx.MockTransport(serve), **kw))
+    options = EngineOptions("remote", "qwen-audio-3.1-tts-flash", "longanhuan_v3.1", 1.2,
+                            "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1", "test", protocol="dashscope", instructions="Calm")
+    assert (await TTSEngine(TTSModelStore(tmp_path)).synthesize("Hi", options, threading.Event())).data == clip.data

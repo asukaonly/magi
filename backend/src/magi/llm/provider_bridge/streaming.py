@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import time
+from contextlib import aclosing
+
+from ..openai_transport import create_completion
+
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional, cast
 
@@ -305,16 +309,17 @@ class ProviderBridgeChatStreamingMixin:
         *,
         event_context: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[LLMStreamEvent]:
-        stream = await host.llm._client.chat.completions.create(**chat_kwargs)
+        stream = await create_completion(host.llm._client,**chat_kwargs)
         scrubber = ThinkTagScrubber()
         raw_logger = RawProviderResponseLogger(host.llm, event_context)
-        async for chunk in stream:
-            raw_logger.log_chunk(chunk)
-            for event_payload in self._openai_chunk_to_payloads(
-                chunk, state=state, scrubber=scrubber
-            ):
-                await emit_stream_event(event_payload)
-                yield event_payload
+        async with aclosing(stream):
+            async for chunk in stream:
+                raw_logger.log_chunk(chunk)
+                for event_payload in self._openai_chunk_to_payloads(
+                    chunk, state=state, scrubber=scrubber
+                ):
+                    await emit_stream_event(event_payload)
+                    yield event_payload
 
         for event_payload in _flush_openai_scrubber(scrubber, state):
             await emit_stream_event(event_payload)

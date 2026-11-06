@@ -909,9 +909,14 @@ Current product expectations:
 - background model work requires a normal API-backed provider instance; Settings and onboarding should prevent plan-only providers from being assigned to those scenarios and explain the boundary before save
 - provider image generation services should remain disabled by default until the user enables them
 - service-specific API credentials and custom Base URLs are optional overrides; blank service fields inherit the provider-level defaults
+- OpenAI speech includes `gpt-realtime-2.1-mini` through Realtime WebSocket sessions with bounded PCM output, cancellation, and the configured HTTP/SOCKS proxy; the older Speech API models remain selectable until their announced shutdown on 2027-01-06
+- Qwen Audio 3.1 TTS uses `/services/audio/tts/SpeechSynthesizer`, supports speed and speaking instructions, and requires a service Base URL of `https://<workspace-id>.<region>.maas.aliyuncs.com/api/v1` (`cn-beijing` or `ap-southeast-1`); existing Qwen3 TTS models retain their provider-native endpoint
 - Settings can expose more fields than first-run LLM setup
 - provider/model metadata should come from the backend registry rather than hardcoded frontend lists
 - each selected model can expose a capability profile such as vision, reasoning, tool calling, and embedding support
+- reasoning settings are translated by model generation: adaptive-only Anthropic models receive effort controls without token budgets or sampling parameters; models that require thinking use their lowest effort when off is requested; GLM 5.3 uses enabled thinking with low/high/max effort
+- assistant reasoning returned alongside tool calls is retained in model history for the next provider request, including streaming calls
+- GPT-6 family calls use the native Responses API for text, images in prompts, structured output, and tool execution; requests remain stateless (`store: false`), with encrypted reasoning retained locally for tool continuation; failed, incomplete, or disconnected streams must not execute partial tool calls
 - model metadata can include provider-published cost values; chat models use input/output token pricing, embedding models use input token pricing, and image generation models use per-image pricing when the provider bills successful generations by count
 - fixed-fee coding plans should not inherit pay-as-you-go token rates unless the provider publishes plan-specific token pricing; usage accounting may retain the plan source metadata while leaving calculated cost empty
 - provider account quotas and rate limits must not be represented as fixed model metadata because they vary by account, tier, region, and live provider policy
@@ -930,7 +935,7 @@ Current product expectations:
 - custom-provider creation fields and defaults should be delivered by a dedicated template endpoint rather than piggybacking on generic config responses
 - image generation model catalogs should expose provider-owned capability metadata such as supported sizes, supported quality values, maximum image count, and native generation protocol
 - image generation runtime configuration is not inferred from chat settings; it uses `services.image_generation` for timeout and native protocol, and uses service-specific API key/Base URL overrides when present before falling back to the provider-level defaults
-- built-in native image generation adapters currently cover OpenAI Images, Gemini Imagen via `models:predict`, DashScope multimodal image generation, MiniMax Image, and Z.ai Images; providers without verified native image generation should not expose image models
+- built-in native image generation adapters currently cover OpenAI Images, Gemini Nano Banana via stateless `interactions` (`Api-Revision: 2026-05-20`), DashScope multimodal image generation, MiniMax Image, and Z.ai Images; providers without verified native image generation should not expose image models
 - image generation models must come from provider-owned registry metadata or native adapter support; manually marking a chat model as `image_output` must not create an image generation model
 - generated image artifacts should be persisted into the active chat workspace and, when a chat session/turn is active, imported as managed chat attachments; provider-hosted image URLs are downloaded best-effort before falling back to the original URL
 - image generation tool invocations are permission-classified as high risk because they trigger external generation and write local image artifacts

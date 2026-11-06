@@ -19,6 +19,8 @@ def remote_voices(base_url: str, model: str) -> list[str]:
     """A compatible endpoint does not imply OpenAI's model or voice catalog."""
     if urlsplit(base_url).hostname != "api.openai.com":
         return []
+    if model == "gpt-realtime-2.1-mini":
+        return ["marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"]
     if model == "gpt-4o-mini-tts":
         return list(REMOTE_VOICES)
     if model in {"tts-1", "tts-1-hd"}:
@@ -38,7 +40,11 @@ def provider_models(provider_id: str, provider: LLMProviderSettings) -> list[TTS
                               emotions=["happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm"])
                 for model in ("speech-2.8-hd", "speech-2.8-turbo")]
     if protocol == "dashscope":
-        return [TTSModelChoice(**common, model_id=model, name=model,
+        current = [TTSModelChoice(**common, model_id=model, name=model,
+                                 voices=[VoiceInfo(id="longanhuan_v3.1", language="zh", name="Anhuan")],
+                                 custom_voice=True, instructions=True, speed_min=0.5, speed_max=2)
+                   for model in ("qwen-audio-3.1-tts-flash", "qwen-audio-3.1-tts-plus")]
+        return current + [TTSModelChoice(**common, model_id=model, name=model,
                               voices=[VoiceInfo(id="Cherry", language="zh", name="Cherry")],
                               custom_voice=True, instructions=model == "qwen3-tts-instruct-flash")
                 for model in ("qwen3-tts-flash", "qwen3-tts-instruct-flash")]
@@ -46,8 +52,9 @@ def provider_models(provider_id: str, provider: LLMProviderSettings) -> list[TTS
         return [TTSModelChoice(**common, model_id=model, name=model,
                               voices=[VoiceInfo(id=voice, language="multilingual", name=voice.title())
                                       for voice in remote_voices(endpoint(provider), model)],
-                              speed_min=0.25, speed_max=4, instructions=model == "gpt-4o-mini-tts")
-                for model in ("gpt-4o-mini-tts", "tts-1", "tts-1-hd")]
+                              speed_min=0.25, speed_max=1.5 if model == "gpt-realtime-2.1-mini" else 4,
+                              instructions=model in {"gpt-4o-mini-tts", "gpt-realtime-2.1-mini"})
+                for model in ("gpt-realtime-2.1-mini", "gpt-4o-mini-tts", "tts-1", "tts-1-hd")]
     # Only the basic WAV protocol is promised for user-supplied compatible endpoints.
     return [TTSModelChoice(**common, model_id="", name="", voices=[], custom_model=True,
                           custom_voice=True, speed_min=0.5, speed_max=2)]

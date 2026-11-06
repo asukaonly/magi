@@ -1,4 +1,4 @@
-"""Google Gemini Imagen prediction adapter."""
+"""Google Gemini native image generation adapter."""
 
 from __future__ import annotations
 
@@ -34,8 +34,8 @@ _SIZE_TO_ASPECT_RATIO = {
 }
 
 
-class GeminiPredictImageAdapter(ImageGenerationAdapter):
-    """Adapter for Gemini API Imagen models via `models/{model}:predict`."""
+class GeminiImageAdapter(ImageGenerationAdapter):
+    """Adapter for Gemini images through the stateless Interactions API."""
 
     def __init__(
         self,
@@ -56,7 +56,7 @@ class GeminiPredictImageAdapter(ImageGenerationAdapter):
         self.capability = capability or ImageGenerationCapability(
             supported_sizes=list(GEMINI_SUPPORTED_SIZES),
             supported_qualities=list(GEMINI_SUPPORTED_QUALITIES),
-            max_n=4,
+            max_n=1,
         )
         self._client = httpx.AsyncClient(
             timeout=timeout,
@@ -69,30 +69,30 @@ class GeminiPredictImageAdapter(ImageGenerationAdapter):
 
     def _build_request_payload(self, req: ImageGenerationRequest) -> dict[str, Any]:
         self.validate_request(req)
+        if req.n != 1:
+            raise ImageGenInvalidParameterError("Gemini generates one image per request.", field="n", provider_id=self.provider_id)
         size = self.normalize_size(req.size)
         quality = self.normalize_quality(req.quality)
-        parameters: dict[str, Any] = {
-            "sampleCount": req.n,
-            "aspectRatio": _SIZE_TO_ASPECT_RATIO[size],
-            "personGeneration": "allow_adult",
-        }
-        if quality == "high" and "fast" not in (req.model or self._model).lower():
-            parameters["imageSize"] = "2K"
-        elif "fast" not in (req.model or self._model).lower():
-            parameters["imageSize"] = "1K"
         return {
-            "instances": [{"prompt": req.prompt}],
-            "parameters": parameters,
+            "model": req.model or self._model,
+            "input": req.prompt,
+            "store": False,
+            "response_format": {
+                "type": "image",
+                "mime_type": "image/png",
+                "aspect_ratio": _SIZE_TO_ASPECT_RATIO[size],
+                "image_size": "2K" if quality == "high" else "1K",
+            },
         }
 
     async def generate(self, req: ImageGenerationRequest) -> ImageGenerationResponse:
         payload = self._build_request_payload(req)
         model = str(req.model or self._model).strip()
-        endpoint = join_url(self._base_url, f"models/{model}:predict")
+        endpoint = join_url(self._base_url, "interactions")
         try:
             response = await self._client.post(
                 endpoint,
-                headers={"x-goog-api-key": self._api_key},
+                headers={"x-goog-api-key": self._api_key, "Api-Revision": "2026-05-20"},
                 json=payload,
             )
             body = await parse_json_response(response, provider_id=self.provider_id)
@@ -105,7 +105,7 @@ class GeminiPredictImageAdapter(ImageGenerationAdapter):
         if not images:
             raise ImageGenInvalidParameterError(
                 "Gemini did not return base64 image data.",
-                field="predictions.bytesBase64Encoded",
+                field="steps.content.data",
                 provider_id=self.provider_id,
                 raw=body,
             )
@@ -125,52 +125,22 @@ def _normalize_gemini_base_url(base_url: str | None) -> str:
 
 def _extract_gemini_images(body: dict[str, Any]) -> list[ImageArtifact]:
     images: list[ImageArtifact] = []
-    predictions = body.get("predictions")
-    if isinstance(predictions, list):
-        for prediction in predictions:
-            images.extend(_images_from_prediction(prediction))
-
-    candidates = body.get("candidates")
-    if isinstance(candidates, list):
-        for candidate in candidates:
-            if not isinstance(candidate, dict):
+    steps = body.get("steps")
+    if body.get("status") != "completed" or not isinstance(steps, list):
+        return images
+    for step in steps:
+        if not isinstance(step, dict) or step.get("type") != "model_output":
+            continue
+        content = step.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict) or part.get("type") != "image":
                 continue
-            content = candidate.get("content")
-            parts = content.get("parts") if isinstance(content, dict) else None
-            if not isinstance(parts, list):
-                continue
-            for part in parts:
-                inline_data = part.get("inlineData") if isinstance(part, dict) else None
-                if isinstance(inline_data, dict) and inline_data.get("data"):
-                    images.append(
-                        ImageArtifact(
-                            b64=str(inline_data["data"]),
-                            mime=str(inline_data.get("mimeType") or "image/png"),
-                            raw_metadata=dict(part),
-                        )
-                    )
+            data, mime = part.get("data"), part.get("mime_type")
+            if isinstance(data, str) and data and mime in {"image/png", "image/jpeg", "image/webp"}:
+                images.append(ImageArtifact(b64=data, mime=mime, raw_metadata=dict(part)))
     return images
 
 
-def _images_from_prediction(prediction: Any) -> list[ImageArtifact]:
-    if not isinstance(prediction, dict):
-        return []
-    image_source = prediction.get("image") if isinstance(prediction.get("image"), dict) else prediction
-    image_data = (
-        image_source.get("bytesBase64Encoded")
-        or image_source.get("bytes_base64_encoded")
-        or image_source.get("b64_json")
-        or image_source.get("data")
-    )
-    if not image_data:
-        return []
-    return [
-        ImageArtifact(
-            b64=str(image_data),
-            mime=str(image_source.get("mimeType") or image_source.get("mime_type") or "image/png"),
-            raw_metadata=dict(prediction),
-        )
-    ]
-
-
-__all__ = ["GeminiPredictImageAdapter"]
+__all__ = ["GeminiImageAdapter"]
