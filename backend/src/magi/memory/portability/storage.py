@@ -24,7 +24,7 @@ from ...utils.runtime import RuntimePaths
 from ..manual_entries.asset_types import MAX_UPLOAD_BYTES
 from ..l1.storage_snapshot import EventStateTransfer
 from ..source_event_governance import source_occurrence_visible_predicate
-from .errors import MemoryPortabilityError
+from .errors import MemoryPortabilityError, is_no_space_error
 from .models import SnapshotBundle, SnapshotFile
 
 _ARCHIVE_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}\.db$")
@@ -109,7 +109,7 @@ async def create_memory_snapshot(
     except BaseException as exc:
         if root is not None:
             shutil.rmtree(root, ignore_errors=True)
-        if _is_no_space_error(exc):
+        if is_no_space_error(exc):
             raise MemoryPortabilityError(
                 "insufficient_space",
                 "The memory portability directory does not have enough free space.",
@@ -303,21 +303,6 @@ def _database_snapshot_bytes(path: Path) -> int:
             status_code=500,
         ) from exc
     return max(main_bytes + wal_bytes, page_count * page_size)
-
-
-def _is_no_space_error(exc: BaseException) -> bool:
-    current: BaseException | None = exc
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        if isinstance(current, OSError) and current.errno == errno.ENOSPC:
-            return True
-        if isinstance(current, sqlite3.Error) and getattr(
-            current, "sqlite_errorcode", None
-        ) == getattr(sqlite3, "SQLITE_FULL", 13):
-            return True
-        current = current.__cause__ or current.__context__
-    return False
 
 
 def _create_memory_snapshot_sync(

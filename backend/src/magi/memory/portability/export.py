@@ -6,7 +6,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import IntEnum
-import errno
 import json
 import os
 from pathlib import Path
@@ -27,7 +26,7 @@ from .backup import (
     _require_free_space,
     _require_output_directory,
 )
-from .errors import MemoryPortabilityError
+from .errors import MemoryPortabilityError, is_no_space_error
 from .models import EXPORT_FORMAT, EXPORT_FORMAT_VERSION, SnapshotBundle, utc_now_iso
 
 _RECORD_SCHEMA_VERSION = 1
@@ -1688,7 +1687,7 @@ def build_readable_export(
         raise
     except (OSError, sqlite3.DatabaseError, zipfile.BadZipFile) as exc:
         partial_path.unlink(missing_ok=True)
-        if _is_no_space_error(exc):
+        if is_no_space_error(exc):
             raise MemoryPortabilityError(
                 "insufficient_space",
                 "The selected directory does not have enough free space.",
@@ -1721,21 +1720,6 @@ def _required_export_free_bytes(snapshot: SnapshotBundle) -> int:
         + asset_bytes
         + _EXPORT_FIXED_OVERHEAD_BYTES
     )
-
-
-def _is_no_space_error(exc: BaseException) -> bool:
-    current: BaseException | None = exc
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        if isinstance(current, OSError) and current.errno == errno.ENOSPC:
-            return True
-        if isinstance(current, sqlite3.Error) and getattr(
-            current, "sqlite_errorcode", None
-        ) == getattr(sqlite3, "SQLITE_FULL", 13):
-            return True
-        current = current.__cause__ or current.__context__
-    return False
 
 
 def _write_spec_jsonl(
