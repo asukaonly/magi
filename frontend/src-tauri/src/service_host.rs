@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::startup_diagnostics::StartupAttempt;
 use magi_service_contract::config::ServerConfig;
 use magi_service_contract::{OwnerBootstrap, StartedServer};
 
@@ -25,6 +26,7 @@ pub struct LocalService {
     launch: LaunchSpec,
     owner: Option<ChildStdin>,
     shutdown_timeout: Duration,
+    startup: Arc<StartupAttempt>,
     pub base_url: String,
     pub session_token: String,
 }
@@ -35,15 +37,21 @@ impl LocalService {
         config: &ServerConfig,
         config_path: &Path,
         log_path: PathBuf,
+        startup: Arc<StartupAttempt>,
     ) -> Result<Self, String> {
-        Self::start_cancellable(
+        let result = Self::start_cancellable(
             binary,
             config,
             config_path,
             log_path,
             &AtomicBool::new(false),
             None,
-        )
+            startup.clone(),
+        );
+        if let Err(error) = &result {
+            startup.fail(error);
+        }
+        result
     }
 
     fn start_cancellable(
@@ -53,6 +61,7 @@ impl LocalService {
         log_path: PathBuf,
         cancelled: &AtomicBool,
         reservation: Option<Arc<magi_platform::instance::InstanceLease>>,
+        startup: Arc<StartupAttempt>,
     ) -> Result<Self, String> {
         let started_at = Instant::now();
         if cancelled.load(Ordering::Acquire) {
@@ -64,6 +73,7 @@ impl LocalService {
             config_path: config_path.into(),
             log_path: log_path.clone(),
         };
+        startup.phase("preparing_service");
         config.validate()?;
         let reservation = match reservation {
             Some(lease) => lease,
@@ -71,6 +81,7 @@ impl LocalService {
                 &config.data_dir,
             )?),
         };
+        startup.phase("waiting_for_previous_service");
         wait_for_previous_service(
             &config.data_dir,
             Duration::from_secs(config.owner_shutdown_timeout_secs()),
@@ -80,6 +91,7 @@ impl LocalService {
             "Startup stage: local_service_handoff ready elapsed_ms={}",
             started_at.elapsed().as_millis()
         );
+        startup.phase("preparing_service");
         write_config(config_path, config)?;
         if cancelled.load(Ordering::Acquire) {
             return Err("Service launch cancelled".into());
@@ -120,9 +132,13 @@ impl LocalService {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
         }
+        startup.capture_log(log_path);
+        startup.phase("spawning");
         let mut child = command
             .spawn()
             .map_err(|e| format!("Could not start Magi service: {e}"))?;
+        startup.spawned(child.id());
+        startup.phase("waiting_for_listener");
         let spawned_at = Instant::now();
         log::info!(
             "Startup stage: local_service_spawned elapsed_ms={}",
@@ -142,6 +158,7 @@ impl LocalService {
             launch,
             owner: Some(owner),
             shutdown_timeout: Duration::from_secs(config.owner_shutdown_timeout_secs()),
+            startup,
             base_url: String::new(),
             session_token: format!(
                 "{}{}",
@@ -205,15 +222,30 @@ impl LocalService {
     }
 
     /// Reuse the exact launch configuration of this owned service.
-    pub fn restart(&self, cancelled: &AtomicBool) -> Result<Self, String> {
-        Self::start_cancellable(
+    pub fn restart(
+        &self,
+        cancelled: &AtomicBool,
+        startup: Arc<StartupAttempt>,
+    ) -> Result<Self, String> {
+        let result = Self::start_cancellable(
             &self.launch.binary,
             &self.launch.config,
             &self.launch.config_path,
             self.launch.log_path.clone(),
             cancelled,
             Some(self.reservation.clone()),
-        )
+            startup.clone(),
+        );
+        if let Err(error) = &result {
+            startup.fail(error);
+        }
+        result
+    }
+
+    pub fn observe_startup(&mut self, attempt: Arc<StartupAttempt>) {
+        attempt.capture_log(self.launch.log_path.clone());
+        attempt.spawned(self.pid());
+        self.startup = attempt;
     }
 
     pub fn supervision_policy(&self) -> &magi_service_contract::lifecycle::SupervisionPolicy {
@@ -224,7 +256,9 @@ impl LocalService {
     pub fn terminate_unresponsive(&mut self) {
         self.owner.take();
         let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Ok(status) = self.child.wait() {
+            self.startup.exited(status.code());
+        }
     }
 
     pub fn pid(&self) -> u32 {
@@ -232,10 +266,11 @@ impl LocalService {
     }
 
     pub fn running(&mut self) -> Result<bool, String> {
-        self.child
-            .try_wait()
-            .map(|status| status.is_none())
-            .map_err(|e| e.to_string())
+        let status = self.child.try_wait().map_err(|e| e.to_string())?;
+        if let Some(status) = status {
+            self.startup.exited(status.code());
+        }
+        Ok(status.is_none())
     }
 
     pub fn stop(&mut self) {
@@ -243,13 +278,18 @@ impl LocalService {
         let deadline = Instant::now() + self.shutdown_timeout;
         while Instant::now() < deadline {
             match self.child.try_wait() {
-                Ok(Some(_)) => return,
+                Ok(Some(status)) => {
+                    self.startup.exited(status.code());
+                    return;
+                }
                 Ok(None) => std::thread::sleep(Duration::from_millis(50)),
                 Err(_) => break,
             }
         }
         let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Ok(status) = self.child.wait() {
+            self.startup.exited(status.code());
+        }
     }
 }
 
@@ -320,6 +360,32 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
+    fn failed_listener_records_process_and_exit_without_previous_logs() {
+        let root = tempfile::tempdir().unwrap();
+        let binary = root.path().join("failed-service");
+        fs::write(&binary, "#!/bin/sh\nread bootstrap\nexit 7\n").unwrap();
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
+        let path = root.path().join("service.log");
+        fs::write(&path, "previous startup\n").unwrap();
+        let attempt = Arc::new(StartupAttempt::new(Some("local")));
+        let error = LocalService::start(
+            &binary,
+            &ServerConfig::for_development(root.path(), root.path().join("data")),
+            &root.path().join("config.json"),
+            path,
+            attempt.clone(),
+        )
+        .err()
+        .unwrap();
+        let report = attempt.report();
+        assert_eq!(report.phase, "waiting_for_listener");
+        assert!(report.process_id.is_some());
+        assert_eq!(report.exit_code, Some(7));
+        assert_eq!(report.failure_message, Some(error));
+        assert!(report.log_excerpt.is_none());
+    }
+
+    #[test]
     fn waits_for_previous_service_before_spawning_replacement() {
         let root = tempfile::tempdir().unwrap();
         let data = root.path().join("data");
@@ -336,7 +402,13 @@ mod tests {
         let log_path = root.path().join("service.log");
         let (sender, receiver) = std::sync::mpsc::channel();
         let launch = std::thread::spawn(move || {
-            let result = LocalService::start(&binary, &config, &config_path, log_path);
+            let result = LocalService::start(
+                &binary,
+                &config,
+                &config_path,
+                log_path,
+                Arc::new(StartupAttempt::new(Some("local"))),
+            );
             let _ = sender.send(result);
         });
 
@@ -416,13 +488,19 @@ mod tests {
             &config,
             &root.join("first.json"),
             root.join("first.log"),
+            Arc::new(crate::startup_diagnostics::StartupAttempt::new(Some(
+                "local",
+            ))),
         )
         .unwrap();
         assert!(LocalService::start(
             &binary,
             &config,
             &root.join("duplicate.json"),
-            root.join("duplicate.log")
+            root.join("duplicate.log"),
+            Arc::new(crate::startup_diagnostics::StartupAttempt::new(Some(
+                "local"
+            ))),
         )
         .is_err());
         let other_config = ServerConfig::for_development(&root, root.join("other-data"));
@@ -431,6 +509,9 @@ mod tests {
             &other_config,
             &root.join("second.json"),
             root.join("second.log"),
+            Arc::new(crate::startup_diagnostics::StartupAttempt::new(Some(
+                "local",
+            ))),
         )
         .unwrap();
         assert!(first.running().unwrap());

@@ -8,6 +8,7 @@ mod dmg_cleanup;
 mod downloads;
 mod external_url;
 mod service_host;
+mod startup_diagnostics;
 
 use connections::runtime::ConnectionRuntime;
 use std::thread;

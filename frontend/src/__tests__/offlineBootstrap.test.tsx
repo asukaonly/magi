@@ -48,6 +48,7 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => k
 vi.mock('@/i18n', () => ({ default: { t: (key: string) => key, language: 'en' } }));
 
 import { RuntimeBootstrap } from '@/components/connections/RuntimeBootstrap';
+import { startupDiagnostics } from './fixtures/startupDiagnostics';
 import { centerLocalStorage, setCenterStorageScope } from '@/runtime/center-storage';
 
 const profile = {
@@ -104,6 +105,59 @@ describe('offline startup boundary', () => {
   });
 
   afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
+
+  it('copies a redacted current report and replaces it on retry', async () => {
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const invoke = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async (command: string) => command === 'list_connection_profiles'
+      ? { state: { version: 1, active_profile_id: 'local', profiles: [{ id: 'local', mode: 'local', name: 'Local' }] }, supports_remote: true }
+      : command === 'read_offline_connection' ? null : invoke(command));
+    let attempt = 0;
+    mocks.initialize.mockImplementation(async () => {
+      attempt += 1;
+      const now = Date.now();
+      mocks.diagnostics.mockResolvedValue(startupDiagnostics({
+        startedAtMs: now, failedAtMs: now,
+        logExcerpt: `attempt-${attempt} session_token=private-log`,
+      }));
+      throw new Error('Start failed api_key=private-error');
+    });
+    try {
+      render(<RuntimeBootstrap />);
+      await screen.findByText('attempt-1 session_token=[REDACTED]');
+      expect(screen.getByText('bootstrap.phase.waiting_for_listener')).toBeInTheDocument();
+      expect(screen.getByText('1234 ms')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'bootstrap.copyDiagnostics' }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
+      expect(writeText.mock.calls[0][0]).toContain('~/Library/Logs/magi/service.log');
+      expect(writeText.mock.calls[0][0]).not.toMatch(/private-log|private-error|alice/);
+      fireEvent.click(screen.getByRole('button', { name: 'bootstrap.retry' }));
+      await screen.findByText('attempt-2 session_token=[REDACTED]');
+      expect(screen.queryByText('attempt-1 session_token=[REDACTED]')).not.toBeInTheDocument();
+      expect(mocks.reset).toHaveBeenCalledOnce();
+    } finally {
+      if (original) Object.defineProperty(navigator, 'clipboard', original);
+      else Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
+  it.each(['old-attempt', 'wrong-mode'])('excludes unrelated native diagnostics: %s', async (reason) => {
+    mocks.initialize.mockImplementation(async () => {
+      const now = Date.now();
+      mocks.diagnostics.mockResolvedValue(startupDiagnostics({
+        mode: reason === 'wrong-mode' ? 'local' : 'remote',
+        startedAtMs: reason === 'old-attempt' ? 1 : now, failedAtMs: now,
+        logExcerpt: 'unrelated service history',
+      }));
+      throw new Error('Connection failed');
+    });
+    render(<RuntimeBootstrap />);
+    await screen.findByRole('button', { name: 'offline.open' });
+    expect(screen.queryByText('unrelated service history')).not.toBeInTheDocument();
+    expect(screen.queryByText('0.1.34')).not.toBeInTheDocument();
+  });
 
   it('offers saved chats without automatically mounting either chat surface', async () => {
     render(<RuntimeBootstrap />);
@@ -272,6 +326,7 @@ describe('offline startup boundary', () => {
     mocks.maintenance.mockRejectedValue(new Error('Device cleanup is incomplete'));
     render(<RuntimeBootstrap />);
     await screen.findByText('Device cleanup is incomplete');
+    expect(screen.getByText('bootstrap.phase.recovering_maintenance')).toBeInTheDocument();
     await waitFor(() => expect(mocks.diagnostics).toHaveBeenCalledOnce());
     expect(window.localStorage.getItem(blockedKey)).toBe('true');
     expect(screen.queryByRole('button', { name: 'offline.open' })).not.toBeInTheDocument();

@@ -107,7 +107,7 @@
     "retry": "重试",
     "starting": "正在连接 Magi...",
     "initializeFailedFallback": "运行时初始化失败",
-    "diagnosticsHint": "Magi 没能完成启动。下面包含启动错误和最新的后端日志输出。",
+    "diagnosticsHint": "下方显示失败阶段与启动日志。复制的报告会隐藏常见凭证和用户主目录路径。",
     "summaryLabel": "错误摘要",
     "logPathLabel": "日志文件",
     "recentLogLabel": "最近后端日志",
@@ -119,7 +119,35 @@
       "waiting_for_worker": "正在初始化运行时...",
       "connecting": "正在建立连接...",
       "recovering_maintenance": "正在确认中心维护状态…",
-      "ready": "即将就绪..."
+      "ready": "即将就绪...",
+      "profiles": "读取连接配置…",
+      "preparing_service": "准备本地服务…",
+      "waiting_for_previous_service": "等待上次服务退出…",
+      "spawning": "启动本地服务…",
+      "waiting_for_listener": "等待服务监听…",
+      "authenticating": "验证连接身份…",
+      "offline_snapshot": "检查离线快照…",
+      "config": "加载配置…"
+    },
+    "currentLogLabel": "本次启动日志",
+    "fallbackLogLabel": "日志末尾（无法确定本次启动范围）",
+    "logTruncated": "仅包含末尾 64 KiB 的日志。",
+    "mode": {
+      "local": "本地服务",
+      "remote": "远程服务"
+    },
+    "report": {
+      "phase": "失败阶段",
+      "startedAt": "开始时间",
+      "failedAt": "失败时间",
+      "duration": "耗时",
+      "attempt": "启动编号",
+      "version": "应用版本",
+      "system": "系统",
+      "mode": "连接方式",
+      "process": "进程 ID",
+      "exitCode": "退出码",
+      "nativeError": "原始错误"
     }
   },
   "common": {

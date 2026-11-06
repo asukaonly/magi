@@ -3,6 +3,8 @@ const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 import { ensureRuntimeSession, getRuntimeConfig, initializeRuntime, normalizeApiBaseUrl, readConnectionStartupDiagnostics, resetRuntimeInitialization, requestRuntimeReconnect, subscribeRuntimeReconnect, subscribeRuntimeReset } from '@/runtime/config';
 
+import { startupDiagnostics } from './fixtures/startupDiagnostics';
+
 const serverId = 'cde1b1d1-7f23-4b95-a5d4-04e84d209af0';
 const clientId = 'a0c4c092-b043-4767-a2a7-041ad6194b8c';
 const started = (overrides = {}) => ({ ok: true, connectionGeneration: 1, baseUrl: 'http://127.0.0.1:19080/api', sessionToken: 'a'.repeat(64), serverId, profileId: 'local', mode: 'local', dataEpoch: serverId, contentEpoch: serverId, expiresAtMs: null, localServicePid: 123, ...overrides });
@@ -13,6 +15,22 @@ describe('center runtime bootstrap', () => {
     (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
   });
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); delete (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__; });
+
+  it('validates native diagnostic metadata and accepts an absent attempt', async () => {
+    const report = startupDiagnostics();
+    invokeMock.mockResolvedValue(report);
+    await expect(readConnectionStartupDiagnostics()).resolves.toEqual(report);
+    invokeMock.mockResolvedValue(null);
+    await expect(readConnectionStartupDiagnostics()).resolves.toBeNull();
+  });
+  it.each([
+    { durationMs: -1 }, { startedAtMs: 9e15 }, { processId: 0 }, { attemptId: 'invalid' },
+    { phase: 'unknown' }, { logExcerptScope: 'all_history' }, { logExcerpt: { message: 'invalid' } },
+    { failedAtMs: undefined },
+  ])('rejects malformed diagnostic fields: %j', async (invalid) => {
+    invokeMock.mockResolvedValue({ ...startupDiagnostics(), ...invalid });
+    await expect(readConnectionStartupDiagnostics()).resolves.toBeNull();
+  });
 
   it('normalizes explicit bind addresses', () => {
     expect(normalizeApiBaseUrl('http://0.0.0.0:8000', '127.0.0.1')).toBe('http://127.0.0.1:8000/api');
