@@ -5945,6 +5945,8 @@
       "confirmRevoke": "Revoke now",
       "empty": "No devices are currently paired.",
       "createCode": "Create pairing code",
+      "copyAddress": "Copy address",
+      "localAddressHint": "This address works on this computer and its local iOS Simulator. A physical phone or another computer needs your service’s HTTPS address.",
       "codeHint": "This code works once and expires in 30 minutes. Restarting the Magi service invalidates it. Share it only with a device you want to authorize.",
       "copy": "Copy",
       "copied": "Copied",

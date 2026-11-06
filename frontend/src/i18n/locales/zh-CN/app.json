@@ -5943,6 +5943,8 @@
       "confirmRevoke": "确认撤销",
       "empty": "目前没有已配对的设备。",
       "createCode": "生成配对码",
+      "copyAddress": "复制地址",
+      "localAddressHint": "此地址可用于这台电脑及其 iOS 模拟器。真实手机或其他电脑需使用服务的 HTTPS 地址。",
       "codeHint": "配对码仅可使用一次，30 分钟后失效；Magi 服务重启后需重新生成。请只提供给你希望授权的设备。",
       "copy": "复制",
       "copied": "已复制",

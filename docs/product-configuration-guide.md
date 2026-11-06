@@ -113,6 +113,12 @@ for a newly paired administrator device through the local management channel.
 Skipping HTTPS or pairing explicitly leaves that stage pending. It never installs
 a proxy, changes networking, or pairs a device implicitly.
 
+Desktop device access settings show the connected service's address alongside
+each newly generated pairing code, with separate copy actions. This address comes
+from the active runtime connection, never from the webview development page.
+Loopback addresses are labeled for the same computer and its iOS Simulator;
+physical phones and other computers need the deployment's reachable HTTPS origin.
+
 The default command first inspects the selected deployment without starting it.
 A configured, running instance opens a management menu: change models or language
 and persona, generate a pairing code, manage paired devices, inspect diagnostics
