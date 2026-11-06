@@ -231,7 +231,7 @@ class LLMProviderBridge:
                 cache_system=cache_system,
                 priority=priority,
             )
-            await self._record_plain_chat_success(
+            await self._record_chat_success(
                 provider_response, started_at, depth, event_context, messages
             )
             return provider_response
@@ -286,7 +286,7 @@ class LLMProviderBridge:
                 event_context=event_context,
                 priority=priority,
             )
-            await self._record_chat_with_tools_success(
+            await self._record_chat_success(
                 provider_response, started_at, depth, event_context, messages
             )
             return provider_response
@@ -365,7 +365,7 @@ class LLMProviderBridge:
             ),
         )
 
-    async def _record_plain_chat_success(
+    async def _record_chat_success(
         self,
         provider_response: ProviderResponse,
         started_at: float,
@@ -469,33 +469,6 @@ class LLMProviderBridge:
             ),
         )
 
-    async def _record_chat_with_tools_success(
-        self,
-        provider_response: ProviderResponse,
-        started_at: float,
-        thinking_depth: ThinkingDepth,
-        event_context: Optional[Dict[str, Any]],
-        messages: List[Dict[str, Any]],
-    ) -> None:
-        latency_ms = int((time.time() - started_at) * 1000)
-        self._operations._attach_trace_metrics(
-            provider_response=provider_response,
-            usage=provider_response.usage,
-            latency_ms=latency_ms,
-            thinking_depth=thinking_depth,
-        )
-        await self._operations._emit_usage_event(
-            success=True,
-            latency_ms=latency_ms,
-            usage=provider_response.usage,
-            event_context=_with_trace_previews(
-                event_context,
-                messages=messages,
-                response_text=provider_response.content,
-                tool_calls=provider_response.tool_calls,
-            ),
-        )
-
     async def chat_with_tools_stream(
         self,
         system_prompt: str,
@@ -537,7 +510,7 @@ class LLMProviderBridge:
                 event_context=event_context,
                 priority=priority,
             )
-            await self._record_chat_with_tools_success(
+            await self._record_chat_success(
                 result.provider_response, started_at, depth, event_context, messages
             )
             return result
