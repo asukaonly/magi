@@ -1,3 +1,4 @@
+import pytest
 import json
 import time
 
@@ -62,3 +63,26 @@ def test_chat_deletion_removes_only_its_inbox_records(tmp_path):
     SqliteTraceContentRepository(path).delete_session(user_id="local_user", session_id="one")
     rows = store.list_for_user("local_user")
     assert len(rows) == 1 and notification_target(rows[0]).id == "two"
+
+
+@pytest.mark.asyncio
+async def test_control_publisher_uses_the_canonical_owner_when_request_omits_it(tmp_path, monkeypatch):
+    from magi.control.common import events
+    from magi.notifications import actions
+    from magi.runtime_trace import provider
+    store = NotificationStore(tmp_path / "notifications.db")
+    store.ensure_schema()
+
+    class Trace:
+        async def append_notification(self, record):
+            return 1
+
+    monkeypatch.setattr(events, "resolve_runtime_trace_store", Trace)
+    monkeypatch.setattr(provider, "resolve_runtime_trace_store", Trace)
+    monkeypatch.setattr(actions, "get_notification_store", lambda: store)
+    for requested, resolved in [("control.ask.requested", "control.ask.answered"), ("control.permission.requested", "control.permission.resolved")]:
+        payload = {"request_id": requested}
+        await events.publish_control_event(requested, payload, session_id="session")
+        assert len(store.push_feed("local_user", 0)["items"]) == 1
+        await events.publish_control_event(resolved, payload, session_id="session")
+        assert not store.push_feed("local_user", 0)["items"]

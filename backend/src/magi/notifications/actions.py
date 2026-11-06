@@ -67,7 +67,10 @@ def materialize_event(
 
 async def materialize_runtime_event(*, channel: str, user_id: str, session_id: str, payload: dict) -> None:
     from .service import _emit_notification_added_signal
+    from ..identity.defaults import CANONICAL_LOCAL_USER
 
+    # Control events may omit an owner; the service has one canonical local owner.
+    user_id = user_id or str(CANONICAL_LOCAL_USER)
     store = get_notification_store()
     changed = await asyncio.to_thread(
         materialize_event, store, channel=channel, user_id=user_id, session_id=session_id, payload=payload,
