@@ -1,0 +1,15 @@
+.timeline-reader { container: timeline-reader / inline-size; }
+.timeline-reader .timeline-reader-layout { display: grid; grid-template-columns: minmax(0, 1fr); }
+.timeline-reader[data-detail-open="true"] .timeline-records,
+.timeline-reader[data-detail-open="true"] .timeline-day-summary { display: none; }
+.timeline-reader .timeline-evidence { min-width: 0; }
+@container timeline-reader (min-width: 960px) {
+  .timeline-reader[data-detail-open="true"] .timeline-reader-layout {
+    grid-template-columns: minmax(300px, 0.8fr) minmax(480px, 1.2fr);
+    gap: 28px;
+  }
+  .timeline-reader[data-detail-open="true"] .timeline-records,
+  .timeline-reader[data-detail-open="true"] .timeline-day-summary { display: block; }
+  .timeline-reader[data-detail-open="true"] .timeline-row-summary { display: none; }
+  .timeline-reader .timeline-evidence { border-left: 1px solid hsl(var(--border) / 0.65); padding-left: 28px; }
+}

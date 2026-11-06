@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -52,7 +53,8 @@ describe("TimelinePage (immersive)", () => {
       </MemoryRouter>,
     );
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     vi.clearAllMocks();
     (timelineApi.getViewport as any).mockResolvedValue({
       viewport: { scale: "day", start: 0, end: 86400, focus: 0, query: null, timezone: null, locale: "zh" },
@@ -125,7 +127,7 @@ describe("TimelinePage (immersive)", () => {
     await screen.findAllByText("narrative");
     expect(document.querySelector("[data-testid='timeline-context-drawer']")).toBeNull();
 
-    const evidenceAction = screen.getByText("查看当时说了什么");
+    const evidenceAction = screen.getByRole("button", { name: /查看.*的记录/ });
     await user.click(evidenceAction.closest("button")!);
 
     await waitFor(() => {

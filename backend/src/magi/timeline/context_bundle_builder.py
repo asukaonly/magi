@@ -11,7 +11,7 @@ from .presentation_text import AGENT_SOURCES, display_text, prompt_excerpts
 
 
 class TimelineContextBundleBuilder:
-    """Build the right-drawer context payload for one timeline anchor."""
+    """Build readable evidence for one timeline anchor."""
 
     def __init__(
         self,
@@ -149,6 +149,9 @@ class TimelineContextBundleBuilder:
                     if isinstance(block, dict) and source == "chrome_history"
                     and isinstance(block.get("value"), str)
                     and block["value"].startswith(("https://", "http://"))), None)
+        provenance = activity_snapshot.get("provenance") or {}
+        visits = provenance.get("merged_visit_count") if isinstance(provenance, dict) and source == "chrome_history" else None
+        visit_count = visits if isinstance(visits, int) and not isinstance(visits, bool) and visits > 0 else None
         return {
             "event_id": str(event.get("event_id")),
             "timestamp": float(event.get("timestamp") or 0.0),
@@ -161,6 +164,7 @@ class TimelineContextBundleBuilder:
             ),
             "summary": display_text(activity_snapshot.get("summary") or event.get("content"), source),
             "url": url,
+            "visit_count": visit_count,
             "user_prompts": [],
             "source_type": str(
                 activity_snapshot.get("source_type") or event.get("source") or "memory"

@@ -1497,12 +1497,20 @@ The main timeline page is a semantic-zoom review surface for the user's own acti
 
 Expected product behavior:
 
-- the page should prioritize a window overview, aggregated state summary, scale-specific review lane, and evidence drawer
+- the day page prioritizes a compact date/overview, chronological activity rows,
+  and readable evidence; source icons use installed plugin artwork when available
 - the primary timeline experience should support `month`, `week`, `day`, and `hour` scales without compatibility views for the older feed-style layout
 - `month` should emphasize reflection windows and self-state patterns derived from L2/L3 memory
 - `week` and `day` should emphasize clustered periods instead of raw one-line logs
 - `hour` should reveal raw evidence and fine-grained events
-- selecting a timeline anchor should open a context drawer backed by a cross-layer context bundle rather than a page-specific event detail contract
+- selecting a day activity opens a wide detail column or a full-width reading
+  view in narrower windows, backed by the shared context bundle. Back/Escape
+  restore the list position and focus. Source links and captured requests are
+  available within details, with a load-more action for long groups
+- internal IDs, source keys, and injected runtime envelopes are not activity
+  titles or user requests; missing source content is reported without fabrication
+- experience organization is an optional detail action. A day does not need an
+  experience status banner to be a useful record
 - the product may add more source types over time, but the timeline surface should stay source-agnostic at the page-structure level
 
 ## Desktop Window Presence

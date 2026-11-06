@@ -5,6 +5,7 @@ import {
   Feather,
   Gamepad2,
   GitBranch,
+  Globe,
   Heart,
   Image as ImageIcon,
   MessageCircle,
@@ -15,34 +16,26 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { PluginIcon } from '@/components/plugins/PluginIcon';
+import { useSourceIcon } from './SourceIconProvider';
 
 interface SourceIconProps {
   sourceType: string;
   className?: string;
 }
 
-/**
- * Render an icon for a semantic source type. Brand-recognizable sources
- * (Chrome) get a real SVG; everything else maps to a lucide icon. The
- * default fallback is the generic Activity glyph so unknown sources don't
- * crash the row.
- *
- * Mapping is case-insensitive on a normalized key (underscores and dashes
- * treated equivalently) so "chrome_history" and "chrome-history" both
- * resolve to the Chrome icon.
- */
+/** Prefer installed plugin artwork, then a semantic source icon. */
 export const SourceIcon: React.FC<SourceIconProps> = ({ sourceType, className }) => {
   const key = sourceType.toLowerCase().replace(/-/g, "_");
   const cls = cn("h-4 w-4 text-muted-foreground", className);
-
-  // Brand-icon special cases (inline SVGs — keeping the bundle small,
-  // no new dep). Add more here as we recognize new sources.
-  if (key === "chrome_history" || key === "chrome") {
-    return <ChromeBrandIcon className={cls} aria-hidden="true" />;
-  }
+  const artwork = useSourceIcon(sourceType);
+  if (artwork) return <PluginIcon iconId={artwork} className={cls} />;
 
   // Lucide mappings.
   switch (key) {
+    case "chrome_history":
+    case "chrome":
+      return <Globe className={cls} aria-hidden="true" />;
     case "manual_entry":
       return <Feather className={cls} aria-hidden="true" />;
     case "screen_time":
@@ -84,25 +77,6 @@ export const SourceIcon: React.FC<SourceIconProps> = ({ sourceType, className })
       return <Activity className={cls} aria-hidden="true" />;
   }
 };
-
-/** Chrome's four-petal logo, simplified — no fill colors, just the shape. */
-const ChromeBrandIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    <circle cx="12" cy="12" r="9.5" />
-    <circle cx="12" cy="12" r="3.4" />
-    <path d="M21.2 8.2H12" />
-    <path d="M3.7 7.5l4.7 7.5" />
-    <path d="M15.6 14.7l-4.5 7.6" />
-  </svg>
-);
 
 export function labelForSource(
   sourceType: string,
@@ -147,6 +121,6 @@ export function labelForSource(
     memory: { i18nKey: "timeline.sources.memory", fallback: "记忆" },
   };
   const label = labels[key];
-  if (!label) return sourceType;
+  if (!label) return t ? t("timeline.review.unknownSource") : "Activity";
   return label.i18nKey && t ? t(label.i18nKey, { defaultValue: label.fallback }) : label.fallback;
 }

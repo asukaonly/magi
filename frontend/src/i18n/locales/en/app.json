@@ -551,9 +551,9 @@
           "moreItems": "{{count}} more records are available from the source."
         },
         "notes": {
-          "title": "Only you remember",
+          "title": "Your notes",
           "empty": "It is still a record from the day. Adding a sentence will not automatically turn it into an experience.",
-          "emptyDay": "You do not have to fill in the whole day. Keep only what matters to you.",
+          "emptyDay": "Leave a note about this day.",
           "add": "Add something only you remember",
           "addAnother": "Add another line"
         }
@@ -865,6 +865,23 @@
         "reloadFailed": "Could not reload this entry: {{message}}"
       },
       "reload": "Discard draft and reload"
+    },
+    "review": {
+      "details": "Record details",
+      "back": "Back to day",
+      "retry": "Retry",
+      "records": "{{count}} records",
+      "loadMore": "Show more ({{count}} remaining)",
+      "mergedRecords": "{{count}} merged records",
+      "yourRequests": "Your requests",
+      "noRequests": "No readable requests are available for this session.",
+      "openFailed": "Unable to open the page",
+      "addNote": "Add a note",
+      "more": "Expand summary",
+      "less": "Collapse summary",
+      "openRecord": "View records for “{{title}}”",
+      "unknownSource": "Activity",
+      "visits": "{{count}} visits"
     }
   },
   "dashboard": {

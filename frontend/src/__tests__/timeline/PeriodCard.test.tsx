@@ -1,7 +1,8 @@
+import i18n from '@/i18n';
 import { render, screen, within } from "@testing-library/react";
 import type { ImgHTMLAttributes } from "react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import { PeriodCard } from "@/components/timeline/immersive/PeriodCard";
 import type {
@@ -49,6 +50,7 @@ function makeViewport(overrides: Partial<TimelineViewportResponse> = {}): Timeli
 }
 
 describe("PeriodCard", () => {
+  beforeEach(async () => { await i18n.changeLanguage("zh-CN"); });
   it("renders Hero with essence_prose from overview", () => {
     render(
       <PeriodCard
@@ -134,7 +136,7 @@ describe("PeriodCard", () => {
       />
     );
 
-    expect(screen.getByText("这一天还没有留下记录")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "2026 · 5 · 17 · 周日" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "补一句只有你记得的事" }));
     expect(onAddNote).toHaveBeenCalledOnce();
   });
@@ -444,10 +446,7 @@ describe("PeriodCard", () => {
     );
 
     expect(screen.getAllByText("傍晚走回家的风很好。").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("只有你记得")).toHaveLength(2);
-    expect(
-      screen.getByText("这是你亲自留给这一天的一句话，不需要再被补写成完整故事。"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("你的记录")).toBeInTheDocument();
     expect(screen.queryByText(/再陪你几天/)).not.toBeInTheDocument();
   });
 });

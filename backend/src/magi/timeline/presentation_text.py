@@ -11,7 +11,7 @@ _ENVELOPE = re.compile(
     r"permissions instructions|external_codex_apps_[a-zA-Z0-9_]+)(?:\s[^>]*)?>",
 )
 _HANDBOOK = re.compile(r"^\s*# AGENTS\.md instructions for [^\n]+\s*\n+<INSTRUCTIONS>")
-_PREFIX = re.compile(r"^(?:Chrome Browsing|Codex conversed|Claude Code conversed)\s*(?:[·:：]\s*)?", re.I)
+_PREFIX = re.compile(r"^(?:Chrome (?:Browsing|浏览)|Codex conversed|Claude Code conversed)\s*(?:[·:：]\s*)?", re.I)
 
 
 def readable_label(value: Any) -> str:

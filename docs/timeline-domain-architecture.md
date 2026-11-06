@@ -210,10 +210,18 @@ chapter references for navigation and presentation. This decoration is read-only
 it does not promote an episode, create an experience, or infer a chapter. A
 cluster linked to an experience without a matching durable chapter must remain an
 experience fragment rather than being presented as a chapter.
-The day viewport uses a scene-first reading surface: one period headline and
-prose lead into chronological scene blocks, while source facts remain behind a
-collapsed evidence drawer. It must distinguish a durable experience chapter, an
-experience member without a chapter, and an independent fragment. Empty days
+The day viewport uses a compact reading surface: the selected date and a short,
+expandable overview lead into chronological activity rows. Source artwork from
+installed plugins appears beside each row and its evidence; semantic icons remain
+available when artwork cannot be loaded. A day header never borrows one episode's
+time range or experience status to describe the entire day.
+Selection opens a wide evidence column when the content area can accommodate it;
+narrower windows show a full-width detail view with a return action. Returning
+restores list position and focus. Detail records paginate locally instead of
+silently stopping at thirty, merge repeated page URLs, and show captured requests
+as requests rather than pretending they are full assistant transcripts.
+Existing experience and chapter links are lightweight metadata; independent
+fragments do not display a prominent incomplete-state banner. Empty days
 keep the same reading surface and expose the manual-entry action instead of
 falling back to a dead-end placeholder. Manual notes remain user-authored
 records; adding one does not create or promote an experience.

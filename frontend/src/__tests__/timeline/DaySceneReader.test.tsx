@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import i18n from '@/i18n';
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +12,7 @@ vi.mock("@/api/modules/timeline", async () => {
     timelineApi: {
       ...actual.timelineApi,
       getContext: vi.fn(),
+      getEventContext: vi.fn(),
     },
   };
 });
@@ -75,7 +77,42 @@ function makeViewport(
 }
 
 describe("DaySceneReader", () => {
-  beforeEach(() => {
+  it("hides machine titles and runtime-only previews", async () => {
+    await i18n.changeLanguage('zh-CN');
+    const viewport = makeViewport({ label: 'entity:52b5f111f', slice_narrative: '', summary: 'Codex conversed <environment_context>', source_types: ['codex_agent_history'] });
+    render(<DaySceneReader viewport={viewport} dateLabel="11月5日" manualEntries={[]} />);
+    expect(screen.getByRole('button', { name: '查看“Codex”的记录' })).toBeInTheDocument();
+    expect(screen.queryByText(/entity:|environment_context/)).not.toBeInTheDocument();
+  });
+
+  it("loads the complete transient selection and reveals more than thirty records", async () => {
+    const entries = Array.from({ length: 35 }, (_, i) => ({event_id: String(i), timestamp: i + 1, title: `Page ${i}`, summary: '', source_type: 'chrome_history'}));
+    vi.mocked(timelineApi.getEventContext).mockResolvedValue({anchor: {anchor_id:'selection',anchor_type:'cluster',title:'',summary:''},l1_events:entries,l2_state_evidence:[],l3_reflections:[],l4_related_procedures:[],chat_excerpts:[],runtime_trace:[]});
+    const ids = entries.map(item => item.event_id);
+    render(<DaySceneReader viewport={makeViewport({episode_id: undefined, source_event_ids: ids})} dateLabel="11月5日" manualEntries={[]} />);
+    await userEvent.click(screen.getByRole('button', { name:/查看.*的记录/ }));
+    expect(await screen.findByText('Page 29')).toBeInTheDocument();
+    expect(screen.queryByText('Page 34')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', {name:/继续显示/}));
+    expect(screen.getByText('Page 34')).toBeInTheDocument();
+    expect(timelineApi.getEventContext).toHaveBeenCalledWith(ids);
+  });
+
+  it("ignores a late response after closing and reopening another record", async () => {
+    let resolveOld!: (value: Awaited<ReturnType<typeof timelineApi.getContext>>) => void;
+    vi.mocked(timelineApi.getContext).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
+    const viewport = makeViewport();
+    viewport.clusters.push({...viewport.clusters[0], block_id:'cluster-b', episode_id:'episode-b', label:'Second record'});
+    render(<DaySceneReader viewport={viewport} dateLabel="11月5日" manualEntries={[]} />);
+    await userEvent.click(screen.getAllByRole('button', {name:/查看.*的记录/})[0]);
+    await userEvent.click(screen.getByRole('button', {name:'返回当天'}));
+    await userEvent.click(screen.getByRole('button', {name:'查看“Second record”的记录'}));
+    expect(await screen.findByText('我最近在听 DIIV，挺好听。')).toBeInTheDocument();
+    await act(async () => resolveOld({anchor:{anchor_id:'old',anchor_type:'episode',title:'',summary:''},l1_events:[{event_id:'old',summary:'Stale content'}],l2_state_evidence:[],l3_reflections:[],l4_related_procedures:[],chat_excerpts:[],runtime_trace:[]}));
+    expect(screen.queryByText('Stale content')).not.toBeInTheDocument();
+  });
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     vi.clearAllMocks();
     vi.mocked(timelineApi.getContext).mockResolvedValue({
       anchor: {
@@ -115,9 +152,9 @@ describe("DaySceneReader", () => {
       />,
     );
 
-    expect(screen.getByText(/经历中的一天/)).toHaveTextContent("晚间");
-    expect(screen.getByText(/经历章节/)).toHaveTextContent("聊天");
-    expect(screen.getByText("在音乐里认识彼此")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "2026年7月23日" })).toBeInTheDocument();
+    expect(screen.getByText(/在音乐里认识彼此/)).toHaveTextContent("经历章节");
+    expect(screen.queryByText(/经历中的一天/)).not.toBeInTheDocument();
   });
 
   it("keeps an experience member without a chapter labeled as a fragment", () => {
@@ -132,8 +169,7 @@ describe("DaySceneReader", () => {
       />,
     );
 
-    expect(screen.getByText(/经历中的片段/)).toHaveTextContent("晚间");
-    expect(screen.getAllByText(/经历片段/).some((node) => node.textContent?.includes("聊天"))).toBe(true);
+    expect(screen.getByText(/在音乐里认识彼此/)).toBeInTheDocument();
     expect(screen.queryByText(/经历章节/)).not.toBeInTheDocument();
   });
 
@@ -149,8 +185,9 @@ describe("DaySceneReader", () => {
       />,
     );
 
-    expect(screen.getByText("尚未形成经历")).toBeInTheDocument();
-    expect(screen.getByText("独立片段 · 聊天")).toBeInTheDocument();
+    expect(screen.queryByText("尚未形成经历")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /整理为经历/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /查看.*的记录/ }));
     await user.click(screen.getByRole("button", { name: /整理为经历/ }));
     expect(onOrganize).toHaveBeenCalledOnce();
   });
@@ -166,7 +203,7 @@ describe("DaySceneReader", () => {
     );
 
     expect(screen.queryByTestId("timeline-context-drawer")).not.toBeInTheDocument();
-    const evidenceAction = screen.getByText("查看当时说了什么");
+    const evidenceAction = screen.getByRole("button", { name: /查看.*的记录/ });
     const sceneButton = evidenceAction.closest("button")!;
     expect(sceneButton).toHaveAttribute("aria-expanded", "false");
     await user.click(sceneButton);
@@ -178,7 +215,7 @@ describe("DaySceneReader", () => {
     expect(sceneButton).toHaveAttribute("aria-expanded", "true");
     expect(timelineApi.getContext).toHaveBeenCalledWith("episode:episode-a");
 
-    await user.click(screen.getByRole("button", { name: "关闭上下文面板" }));
+    await user.click(screen.getByRole("button", { name: "返回当天" }));
     await waitFor(() => {
       expect(screen.queryByTestId("timeline-context-drawer")).not.toBeInTheDocument();
       expect(sceneButton).toHaveFocus();
@@ -195,7 +232,7 @@ describe("DaySceneReader", () => {
       />,
     );
 
-    await user.click(screen.getByText("查看当时说了什么").closest("button")!);
+    await user.click(screen.getByRole("button", { name: /查看.*的记录/ }).closest("button")!);
     await waitFor(() => {
       expect(screen.getByTestId("timeline-context-drawer")).toBeInTheDocument();
     });
@@ -253,11 +290,11 @@ describe("DaySceneReader", () => {
       />,
     );
 
-    await user.click(screen.getByText("查看当时说了什么").closest("button")!);
+    await user.click(screen.getByRole("button", { name: /查看.*的记录/ }).closest("button")!);
     await waitFor(() => {
       expect(screen.getAllByText("只显示一次的原始对话。")).toHaveLength(1);
     });
     expect(screen.queryByText("来源事实")).not.toBeInTheDocument();
-    expect(screen.getByText("原始对话")).toBeInTheDocument();
+    expect(screen.queryByText("原始对话")).not.toBeInTheDocument();
   });
 });

@@ -1777,6 +1777,11 @@
       "surface": "product"
     },
     {
+      "method": "POST",
+      "path": "/api/timeline/context",
+      "surface": "product"
+    },
+    {
       "method": "GET",
       "path": "/api/timeline/context/{anchor_id}",
       "surface": "product"

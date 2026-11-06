@@ -1,4 +1,18 @@
 import { api, unwrapGatewayPayload } from '../client';
+import { z } from 'zod';
+
+const contextSchema = z.object({
+  anchor: z.object({ anchor_id: z.string(), anchor_type: z.string(), title: z.string(), summary: z.string() }).passthrough(),
+  l1_events: z.array(z.object({
+    event_id: z.string(), timestamp: z.number().finite(), title: z.string(), summary: z.string(), source_type: z.string(),
+    source_item_id: z.string().optional(), url: z.string().nullable().optional(), user_prompts: z.array(z.string()).optional(), visit_count: z.number().int().positive().nullable().optional(),
+  }).passthrough()),
+  l2_state_evidence: z.array(z.record(z.string(), z.unknown())),
+  l3_reflections: z.array(z.record(z.string(), z.unknown())),
+  l4_related_procedures: z.array(z.record(z.string(), z.unknown())),
+  chat_excerpts: z.array(z.record(z.string(), z.unknown())),
+  runtime_trace: z.array(z.record(z.string(), z.unknown())),
+});
 
 export interface TimelineStateBand {
   band_id: string;
@@ -34,6 +48,7 @@ export interface TimelineClusterBlock {
   source_types: string[];
   event_count: number;
   representative_event_ids: string[];
+  source_event_ids?: string[];
   keywords: string[];
   media_refs: string[];
   state_snapshot?: {
@@ -232,8 +247,13 @@ export const timelineApi = {
   },
 
   getContext: async (anchorId: string): Promise<TimelineContextBundle> => {
-    const response = await api.get<TimelineContextBundle>(`/timeline/context/${anchorId}`);
-    return unwrapGatewayPayload(response);
+    const response = await api.get<unknown>(`/timeline/context/${encodeURIComponent(anchorId)}`);
+    return contextSchema.parse(unwrapGatewayPayload(response));
+  },
+
+  getEventContext: async (eventIds: string[]): Promise<TimelineContextBundle> => {
+    const response = await api.post<unknown>('/timeline/context', { event_ids: eventIds });
+    return contextSchema.parse(unwrapGatewayPayload(response));
   },
 
   getStandout: async (

@@ -1,4 +1,5 @@
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { SourceIconProvider } from '@/components/timeline/immersive/SourceIconProvider';
 import { asEventHandler } from '@/utils/as-event-handler';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { useRequestOwner } from '@/hooks/useRequestOwner';
@@ -528,7 +529,7 @@ export const TimelinePage: React.FC = () => {
   }, [loadManualEntries, loadViewport, t]);
 
   return (
-    <main className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+    <SourceIconProvider><main className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {/* Block layout (not flex) so PeriodCard/HourDetail fill the column width
           when the sidebar's secondary panel collapses. With flex-row, children
           size to content, leaving a white strip on the right after the
@@ -590,7 +591,7 @@ export const TimelinePage: React.FC = () => {
         onSaved={handleEntrySaved}
         initialLocationLabel={viewport?.place_hints?.[0] ?? null}
       />
-    </main>
+    </main></SourceIconProvider>
   );
 };
 

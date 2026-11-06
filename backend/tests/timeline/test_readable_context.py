@@ -22,7 +22,7 @@ async def test_complete_membership_and_visible_pinned_prompts():
     records = {
         "a": {"event_id": "a", "source": "codex_agent_history", "content": "Codex conversed <environment_context>"},
         "b": {"event_id": "b", "source": "chrome_history", "content": "Chrome Browsing Page", "metadata": {
-            "activity_snapshot": {"title": "Chrome Browsing · Page", "content_blocks": [
+            "activity_snapshot": {"title": "Chrome Browsing · Page", "provenance": {"merged_visit_count": 2}, "content_blocks": [
                 {"kind": "text", "value": "https://example.com/page"},
             ]},
         }},
@@ -38,6 +38,7 @@ async def test_complete_membership_and_visible_pinned_prompts():
     assert bundle["l1_events"][0]["user_prompts"] == ["Fix the parser."]
     assert bundle["l1_events"][1]["title"] == "Page"
     assert bundle["l1_events"][1]["url"] == "https://example.com/page"
+    assert bundle["l1_events"][1]["visit_count"] == 2
     store.get_pinned_payloads.assert_awaited_once_with(["a"])
 
 

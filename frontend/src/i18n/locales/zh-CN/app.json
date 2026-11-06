@@ -773,9 +773,9 @@
           "moreItems": "另有 {{count}} 条记录，可在来源中继续查看。"
         },
         "notes": {
-          "title": "只有你记得",
+          "title": "你的记录",
           "empty": "它还只是当天的记录，不会因为补充一句话就自动变成经历。",
-          "emptyDay": "不用补全这一天，只记你真正想留下的。",
+          "emptyDay": "记下你想留下的事。",
           "add": "补一句只有你记得的事",
           "addAnother": "再补一句"
         }
@@ -865,6 +865,23 @@
         "reloadFailed": "未能重新载入记录：{{message}}"
       },
       "reload": "放弃草稿并重新载入"
+    },
+    "review": {
+      "details": "记录详情",
+      "back": "返回当天",
+      "retry": "重试",
+      "records": "{{count}} 条记录",
+      "loadMore": "继续显示（还有 {{count}} 条）",
+      "mergedRecords": "合并 {{count}} 条记录",
+      "yourRequests": "你的提问",
+      "noRequests": "这条会话目前没有可展示的提问内容。",
+      "openFailed": "暂时无法打开页面",
+      "addNote": "记一笔",
+      "more": "展开摘要",
+      "less": "收起摘要",
+      "openRecord": "查看“{{title}}”的记录",
+      "unknownSource": "活动记录",
+      "visits": "访问 {{count}} 次"
     }
   },
   "dashboard": {
