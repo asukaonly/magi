@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from _shared.db_schema import apply_chain_schema
 from _shared.memory_stores import build_l1_store, build_memory_store
 
 import asyncio
@@ -134,17 +135,6 @@ class _FakeScenarioPool:
         return self.adapter
 
 
-def _migrate_memory_shared_schema(db_path: str) -> None:
-    from alembic import command
-
-    from magi.db.runner import MIGRATION_TARGETS, _build_config
-
-    memory_shared_target = next(
-        target for target in MIGRATION_TARGETS if target.name == "memory_shared"
-    )
-    command.upgrade(_build_config(memory_shared_target, Path(db_path)), "head")
-
-
 async def _build_pipeline(*, temp_dir: str, batch_flush_interval_seconds: int = 60):
     from magi.memory.l2.entities.catalog import L2EntityCatalog
     from magi.memory.l2.llm_service import L2LLMService
@@ -152,7 +142,7 @@ async def _build_pipeline(*, temp_dir: str, batch_flush_interval_seconds: int = 
     from magi.memory.l2.store import L2CognitionStore
 
     memory_db = str(Path(temp_dir) / "memory.db")
-    _migrate_memory_shared_schema(memory_db)
+    apply_chain_schema("memory_shared", memory_db)
     cognition_store = L2CognitionStore(db_path=memory_db)
     await cognition_store.initialize()
     entity_catalog = L2EntityCatalog(db_path=memory_db)
@@ -4497,7 +4487,7 @@ class TestCatalogFindByCanonicalName:
         from magi.memory.l2.entities.catalog import L2EntityCatalog
 
         db_path = str(tmp_path / "memory.db")
-        _migrate_memory_shared_schema(db_path)
+        apply_chain_schema("memory_shared", db_path)
         catalog = L2EntityCatalog(db_path=db_path)
         await catalog.initialize()
         for entity_id, canonical_name, entity_type in [
@@ -4521,7 +4511,7 @@ class TestCatalogFindByCanonicalName:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
-            _migrate_memory_shared_schema(db_path)
+            apply_chain_schema("memory_shared", db_path)
             catalog = L2EntityCatalog(db_path=db_path)
             await catalog.initialize()
             await catalog.upsert_entity(

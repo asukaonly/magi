@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from _shared.db_schema import apply_chain_schema
 from magi.control.common import InteractionBroker
 from magi.control.permission.contracts import (
     PermissionOutcome,
@@ -33,16 +34,8 @@ class _FakeRuntimePaths:
     def __init__(self, base: Path) -> None:
         self.runtime_dir = base
         self.runtime_trace_db_path = base / "runtime_trace.db"
-        # permission_rules schema is alembic-owned; production migrates at
-        # boot (DatabaseMigrationModule) before the control plane starts.
-        from alembic import command
-
-        from magi.db.runner import MIGRATION_TARGETS, _build_config
-
-        target = next(t for t in MIGRATION_TARGETS if t.name == "permission_rules")
-        command.upgrade(_build_config(target, base / "permission_rules.db"), "head")
-        trace_target = next(t for t in MIGRATION_TARGETS if t.name == "runtime_trace")
-        command.upgrade(_build_config(trace_target, self.runtime_trace_db_path), "head")
+        apply_chain_schema("permission_rules", base / "permission_rules.db")
+        apply_chain_schema("runtime_trace", self.runtime_trace_db_path)
 
 
 @pytest.mark.asyncio

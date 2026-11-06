@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from _shared.db_schema import apply_chain_schema
 from magi.core.sqlite import sqlite_connection_async
 from magi.memory.l2.assertions.assertion_rekey_coordinator import (
     AssertionEntityRekeyCoordinator,
@@ -18,18 +19,9 @@ from magi.memory.l2.graph.relationship_rekey_coordinator import (
 from magi.memory.l2.store import L2CognitionStore
 
 
-def _migrate_memory_schema(db_path: str) -> None:
-    from alembic import command
-
-    from magi.db.runner import MIGRATION_TARGETS, _build_config
-
-    target = next(item for item in MIGRATION_TARGETS if item.name == "memory_shared")
-    command.upgrade(_build_config(target, Path(db_path)), "head")
-
-
 async def _store(tmp_path: Path) -> L2CognitionStore:
     db_path = str(tmp_path / "memory.db")
-    _migrate_memory_schema(db_path)
+    apply_chain_schema("memory_shared", db_path)
     store = L2CognitionStore(db_path=db_path)
     await store.initialize()
     return store

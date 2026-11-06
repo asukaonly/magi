@@ -5,6 +5,7 @@ import aiosqlite
 
 import pytest
 
+from _shared.db_schema import apply_chain_schema
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import (
     normalize_runtime_event,
@@ -51,15 +52,8 @@ async def _build_contradiction(text: str, *, correlation_id: str, timestamp: flo
 
 
 def _migrated_l2_db_path(tmp_path):
-    from alembic import command
-
-    from magi.db.runner import MIGRATION_TARGETS, _build_config
-
     db_path = tmp_path / "l2.db"
-    memory_shared_target = next(
-        target for target in MIGRATION_TARGETS if target.name == "memory_shared"
-    )
-    command.upgrade(_build_config(memory_shared_target, db_path), "head")
+    apply_chain_schema("memory_shared", db_path)
     return str(db_path)
 
 

@@ -4,24 +4,16 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from alembic import command
 
-from magi.db.runner import MIGRATION_TARGETS, _build_config
+from _shared.db_schema import apply_chain_schema
 from magi.llm.usage_store import LLMUsageStore
 from magi.core.sqlite import sqlite_connection_async
-
-
-def _install_llm_usage_schema(db_path: Path) -> None:
-    # Apply the real migration chain (0001 + later revisions) so the test schema
-    # never drifts from production as columns are added.
-    target = next(t for t in MIGRATION_TARGETS if t.name == "llm_usage")
-    command.upgrade(_build_config(target, db_path), "head")
 
 
 @pytest.mark.asyncio
 async def test_llm_usage_store_summarizes_prompt_and_completion_tokens(tmp_path: Path) -> None:
     db_path = tmp_path / "llm_usage.db"
-    _install_llm_usage_schema(db_path)
+    apply_chain_schema("llm_usage", db_path)
     store = LLMUsageStore(db_path=db_path)
 
     await store.record_call(
@@ -90,7 +82,7 @@ async def test_llm_usage_store_summarizes_prompt_and_completion_tokens(tmp_path:
 @pytest.mark.asyncio
 async def test_llm_usage_store_records_cache_observation_diagnostics(tmp_path: Path) -> None:
     db_path = tmp_path / "llm_usage.db"
-    _install_llm_usage_schema(db_path)
+    apply_chain_schema("llm_usage", db_path)
     store = LLMUsageStore(db_path=db_path)
 
     await store.record_cache_observation(
@@ -162,7 +154,7 @@ async def test_clear_user_content_erases_usage_diagnostics_and_rollups(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "llm_usage.db"
-    _install_llm_usage_schema(db_path)
+    apply_chain_schema("llm_usage", db_path)
     store = LLMUsageStore(db_path=db_path)
     private_marker = "private-usage-error-marker"
 
@@ -227,7 +219,7 @@ async def test_clear_user_content_waits_for_active_usage_operations(
     monkeypatch,
 ) -> None:
     db_path = tmp_path / "llm_usage.db"
-    _install_llm_usage_schema(db_path)
+    apply_chain_schema("llm_usage", db_path)
     store = LLMUsageStore(db_path=db_path)
     await store.record_call(
         {"request_id": "old-private-call", "provider": "test", "model": "test", "success": True}

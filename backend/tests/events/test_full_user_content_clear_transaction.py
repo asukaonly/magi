@@ -3,12 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock
 
-from alembic import command
 import pytest
 
+from _shared.db_schema import apply_chain_schema
 from _shared.sqlite_privacy import assert_sqlite_fragment_absent, sqlite_fragment_present
 from magi.bootstrap.context import RuntimeBootstrapContext
-from magi.db.runner import MIGRATION_TARGETS, _build_config
 from magi.events.contracts import RuntimeCommandType, SourceSyncCommand
 from magi.events.lifecycle import RuntimeCommandQueueModule
 from magi.events.runtime_queue import (
@@ -18,8 +17,7 @@ from magi.events.runtime_queue import (
 
 
 def _prepare_queue(db_path: Path) -> SQLiteRuntimeCommandQueue:
-    target = next(item for item in MIGRATION_TARGETS if item.name == "message_queue")
-    command.upgrade(_build_config(target, db_path), "head")
+    apply_chain_schema("message_queue", db_path)
     return SQLiteRuntimeCommandQueue(db_path=str(db_path))
 
 

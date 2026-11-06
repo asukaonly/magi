@@ -10,6 +10,7 @@ from unittest.mock import patch
 import aiosqlite
 import pytest
 
+from _shared.db_schema import apply_chain_schema
 from _shared.context_scope import context_scope
 from magi.core.sqlite import sqlite_connection_async
 from magi.memory.l2.corrections.fingerprints import (
@@ -49,19 +50,8 @@ async def _authorize_identity_redirect(db_path: str, source: str, target: str) -
         await db.commit()
 
 
-def _migrate_memory_shared_schema(db_path: str) -> None:
-    from alembic import command
-
-    from magi.db.runner import MIGRATION_TARGETS, _build_config
-
-    memory_shared_target = next(
-        target for target in MIGRATION_TARGETS if target.name == "memory_shared"
-    )
-    command.upgrade(_build_config(memory_shared_target, Path(db_path)), "head")
-
-
 async def _init_schema(db_path: str) -> None:
-    _migrate_memory_shared_schema(db_path)
+    apply_chain_schema("memory_shared", db_path)
     store = L2CognitionStore(db_path=db_path)
     await store.initialize()
     catalog = L2EntityCatalog(db_path=db_path)

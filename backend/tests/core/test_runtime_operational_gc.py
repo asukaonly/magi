@@ -5,12 +5,11 @@ from pathlib import Path
 
 import aiosqlite
 import pytest
-from alembic import command
 
+from _shared.db_schema import apply_chain_schema
 from magi.config.models import LifecycleSettings
 from magi.core.runtime_operational_gc import RuntimeOperationalGC
 from magi.core.sqlite import sqlite_connection_async
-from magi.db.runner import MIGRATION_TARGETS, _build_config
 from magi.llm.usage_store import LLMUsageStore
 
 
@@ -41,11 +40,6 @@ async def _count_rows(db_path: Path, table_name: str, where: str = "1=1") -> int
 		cursor = await db.execute(f"SELECT COUNT(*) FROM {table_name} WHERE {where}")
 		row = await cursor.fetchone()
 	return int(row[0] or 0)
-
-
-def _install_llm_usage_schema(db_path: Path) -> None:
-	target = next(t for t in MIGRATION_TARGETS if t.name == "llm_usage")
-	command.upgrade(_build_config(target, db_path), "head")
 
 
 @pytest.mark.asyncio
@@ -214,7 +208,7 @@ async def test_llm_usage_gc_rolls_up_and_deletes_expired_raw_rows(tmp_path: Path
 	old_ts = 2_000_000.0 - (8 * 86400)
 	recent_ts = 2_000_000.0 - 60
 
-	_install_llm_usage_schema(db_path)
+	apply_chain_schema("llm_usage", db_path)
 	async with sqlite_connection_async(db_path) as db:
 		await db.executemany(
 			"""
@@ -272,7 +266,7 @@ async def test_llm_usage_gc_prunes_cache_observations_by_retention_and_max_rows(
 	recent_b = 2_000_000.0 - 200
 	recent_c = 2_000_000.0 - 100
 
-	_install_llm_usage_schema(db_path)
+	apply_chain_schema("llm_usage", db_path)
 	async with sqlite_connection_async(db_path) as db:
 		await db.executemany(
 			"""
