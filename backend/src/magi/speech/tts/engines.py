@@ -69,6 +69,11 @@ def resolve_options(config: AppConfig) -> EngineOptions:
         service.protocol == "openai_compatible" and private_endpoint
     ):
         raise ValueError("invalid_endpoint")
+    if service.protocol == "dashscope" and selection.remote_model.startswith("qwen-audio-3.1-tts-"):
+        host = parsed.hostname or ""
+        if not any(host.endswith("." + region + ".maas.aliyuncs.com") and host != region + ".maas.aliyuncs.com"
+                   for region in ("cn-beijing", "ap-southeast-1")) or parsed.path.rstrip("/") != "/api/v1":
+            raise ValueError("invalid_endpoint")
     if not selection.remote_model.strip() or not selection.remote_voice.strip():
         raise ValueError("provider_not_configured")
     capability = next((model for model in provider_models(selection.provider_id, provider)
@@ -86,7 +91,7 @@ def resolve_options(config: AppConfig) -> EngineOptions:
             selection.emotion and selection.emotion not in capability.emotions):
         raise ValueError("unsupported_parameter")
     key = service.api_key or provider.api_key or ""
-    if service.protocol in {"minimax", "dashscope"} and not key:
+    if (service.protocol in {"minimax", "dashscope"} or selection.remote_model == "gpt-realtime-2.1-mini") and not key:
         raise ValueError("provider_not_configured")
     return EngineOptions("remote", selection.remote_model, selection.remote_voice, selection.remote_speed, base_url,
                          key, service.timeout, None if service.protocol == "openai_compatible" else config.network.proxy_url(), service.protocol,
@@ -262,6 +267,9 @@ class TTSEngine:
         return pcm_wav(samples, audio.sample_rate)
 
     async def _remote(self, text: str, options: EngineOptions, cancellation: threading.Event) -> AudioClip:
+        if options.protocol == "openai" and options.model == "gpt-realtime-2.1-mini":
+            from .realtime import synthesize_pcm
+            return pcm_wav(await synthesize_pcm(text, options, cancellation), 24000)
         headers = {"Authorization": f"Bearer {options.api_key}"} if options.api_key else {}
         path = "/audio/speech"
         payload = {"model": options.model, "voice": options.voice, "input": text,
@@ -277,9 +285,14 @@ class TTSEngine:
                        "voice_setting": voice, "audio_setting": {"format": "wav", "sample_rate": 24000, "channel": 1}}
         elif options.protocol == "dashscope":
             path = "/services/aigc/multimodal-generation/generation"
-            inputs = {"text": text, "voice": options.voice, "language_type": "Auto"}
+            current = options.model.startswith("qwen-audio-3.1-tts-")
+            if current:
+                path = "/services/audio/tts/SpeechSynthesizer"
+                inputs = {"text": text, "voice": options.voice, "format": "wav", "sample_rate": 24000, "rate": options.speed}
+            else:
+                inputs = {"text": text, "voice": options.voice, "language_type": "Auto"}
             if options.instructions:
-                inputs["instructions"] = options.instructions
+                inputs["instruction" if current else "instructions"] = options.instructions
             payload = {"model": options.model, "input": inputs}
         async with httpx.AsyncClient(timeout=options.timeout, follow_redirects=False,
                                      proxy=options.proxy_url, trust_env=False) as client:
