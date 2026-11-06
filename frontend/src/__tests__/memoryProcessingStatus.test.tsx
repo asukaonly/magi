@@ -33,6 +33,16 @@ describe('MemoryProcessingStatus', () => {
     expect(onRetried).toHaveBeenCalledOnce();
   });
 
+  it('keeps overview recovery available when every failure is a content rejection', async () => {
+    vi.mocked(memoryApi.getL2Failures).mockResolvedValueOnce({ total: 2, other_count: 0, retryable_count: 2, groups: [{ source: 'notes', reason: 'content_filter', retry_allowed: true, count: 2, last_failed_at: 123, error: 'Batch rejected' }] });
+    vi.mocked(memoryApi.retryFailedL2Extractions).mockResolvedValueOnce({ queued_count: 2, remaining_count: 0 });
+    render(<MemoryProcessingStatus pending={0} failed={2} onRetried={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'memory.processing.details.show:' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'memory.processing.retry:' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('memory.processing.queued:2');
+    expect(memoryApi.retryFailedL2Extractions).toHaveBeenCalledOnce();
+  });
+
   it('does not admit duplicate clicks while the batch is being queued', async () => {
     let complete: (value: { queued_count: number; remaining_count: number }) => void = () => {};
     vi.mocked(memoryApi.retryFailedL2Extractions).mockImplementation(() => new Promise((resolve) => { complete = resolve; }));

@@ -124,7 +124,7 @@ export function MemoryFailureRecords({ initialFilter, onClose, onChanged }: {
               <p className="text-xs text-muted-foreground">{t(`memory.processing.reasons.${record.reason}.title`)}</p>
               <div className="flex flex-wrap gap-2">
                 {record.content !== null ? <Button size="sm" variant="ghost" aria-expanded={openId === record.event_id} disabled={busy} onClick={() => setOpenId((value) => value === record.event_id ? null : record.event_id)}>{t(`memory.processing.records.${openId === record.event_id ? 'hideContent' : 'viewContent'}`)}</Button> : null}
-                {status === 'failed' && record.retry_allowed ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void act('retry', [record])}>{t('common.retry')}</Button> : null}
+                {status === 'failed' && record.retry_allowed ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void act('retry', [record])}>{t(isContentRejection(record.reason) ? 'memory.processing.records.retryIndividually' : 'common.retry')}</Button> : null}
                 <Button size="sm" variant={record.retry_allowed ? 'ghost' : 'outline'} disabled={busy} onClick={() => void act(status === 'failed' ? 'ignore' : 'restore', [record])}>{t(`memory.processing.records.${status === 'failed' ? 'ignore' : 'restore'}`)}</Button>
               </div>
               {openId === record.event_id ? <FailureSourceContent record={record} /> : null}

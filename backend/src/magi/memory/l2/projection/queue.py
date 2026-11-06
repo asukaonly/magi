@@ -24,7 +24,11 @@ from ..batch_models import (
     projection_attempt_descriptor_json,
 )
 from .errors import ProjectionAttemptFencedError
-from .diagnostics import projection_failure_reason, projection_retry_allowed
+from .diagnostics import (
+    projection_failure_reason,
+    projection_requires_individual_retry,
+    projection_retry_allowed,
+)
 from .failure_management import ProjectionFailureManagementMixin
 from .fencing import assert_bound_projection_attempt
 from .governance import active_projection_event_predicate, ready_projection_job_predicate
@@ -168,10 +172,13 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin, ProjectionFailureManageme
                     await db.rollback()
                     return False
                 if status in {"pending", "completed", "failed"}:
+                    individual_retry = status == "failed" and projection_requires_individual_retry(row["last_error"])
                     cursor = await db.execute(
                         """
                         UPDATE l2_projection_jobs
                         SET status = 'pending', attempt_count = 0,
+                            max_events = CASE WHEN ? THEN 1 ELSE max_events END,
+                            min_ready_events = CASE WHEN ? THEN 1 ELSE min_ready_events END,
                             lease_token = NULL, lease_heartbeat_at = NULL,
                             batch_attempt_key = NULL,
                             batch_descriptor_json = NULL, batch_bound_at = NULL,
@@ -182,7 +189,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin, ProjectionFailureManageme
                             last_error = NULL, updated_at = ?
                         WHERE event_id = ? AND status IN ('pending', 'completed', 'failed')
                         """,
-                        (now, normalized_event_id),
+                        (individual_retry, individual_retry, now, normalized_event_id),
                     )
                     accepted = bool(cursor.rowcount)
                 elif status in {"queued", "running"}:
@@ -223,6 +230,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin, ProjectionFailureManageme
             selected_ids = list(dict.fromkeys(event_ids))
         async with sqlite_connection_async(self.db_path) as db:
             await db.create_function("projection_retry_allowed", 1, projection_retry_allowed, deterministic=True)
+            await db.create_function("projection_requires_individual_retry", 1, projection_requires_individual_retry, deterministic=True)
             await db.execute("BEGIN IMMEDIATE")
             try:
                 eligible = f"status = 'failed' AND {active_projection_event_predicate('l2_projection_jobs.event_id')}"
@@ -241,6 +249,8 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin, ProjectionFailureManageme
                     marks = ','.join('?' for _ in ids)
                     await db.execute(
                         f"""UPDATE l2_projection_jobs SET status = 'pending', attempt_count = 0,
+                            max_events = CASE WHEN projection_requires_individual_retry(last_error) THEN 1 ELSE max_events END,
+                            min_ready_events = CASE WHEN projection_requires_individual_retry(last_error) THEN 1 ELSE min_ready_events END,
                             lease_token = NULL, lease_heartbeat_at = NULL, batch_attempt_key = NULL,
                             batch_descriptor_json = NULL, batch_bound_at = NULL, next_retry_at = NULL,
                             terminal_at = NULL, replay_requested = 0, claimed_by = NULL,

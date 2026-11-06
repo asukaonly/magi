@@ -7,7 +7,7 @@ vi.mock('@/api/modules/memory', () => ({ memoryApi: { getL2FailureRecords: vi.fn
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, args?: { count?: number }) => `${key}:${args?.count ?? ''}`, i18n: { language: 'en' } }) }));
 
 const blocked: MemoryFailureRecord = {
-  event_id: 'blocked', source: 'notes', reason: 'content_filter', retry_allowed: false,
+  event_id: 'blocked', source: 'notes', reason: 'content_filter', retry_allowed: true,
   status: 'failed', attempt_count: 1, last_failed_at: 10, updated_at: 20,
   content: 'A preview of the original', content_truncated: true, recorded_at: 5, error: 'Request rejected',
 };
@@ -20,11 +20,12 @@ describe('MemoryFailureRecords', () => {
     vi.mocked(memoryApi.setL2FailureDisposition).mockResolvedValue({ changed_count: 1, unchanged_count: 0 });
   });
 
-  it('shows affected originals without blaming a sentence or offering a blocked retry', async () => {
+  it('shows affected originals and offers explicit individual recovery without auto-retrying', async () => {
     render(<MemoryFailureRecords initialFilter={{ source: 'notes', reason: 'content_filter' }} onClose={() => {}} onChanged={() => {}} />);
     expect(await screen.findByText('A preview of the original…')).toBeInTheDocument();
     expect(screen.getByText('memory.processing.records.contentNotice:')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'common.retry:' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.processing.records.retryIndividually:' })).toBeInTheDocument();
     expect(memoryApi.getL2FailureRecords).toHaveBeenCalledWith({ status: 'failed', source: 'notes', reason: 'content_filter', limit: 20, offset: 0 });
     vi.mocked(memoryApi.getL2FailureRecords).mockResolvedValueOnce(page([{ ...blocked, content: 'The complete original text', content_truncated: false }]));
     fireEvent.click(screen.getByRole('button', { name: 'memory.processing.records.viewContent:' }));
@@ -56,17 +57,34 @@ describe('MemoryFailureRecords', () => {
 
   it('retries only eligible records on the visible page and prevents double submission', async () => {
     const timeout = { ...blocked, event_id: 'timeout', reason: 'timeout' as const, retry_allowed: true };
-    vi.mocked(memoryApi.getL2FailureRecords).mockResolvedValue(page([blocked, timeout]));
+    const missing = { ...blocked, event_id: 'missing', reason: 'missing_source' as const, retry_allowed: false, content: null };
+    vi.mocked(memoryApi.getL2FailureRecords).mockResolvedValue(page([blocked, timeout, missing]));
     let complete: (value: { queued_count: number; remaining_count: number }) => void = () => {};
     vi.mocked(memoryApi.retryFailedL2Extractions).mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
     render(<MemoryFailureRecords initialFilter={{}} onClose={() => {}} onChanged={() => {}} />);
-    const retry = await screen.findByRole('button', { name: 'memory.processing.records.retryPage:1' });
+    const retry = await screen.findByRole('button', { name: 'memory.processing.records.retryPage:2' });
     fireEvent.click(retry); fireEvent.click(retry);
     expect(retry).toBeDisabled();
-    expect(memoryApi.retryFailedL2Extractions).toHaveBeenCalledExactlyOnceWith({ event_ids: ['timeout'] });
-    vi.mocked(memoryApi.getL2FailureRecords).mockResolvedValueOnce(page([blocked]));
-    complete({ queued_count: 1, remaining_count: 1 });
+    expect(memoryApi.retryFailedL2Extractions).toHaveBeenCalledExactlyOnceWith({ event_ids: ['blocked', 'timeout'] });
+    vi.mocked(memoryApi.getL2FailureRecords).mockResolvedValueOnce(page([missing]));
+    complete({ queued_count: 2, remaining_count: 1 });
+    expect(await screen.findByText('memory.processing.queued:2')).toBeInTheDocument();
+  });
+
+  it('keeps the remaining batch member retryable after ignoring a suspect record', async () => {
+    const peer = { ...blocked, event_id: 'peer', content: 'Another record from the rejected batch' };
+    vi.mocked(memoryApi.getL2FailureRecords).mockResolvedValueOnce(page([blocked, peer]));
+    render(<MemoryFailureRecords initialFilter={{}} onClose={() => {}} onChanged={() => {}} />);
+    await screen.findByText('A preview of the original…');
+    vi.mocked(memoryApi.getL2FailureRecords).mockResolvedValueOnce(page([peer]));
+    fireEvent.click(screen.getAllByRole('button', { name: 'memory.processing.records.ignore:' })[0]);
+    expect(await screen.findByText('memory.processing.records.ignoredFeedback:1')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'memory.processing.records.retryIndividually:' })).toBeEnabled());
+    vi.mocked(memoryApi.retryFailedL2Extractions).mockResolvedValueOnce({ queued_count: 1, remaining_count: 0 });
+    vi.mocked(memoryApi.getL2FailureRecords).mockResolvedValueOnce(page([]));
+    fireEvent.click(screen.getByRole('button', { name: 'memory.processing.records.retryIndividually:' }));
     expect(await screen.findByText('memory.processing.queued:1')).toBeInTheDocument();
+    expect(memoryApi.retryFailedL2Extractions).toHaveBeenCalledExactlyOnceWith({ event_ids: ['peer'] });
   });
 
   it('paginates the complete filtered list and recovers from a read failure', async () => {

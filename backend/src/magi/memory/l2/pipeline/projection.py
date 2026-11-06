@@ -162,6 +162,10 @@ class L2PipelineProjectionMixin:
         event: MemoryEvent,
     ) -> None:
         host = self._projection_host()
+        # Durable single-record recovery must not inherit source or catch-up batching.
+        if row.get("max_events") == 1:
+            state.jobs.append(self._build_direct_projection_job(event, row=row))
+            return
         max_events, max_estimated_tokens = host._resolve_batch_limits(event)
         normalized_owner_key = _projection_owner_key(row, event)
         bucket_key = build_l2_batch_bucket_key(

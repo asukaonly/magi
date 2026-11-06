@@ -34,7 +34,7 @@ async def test_ignored_records_survive_reopen_and_never_requeue_implicitly(l2_st
     assert record["last_failed_at"] == 10
     assert record["attempt_count"] == 5
     assert record["reason"] == "content_filter"
-    assert record["retry_allowed"] is False
+    assert record["retry_allowed"] is True
     result = await reopened.set_failure_disposition(action="restore", selections=[{
         "event_id": record["event_id"], "expected_updated_at": record["updated_at"],
     }])
@@ -42,20 +42,32 @@ async def test_ignored_records_survive_reopen_and_never_requeue_implicitly(l2_st
     assert (await reopened.get_backlog_stats())["failed"] == 1
     assert (await reopened.get_backlog_stats())["pending"] == 0
     assert (await reopened.list_failure_records())["items"][0]["error"] == record["error"]
+    assert await reopened.retry_failed() == {"queued_count": 1, "remaining_count": 0}
+    pending = await reopened.claim(consumer_name="restored", limit=1)
+    assert pending[0]["max_events"] == 1
 
 
 @pytest.mark.asyncio
-async def test_retry_excludes_content_rejections_before_applying_limit(l2_store_with_schema):
+async def test_manual_retry_isolates_content_rejections_and_excludes_missing_sources(l2_store_with_schema):
     store = l2_store_with_schema
     await add_job(store, "a-filtered", reason="content_filter")
     await add_job(store, "b-inspected", reason="content_inspection_failed")
     await add_job(store, "c-timeout", reason="timeout")
+    await add_job(store, "0-missing")
+    async with sqlite_connection_async(store.db_path) as db:
+        await db.execute("UPDATE l2_projection_jobs SET last_error='l1_event_not_found' WHERE event_id='0-missing'")
+        await db.commit()
     summary = await store.get_projection_failure_summary()
-    assert summary["total"] == 3
-    assert summary["retryable_count"] == 1
-    assert await store.request_projection_replay("a-filtered") is False
+    assert summary["total"] == 4
+    assert summary["retryable_count"] == 3
+    assert await store.request_projection_replay("0-missing") is False
+    assert await store.request_projection_replay("a-filtered") is True
     assert await store.retry_failed_projection_jobs(limit=1) == {"queued_count": 1, "remaining_count": 2}
     assert (await store.retry_failed_projection_jobs(event_ids=["a-filtered", "b-inspected"]))["queued_count"] == 0
+    assert await store.retry_failed_projection_jobs() == {"queued_count": 1, "remaining_count": 1}
+    async with sqlite_connection_async(store.db_path) as db:
+        rows = await (await db.execute("SELECT event_id, max_events, min_ready_events FROM l2_projection_jobs WHERE status='pending' ORDER BY event_id")).fetchall()
+    assert [tuple(row) for row in rows] == [("a-filtered", 1, 1), ("b-inspected", 1, 1), ("c-timeout", None, None)]
 
 
 @pytest.mark.asyncio

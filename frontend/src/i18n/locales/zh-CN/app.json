@@ -5580,7 +5580,7 @@
       "pending": "{{count}} 条记忆正在处理",
       "failed": "{{count}} 条记录未能完成整理",
       "help": "这些记录的记忆提取未完成，相关信息可能尚未更新。已完成的记忆仍可使用。",
-      "retry": "重试可重试项",
+      "retry": "重试待处理",
       "retrying": "正在重新排队…",
       "queued": "已安排 {{count}} 条重新处理，完成后会自动更新。",
       "remaining": "还有 {{count}} 条未安排重试。",
@@ -5598,7 +5598,7 @@
         "unavailable": "暂时无法读取对话整理状态，不能确认是否已全部完成。",
         "batchHelp": "按批次重试，已完成的部分不会重复处理"
       },
-      "batchHelp": "每次最多 100 条，内容拒绝类错误不会重试",
+      "batchHelp": "每次最多 100 条；跳过已忽略，内容拒绝的记录逐条重试",
       "details": {
         "show": "查看原因",
         "hide": "收起详情",
@@ -5631,7 +5631,7 @@
         },
         "content_filter": {
           "title": "模型服务未接受这部分内容",
-          "help": "服务拒绝了处理请求，可查看相关原文或忽略；重复提交相同内容通常无法解决。"
+          "help": "可能是同批次的某条内容导致请求被拒绝。可忽略可疑记录，再逐条重试其余记录。"
         },
         "invalid_parameter": {
           "title": "模型请求配置不被接受",
@@ -5639,7 +5639,7 @@
         },
         "content_inspection_failed": {
           "title": "处理请求未通过内容检测",
-          "help": "可查看相关原文或忽略。服务未指出具体命中内容，重复提交相同请求通常无法解决。"
+          "help": "可能是同批次的某条内容导致请求被拒绝。可忽略可疑记录，再逐条重试其余记录。"
         },
         "model_unavailable": {
           "title": "尚无可用的记忆处理模型",
@@ -5664,12 +5664,12 @@
       },
       "records": {
         "title": "处理记录",
-        "description": "忽略后不再整理这条记录，原文仍保留；可在“已忽略”中撤销。",
+        "description": "忽略后原文仍保留。想重试时，先在“已忽略”中撤销，再到“待处理”重试。",
         "failed": "待处理",
         "ignored": "已忽略",
         "showAll": "显示全部",
         "viewRecords": "查看相关记录",
-        "contentNotice": "这些原文涉及被内容检测拒绝的处理请求。服务未指出具体命中内容，不能据此判定每条原文都有问题。",
+        "contentNotice": "服务未指出具体命中内容，可能只有同批次中的某条记录触发了检测。可忽略可疑记录，再重试其余记录；重试时会逐条处理。",
         "viewContent": "查看完整原文",
         "hideContent": "收起原文",
         "loadingContent": "正在读取原文…",
@@ -5680,13 +5680,14 @@
         "restorePage": "撤销本页 {{count}} 条忽略",
         "retryPage": "重试本页 {{count}} 条",
         "ignoredFeedback": "已忽略 {{count}} 条，原文仍保留。",
-        "restoredFeedback": "已将 {{count}} 条移回待处理，尚未安排重试。",
+        "restoredFeedback": "已将 {{count}} 条移回“待处理”，可在那里重试。",
         "changedMeanwhile": "已更新 {{count}} 条，其余记录状态已变化，列表已刷新。",
         "actionFailed": "操作未能完成，请刷新列表确认状态后再试。",
         "loadFailed": "暂时无法读取记录，请重试。",
         "emptyFailed": "当前没有需要处理的失败记录。",
         "emptyIgnored": "这里还没有已忽略的记录。",
-        "total": "共 {{count}} 条"
+        "total": "共 {{count}} 条",
+        "retryIndividually": "单独重试"
       }
     },
     "evidence": {

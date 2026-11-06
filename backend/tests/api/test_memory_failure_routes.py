@@ -45,7 +45,7 @@ def make_client(monkeypatch, memory):
 
 def test_records_show_bounded_previews_and_explicit_originals(monkeypatch):
     row = {"event_id": "event-1", "source": "chat", "status": "failed", "attempt_count": 5,
-           "reason": "content_filter", "retry_allowed": False, "error": None,
+           "reason": "content_filter", "retry_allowed": True, "error": None,
            "last_failed_at": 10, "updated_at": 20}
     store = SimpleNamespace(list_projection_failure_records=AsyncMock(return_value={"items": [row], "total": 1, "limit": 20, "offset": 0}))
     l1 = SimpleNamespace(get_user_visible_event=AsyncMock(return_value={"content": "原文" * 300, "timestamp": 5}))

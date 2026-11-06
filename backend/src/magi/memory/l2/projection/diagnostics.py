@@ -11,14 +11,18 @@ ProjectionFailureReason = Literal[
     "invalid_response", "interrupted", "missing_source", "unknown",
 ]
 
-NON_RETRYABLE_PROJECTION_REASONS = frozenset({
-    "content_filter", "content_inspection_failed", "missing_source",
-})
+CONTENT_REJECTION_REASONS = frozenset({"content_filter", "content_inspection_failed"})
 
 
 def projection_retry_allowed(error: str | None) -> bool:
-    """Keep unchanged content rejections out of manual bulk recovery."""
-    return projection_failure_reason(error) not in NON_RETRYABLE_PROJECTION_REASONS
+    """Allow explicit recovery of batch members unless the source is missing."""
+    return projection_failure_reason(error) != "missing_source"
+
+
+def projection_requires_individual_retry(error: str | None) -> bool:
+    """Keep members of a rejected request separate during manual recovery."""
+    return projection_failure_reason(error) in CONTENT_REJECTION_REASONS
+
 
 _PROVIDER_REASON = re.compile(
     r"^L2 LLM call failed for .+ \(kind=(auth|rate_limit|timeout|service_unavailable|"

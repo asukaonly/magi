@@ -294,7 +294,7 @@ describe('memory fact display response boundaries', () => {
   });
 
   it('validates failure records and sends the exact reviewed version when ignoring', async () => {
-    const record = { event_id: 'event-1', source: 'notes', reason: 'content_filter', retry_allowed: false, status: 'failed', attempt_count: 1, last_failed_at: 10, updated_at: 20, content: 'Original', content_truncated: false, recorded_at: 1, error: null };
+    const record = { event_id: 'event-1', source: 'notes', reason: 'content_filter', retry_allowed: true, status: 'failed', attempt_count: 1, last_failed_at: 10, updated_at: 20, content: 'Original', content_truncated: false, recorded_at: 1, error: null };
     const get = vi.spyOn(api, 'get').mockResolvedValue(response({ items: [record], total: 1, offset: 0, limit: 20 }));
     const result = await memoryApi.getL2FailureRecords({ status: 'failed', reason: 'content_filter' });
     expect(result.items).toEqual([record]);

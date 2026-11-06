@@ -160,6 +160,12 @@ tombstones and projection blocks remain effective, and full-memory clear shares
 the operation guard. An optional `event_ids` selection contains 1–100 exact,
 nonempty string identifiers; duplicates are removed, empty or null selections
 are rejected, and omitted selections retain the default bounded recovery.
+Content rejections remain terminal during automatic processing, but explicit
+recovery retries each affected event as a separate request: a batch rejection
+does not establish that every member is invalid. The queue atomically persists
+`max_events = 1` and `min_ready_events = 1` before clearing the failure diagnostic.
+Final batch construction honors that single-event limit ahead of session,
+source-owner and catch-up grouping, including after restart or transient retries.
 The selection never resets pending, running or completed work. `remaining_count`
 always counts all still-eligible failed jobs, including those outside the selection.
 User-facing feedback distinguishes queued recovery from a
@@ -3742,14 +3748,18 @@ not a finding that every member of an extraction batch violated a rule. The
 service does not identify a specific offending sentence; the UI must not invent
 one or highlight a guessed passage.
 
-Content-filter, content-inspection and missing-source failures are excluded from
-manual retry selection before applying its limit. Other failures retain bounded
-recovery, including configuration failures after repair. User ignore changes a
+Missing-source failures are excluded from manual retry selection before applying
+its limit. Content-filter and content-inspection failures offer **Retry
+individually**, and page/global recovery also isolates each such record. Users can
+ignore a suspect record and retry the remaining failed records without submitting
+the ignored record again. Other failures retain bounded recovery, including
+configuration failures after repair. User ignore changes a
 terminal projection job from `failed` to `ignored`, preserving its original,
 last diagnostic and attempt history. It neither deletes data nor claims successful
 extraction. Ignored jobs do not contribute to failure counts or automatic work,
 and duplicate ingestion/replay cannot silently reactivate them. Undo returns the
-job to `failed` without queuing it. Both actions require the exact reviewed
+job to `failed` without queuing it; the **Needs attention** view then offers retry.
+Both actions require the exact reviewed
 `updated_at` value and refuse active, stale or governed records. Batch actions
 cover only the displayed page. No schema migration is needed: the queue's existing
 unconstrained status column owns this additional terminal state.

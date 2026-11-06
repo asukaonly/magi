@@ -5582,7 +5582,7 @@
       "pending": "Processing {{count}} memories",
       "failed": "{{count}} records could not be processed",
       "help": "Memory extraction is incomplete for these records, so related information may be out of date. Completed memories remain available.",
-      "retry": "Retry eligible records",
+      "retry": "Retry pending failures",
       "retrying": "Requeuing…",
       "queued": "{{count}} records queued for processing. Results will update when complete.",
       "remaining": "{{count}} items still need to be queued.",
@@ -5600,7 +5600,7 @@
         "unavailable": "Conversation processing status is unavailable. Completion cannot be confirmed.",
         "batchHelp": "Retries run in batches and preserve completed work"
       },
-      "batchHelp": "Up to 100 records; content rejections are excluded",
+      "batchHelp": "Up to 100 records; ignored records are skipped and content rejections are retried individually",
       "details": {
         "show": "View reasons",
         "hide": "Hide details",
@@ -5633,7 +5633,7 @@
         },
         "content_filter": {
           "title": "The model service declined this content",
-          "help": "The service rejected the request. Inspect the related originals or ignore it; resubmitting unchanged content usually will not resolve this."
+          "help": "One record may have caused the whole batch to be rejected. Ignore any suspect records, then retry the others individually."
         },
         "invalid_parameter": {
           "title": "The model request was rejected",
@@ -5641,7 +5641,7 @@
         },
         "content_inspection_failed": {
           "title": "The request failed content checks",
-          "help": "Inspect the related originals or ignore it. The service did not identify the exact content; retrying the same request usually will not resolve this."
+          "help": "One record may have caused the whole batch to be rejected. Ignore any suspect records, then retry the others individually."
         },
         "model_unavailable": {
           "title": "No memory processing model is available",
@@ -5666,12 +5666,12 @@
       },
       "records": {
         "title": "Processing records",
-        "description": "Ignoring stops processing and keeps the original record. You can undo it in Ignored.",
+        "description": "Ignored records keep their originals. To retry one, undo its ignore in Ignored, then retry it in Needs attention.",
         "failed": "Needs attention",
         "ignored": "Ignored",
         "showAll": "Show all",
         "viewRecords": "View related records",
-        "contentNotice": "These records were involved in requests rejected by content checks. The service did not identify the exact content; this does not mean every record was flagged.",
+        "contentNotice": "The service did not identify the offending content. One record may have caused the batch rejection. You can ignore suspect records and retry the others; each will be processed separately.",
         "viewContent": "Read original",
         "hideContent": "Hide original",
         "loadingContent": "Loading original…",
@@ -5682,13 +5682,14 @@
         "restorePage": "Restore {{count}} on this page",
         "retryPage": "Retry {{count}} on this page",
         "ignoredFeedback": "Ignored {{count}} records. Originals are retained.",
-        "restoredFeedback": "Returned {{count}} records to Needs attention. No retry has been queued.",
+        "restoredFeedback": "{{count}} records moved to Needs attention. You can retry them there.",
         "changedMeanwhile": "Updated {{count}} records. Other records changed in the meantime; the list has refreshed.",
         "actionFailed": "The operation could not be completed. Refresh the list to check its state before trying again.",
         "loadFailed": "Could not load records. Please try again.",
         "emptyFailed": "No failed records need attention.",
         "emptyIgnored": "No ignored records here yet.",
-        "total": "{{count}} records"
+        "total": "{{count}} records",
+        "retryIndividually": "Retry individually"
       }
     },
     "evidence": {
