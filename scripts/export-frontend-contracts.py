@@ -643,7 +643,7 @@ def build_model_download_contract() -> dict:
 
 def build_tts_contract() -> dict:
     from magi.speech.tts.contracts import (
-        SynthesisRequest, SynthesisJob, TTSConfiguration, TTSConfigurationUpdate, TTSModelStatus,
+        SynthesisRequest, SynthesisJob, TTSConfiguration, TTSConfigurationUpdate, TTSModelStatus, TTSDirectoryRequest,
     )
     from magi.api.routers.tts import tts_router
     from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
@@ -652,7 +652,7 @@ def build_tts_contract() -> dict:
         raise RuntimeError("TTS routes must all be public-router reachable")
     _, document = models_json_schema(
         [(model, "serialization") for model in (
-            SynthesisRequest, SynthesisJob, TTSConfiguration, TTSConfigurationUpdate, TTSModelStatus,
+            SynthesisRequest, SynthesisJob, TTSConfiguration, TTSConfigurationUpdate, TTSModelStatus, TTSDirectoryRequest,
         )], schema_generator=ResponseJsonSchema, ref_template="#/components/schemas/{model}")
     return {"openapi": "3.1.0", "info": {"title": "Magi TTS contracts", "version": "1"},
             "paths": {}, "components": {"schemas": document["$defs"]}}

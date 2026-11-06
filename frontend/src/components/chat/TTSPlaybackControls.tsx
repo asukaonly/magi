@@ -7,7 +7,9 @@ export function TTSPlaybackControls({ controller, state }: { controller: TTSCont
   const active = ['generating', 'playing', 'paused'].includes(state.phase);
   if (!active && state.phase !== 'failed' && !state.error && !['pending', 'unknown'].includes(state.cancellation)) return null;
   const knownErrors = ['audio_expired', 'no_readable_text', 'text_too_long', 'runtime_missing', 'model_missing',
-    'stale_message', 'playback_blocked', 'recording_active', 'provider_outcome_unknown'];
+    'stale_message', 'playback_blocked', 'recording_active', 'provider_outcome_unknown',
+    'reference_audio_missing', 'reference_audio_invalid', 'reference_audio_required',
+    'model_directory_invalid', 'model_checksum_failed', 'generation_limit', 'audio_too_large'];
   const error = state.error && knownErrors.includes(state.error) ? state.error : 'synthesis_failed';
   return <div className="flex flex-wrap items-center gap-2 py-2 text-sm">
     <span role="status">{t(`tts.phase.${state.phase}`)}</span>

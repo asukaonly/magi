@@ -93,7 +93,7 @@ export interface LLMProviderImageGenerationConfig extends LLMProviderConnectionC
 }
 
 export interface LLMProviderTTSConfig extends LLMProviderConnectionConfig {
-  protocol?: 'openai' | 'minimax' | 'dashscope';
+  protocol?: 'openai' | 'openai_compatible' | 'minimax' | 'dashscope';
   timeout?: number;
 }
 
@@ -601,7 +601,8 @@ const unwrapConfigResponse = <T>(response: GatewayResponse<T>): T => unwrapGatew
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   speech: {
     asr: { enabled: false, mode: 'local', local_model_id: 'sensevoice-zh-en-ja-ko-yue', provider_id: '', language: 'auto' },
-    tts: { engine: 'local', provider_id: null, local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1,
+    tts: { engine: 'local', provider_id: null, local_model: 'voxcpm2-8bit', local_voice: '', local_speed: 1,
+      local_model_path: '', local_codec_path: '', voice_description: '', reference_audio: '', voice_seed: 42, voice_presets: [],
       remote_model: '', remote_voice: '', remote_speed: 1, instructions: '', emotion: '' },
   },
   agent: {

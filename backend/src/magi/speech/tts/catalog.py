@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 from magi.config.models import AppConfig, LLMProviderSettings
 
 from .contracts import TTSModelChoice, VoiceInfo
-from .models import MODEL_NAMES, REMOTE_VOICES, TTSModelStore, local_voices
+from .models import MODEL_NAMES, REMOTE_VOICES, TTSModelStore, local_voices, MLX_MODELS, VOX_ID, NANO_ID, QWEN_ID, MOSS_ID
 
 
 def endpoint(provider: LLMProviderSettings) -> str:
@@ -27,7 +27,7 @@ def remote_voices(base_url: str, model: str) -> list[str]:
 
 
 def provider_models(provider_id: str, provider: LLMProviderSettings) -> list[TTSModelChoice]:
-    common = {"engine": "remote", "provider_id": provider_id, "provider_name": provider.display_name or provider_id}
+    common = {"engine": "remote", "runtime": "remote", "provider_id": provider_id, "provider_name": provider.display_name or provider_id}
     protocol = provider.services.tts.protocol
     if protocol == "minimax":
         voices = [VoiceInfo(id="Chinese (Mandarin)_Lyrical_Voice", language="zh", name="Lyrical Voice"),
@@ -42,7 +42,7 @@ def provider_models(provider_id: str, provider: LLMProviderSettings) -> list[TTS
                               voices=[VoiceInfo(id="Cherry", language="zh", name="Cherry")],
                               custom_voice=True, instructions=model == "qwen3-tts-instruct-flash")
                 for model in ("qwen3-tts-flash", "qwen3-tts-instruct-flash")]
-    if urlsplit(endpoint(provider)).hostname == "api.openai.com":
+    if protocol == "openai" and urlsplit(endpoint(provider)).hostname == "api.openai.com":
         return [TTSModelChoice(**common, model_id=model, name=model,
                               voices=[VoiceInfo(id=voice, language="multilingual", name=voice.title())
                                       for voice in remote_voices(endpoint(provider), model)],
@@ -55,7 +55,7 @@ def provider_models(provider_id: str, provider: LLMProviderSettings) -> list[TTS
 
 def choices(config: AppConfig, models: TTSModelStore) -> list[TTSModelChoice]:
     result = [TTSModelChoice(engine="local", model_id=model_id, name=name,
-                            voices=local_voices(model_id), speed_min=0.5, speed_max=2,
+                            voices=local_voices(model_id), **local_capabilities(model_id),
                             download_bytes=sum(item["size"] for item in models.get(model_id).manifest()["files"]),
                             status=models.get(model_id).snapshot())
               for model_id, name in MODEL_NAMES.items()]
@@ -63,3 +63,13 @@ def choices(config: AppConfig, models: TTSModelStore) -> list[TTSModelChoice]:
         if provider.enabled and provider.services.tts.enabled:
             result.extend(provider_models(provider_id, provider))
     return result
+
+
+def local_capabilities(model_id: str) -> dict:
+    if model_id not in MLX_MODELS:
+        return {"speed_min": 0.5, "speed_max": 2}
+    return {"runtime": "mlx", "recommended": model_id in {VOX_ID, NANO_ID},
+            "experimental": model_id == NANO_ID, "seed": True,
+            "voice_description": model_id in {VOX_ID, QWEN_ID},
+            "reference_audio": "required" if model_id == NANO_ID else "optional" if model_id in {VOX_ID, MOSS_ID} else "none",
+            "companion_model": model_id in {NANO_ID, MOSS_ID}}

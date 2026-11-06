@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { TTSChatProvider, ReadMessageButton } from '@/components/chat/TTSChatProvider';
-import { ttsConfiguration } from './fixtures/tts';
+import { ttsConfiguration, modernTTSConfiguration } from './fixtures/tts';
 import { TTSSettings } from '@/components/settings/TTSSettings';
 import type { TTSModelStatus } from '@/api/modules/tts';
 import { SettingsVoiceSection } from '@/components/settings/SettingsVoiceSection';
@@ -14,7 +14,7 @@ import type { SpeechSnapshot } from '@/lib/audio/tts-controller';
 const mock = vi.hoisted(() => ({
   speak: vi.fn(async (_source: unknown, _messageId?: string, _mode?: string) => undefined), stop: vi.fn(), pause: vi.fn(async () => undefined),
   canAutoplay: vi.fn(() => true), listeners: new Set<(message: RealtimeMessage) => void>(),
-  settings: vi.fn(), save: vi.fn(), model: vi.fn(), cancelDownload: vi.fn(),
+  settings: vi.fn(), save: vi.fn(), model: vi.fn(), cancelDownload: vi.fn(), inspectDirectory: vi.fn(), uploadReference: vi.fn(), deleteReference: vi.fn(),
   state: { phase: 'idle', error: null, cancellation: 'none', messageId: null, acceptedSegments: 0 } as SpeechSnapshot,
 }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }) }));
@@ -105,7 +105,7 @@ it('selects models directly and explains how to add an online connection', async
   render(<TTSSettings onConfigureProviders={configure} />);
   await screen.findByRole('button', { name: 'tts.model' });
   expect(screen.queryByRole('button', { name: 'tts.engine' })).not.toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: 'asr.addProvider' }));
+  await user.click(screen.getByRole('button', { name: 'tts.connectService' }));
   expect(configure).toHaveBeenCalledOnce();
 });
 
@@ -302,4 +302,78 @@ it('retains the selected model progress and rejects a stale poll after cancellat
   expect(screen.getByText('modelDownload.phases.cancelled')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'tts.cancelDownload' })).not.toBeInTheDocument();
   view.unmount();
+});
+
+it('defaults to the recommended model and groups more models separately', async () => {
+  mock.settings.mockResolvedValue(modernTTSConfiguration());
+  const user = userEvent.setup();
+  render(<TTSSettings onConfigureProviders={vi.fn()} />);
+  const model = await screen.findByRole('button', { name: 'tts.model' });
+  expect(model).toHaveTextContent('VoxCPM2');
+  expect(screen.queryByLabelText('tts.speed')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('tts.voiceId')).not.toBeInTheDocument();
+  expect(screen.getByLabelText(/tts.voiceDescription/)).toBeInTheDocument();
+  await user.click(model);
+  expect(screen.getByText('tts.recommendedModels')).toBeInTheDocument();
+  expect(screen.getByText('tts.moreModels')).toBeInTheDocument();
+});
+
+it('requires a reference only for models that need it and clears incompatible voice options', async () => {
+  const config = modernTTSConfiguration();
+  mock.settings.mockResolvedValue(config);
+  mock.uploadReference.mockResolvedValue({ id: 'a'.repeat(64), name: 'voice.wav', seconds: 4 });
+  const user = userEvent.setup();
+  render(<TTSSettings onConfigureProviders={vi.fn()} />);
+  const preview = await screen.findByRole('button', { name: 'tts.preview' });
+  expect(preview).toBeEnabled();
+  fireEvent.change(screen.getByLabelText(/tts.voiceDescription/), { target: { value: 'A calm voice' } });
+  await user.click(screen.getByRole('button', { name: 'tts.model' }));
+  await user.click(screen.getByRole('button', { name: 'MOSS Nano · tts.local' }));
+  expect(preview).toBeDisabled();
+  expect(screen.queryByLabelText(/tts.voiceDescription/)).not.toBeInTheDocument();
+  await user.upload(screen.getByLabelText('tts.uploadReference'), new File(['wav fixture'], 'voice.wav', { type: 'audio/wav' }));
+  expect(preview).toBeEnabled();
+  fireEvent.click(preview);
+  expect(mock.speak).toHaveBeenCalledWith(expect.anything(), null, 'manual', expect.objectContaining({
+    local_model: 'moss-tts-nano', reference_audio: 'a'.repeat(64), voice_description: '',
+  }));
+});
+
+it('saves voice recipes only with page settings and keeps them scoped to their model', async () => {
+  const config = modernTTSConfiguration();
+  mock.settings.mockResolvedValue(config);
+  mock.save.mockResolvedValue(config);
+  const user = userEvent.setup();
+  render(<TTSSettings onConfigureProviders={vi.fn()} />);
+  fireEvent.change(await screen.findByLabelText(/tts.voiceDescription/), { target: { value: 'Calm and clear' } });
+  await user.click(screen.getByText('tts.voicePresets'));
+  fireEvent.change(screen.getByLabelText('tts.presetName'), { target: { value: 'Reading' } });
+  await user.click(screen.getByRole('button', { name: 'tts.addPreset' }));
+  expect(mock.save).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'tts.savedVoice' })).toHaveTextContent('Reading');
+  await user.click(screen.getByRole('button', { name: 'tts.model' }));
+  await user.click(screen.getByRole('button', { name: 'MeloTTS · tts.local' }));
+  expect(screen.queryByRole('button', { name: 'tts.savedVoice' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'tts.save' }));
+  expect(mock.save).toHaveBeenCalledWith(expect.objectContaining({ voice_presets: [expect.objectContaining({
+    model_id: 'voxcpm2-8bit', name: 'Reading', description: 'Calm and clear',
+  })] }), 'rev');
+});
+
+it('verifies an external directory before preview and never exposes managed deletion for it', async () => {
+  const config = modernTTSConfiguration();
+  mock.settings.mockResolvedValue(config);
+  mock.inspectDirectory.mockResolvedValue(config.models[0].status);
+  const user = userEvent.setup();
+  render(<TTSSettings onConfigureProviders={vi.fn()} />);
+  const preview = await screen.findByRole('button', { name: 'tts.preview' });
+  await user.click(screen.getByText('tts.useDirectory'));
+  fireEvent.change(screen.getByLabelText('tts.modelDirectory'), { target: { value: '/models/vox' } });
+  expect(preview).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'tts.deleteModel' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'tts.validateDirectory' }));
+  expect(mock.inspectDirectory).toHaveBeenCalledWith({ model_id: 'voxcpm2-8bit', path: '/models/vox', codec_path: '' });
+  expect(preview).toBeEnabled();
+  fireEvent.change(screen.getByLabelText('tts.modelDirectory'), { target: { value: '/models/another' } });
+  expect(preview).toBeDisabled();
 });

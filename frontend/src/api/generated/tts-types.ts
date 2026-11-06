@@ -113,6 +113,8 @@ export interface components {
         TTSConfiguration: {
             /** Models */
             models: components["schemas"]["TTSModelChoice"][];
+            /** Reference Audio */
+            reference_audio: components["schemas"]["TTSReferenceAudio"][];
             /** Revision */
             revision: string;
             settings: components["schemas"]["TTSSettings"];
@@ -123,8 +125,28 @@ export interface components {
             revision: string;
             settings: components["schemas"]["TTSSettings"];
         };
+        /** TTSDirectoryRequest */
+        TTSDirectoryRequest: {
+            /**
+             * Codec Path
+             * @default
+             */
+            codec_path: string;
+            /**
+             * Model Id
+             * @enum {string}
+             */
+            model_id: "voxcpm2-8bit" | "moss-tts-nano" | "qwen3-tts-customvoice-8bit" | "moss-tts-local-1.5-4bit" | "kokoro-multi-lang-v1_0" | "vits-melo-tts-zh_en";
+            /** Path */
+            path: string;
+        };
         /** TTSModelChoice */
         TTSModelChoice: {
+            /**
+             * Companion Model
+             * @default false
+             */
+            companion_model: boolean;
             /**
              * Custom Model
              * @default false
@@ -148,6 +170,11 @@ export interface components {
              */
             engine: "local" | "remote";
             /**
+             * Experimental
+             * @default false
+             */
+            experimental: boolean;
+            /**
              * Instructions
              * @default false
              */
@@ -167,6 +194,28 @@ export interface components {
              */
             provider_name: string;
             /**
+             * Recommended
+             * @default false
+             */
+            recommended: boolean;
+            /**
+             * Reference Audio
+             * @default none
+             * @enum {string}
+             */
+            reference_audio: "none" | "optional" | "required";
+            /**
+             * Runtime
+             * @default onnx
+             * @enum {string}
+             */
+            runtime: "onnx" | "mlx" | "remote";
+            /**
+             * Seed
+             * @default false
+             */
+            seed: boolean;
+            /**
              * Speed Max
              * @default null
              */
@@ -178,6 +227,11 @@ export interface components {
             speed_min: number | null;
             /** @default null */
             status: components["schemas"]["TTSModelStatus"] | null;
+            /**
+             * Voice Description
+             * @default false
+             */
+            voice_description: boolean;
             /** Voices */
             voices: components["schemas"]["VoiceInfo"][];
         };
@@ -192,7 +246,7 @@ export interface components {
             error: string | null;
             /**
              * Model Id
-             * @default kokoro-multi-lang-v1_0
+             * @default voxcpm2-8bit
              */
             model_id: string;
             /**
@@ -211,6 +265,15 @@ export interface components {
              * @enum {string}
              */
             state: "missing" | "downloading" | "ready" | "failed" | "cancelled";
+        };
+        /** TTSReferenceAudio */
+        TTSReferenceAudio: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Seconds */
+            seconds: number;
         };
         /** TTSSettings */
         TTSSettings: {
@@ -231,11 +294,21 @@ export interface components {
              */
             instructions: string;
             /**
+             * Local Codec Path
+             * @default
+             */
+            local_codec_path: string;
+            /**
              * Local Model
-             * @default kokoro-multi-lang-v1_0
+             * @default voxcpm2-8bit
              * @enum {string}
              */
-            local_model: "kokoro-multi-lang-v1_0" | "vits-melo-tts-zh_en";
+            local_model: "voxcpm2-8bit" | "moss-tts-nano" | "qwen3-tts-customvoice-8bit" | "moss-tts-local-1.5-4bit" | "kokoro-multi-lang-v1_0" | "vits-melo-tts-zh_en";
+            /**
+             * Local Model Path
+             * @default
+             */
+            local_model_path: string;
             /**
              * Local Speed
              * @default 1
@@ -243,7 +316,7 @@ export interface components {
             local_speed: number;
             /**
              * Local Voice
-             * @default zf_xiaobei
+             * @default
              */
             local_voice: string;
             /**
@@ -251,6 +324,11 @@ export interface components {
              * @default null
              */
             provider_id: string | null;
+            /**
+             * Reference Audio
+             * @default
+             */
+            reference_audio: string;
             /**
              * Remote Model
              * @default
@@ -266,6 +344,58 @@ export interface components {
              * @default
              */
             remote_voice: string;
+            /**
+             * Voice Description
+             * @default
+             */
+            voice_description: string;
+            /** Voice Presets */
+            voice_presets: components["schemas"]["TTSVoicePreset"][];
+            /**
+             * Voice Seed
+             * @default 42
+             */
+            voice_seed: number;
+        };
+        /**
+         * TTSVoicePreset
+         * @description A named, model-specific voice recipe; never a portable speaker identity.
+         */
+        TTSVoicePreset: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Id */
+            id: string;
+            /**
+             * Model Id
+             * @enum {string}
+             */
+            model_id: "voxcpm2-8bit" | "moss-tts-nano" | "qwen3-tts-customvoice-8bit" | "moss-tts-local-1.5-4bit" | "kokoro-multi-lang-v1_0" | "vits-melo-tts-zh_en";
+            /** Name */
+            name: string;
+            /**
+             * Reference Audio
+             * @default
+             */
+            reference_audio: string;
+            /**
+             * Seed
+             * @default 42
+             */
+            seed: number;
+            /**
+             * Speed
+             * @default 1
+             */
+            speed: number;
+            /**
+             * Voice
+             * @default
+             */
+            voice: string;
         };
         /** TextSource */
         TextSource: {

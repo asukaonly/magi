@@ -1,7 +1,7 @@
 import { api } from '../client';
 import { ApiContractError } from '../config-contract';
 import type { components } from '../generated/tts-types';
-import { validateSynthesisJob, validateTTSConfiguration, validateTTSModelStatus } from '../generated/tts-validators';
+import { validateSynthesisJob, validateTTSConfiguration, validateTTSModelStatus, validateTTSReferenceAudio } from '../generated/tts-validators';
 
 type Wire = components['schemas'];
 export type TTSJob = Wire['SynthesisJob'];
@@ -10,6 +10,7 @@ export type TTSConfiguration = Wire['TTSConfiguration'];
 export type TTSSettings = Wire['TTSSettings'];
 export type TTSModelStatus = Wire['TTSModelStatus'];
 export type TTSModelChoice = Wire['TTSModelChoice'];
+export type TTSReferenceAudio = Wire['TTSReferenceAudio'];
 
 function job(value: unknown): TTSJob {
   if (!validateSynthesisJob(value)) throw new ApiContractError('TTS job');
@@ -27,6 +28,13 @@ function model(value: unknown): TTSModelStatus {
 const base = '/speech/tts';
 export const ttsApi = {
   settings: async () => settings(await api.get<unknown>(`${base}/settings`)),
+  inspectDirectory: async (value: Wire['TTSDirectoryRequest']) => model(await api.post<unknown>(`${base}/models/inspect`, value)),
+  uploadReference: async (file: File): Promise<TTSReferenceAudio> => {
+    const value = await api.post<unknown>(`${base}/references`, file, { params: { name: file.name.slice(0, 120) }, headers: { 'Content-Type': 'audio/wav' } });
+    if (!validateTTSReferenceAudio(value)) throw new ApiContractError('TTS reference audio');
+    return value;
+  },
+  deleteReference: async (id: string): Promise<void> => { await api.delete<unknown>(`${base}/references/${id}`); },
   save: async (value: TTSSettings, revision: string) => settings(await api.put<unknown>(`${base}/settings`, { settings: value, revision })),
   model: async (modelId: string) => model(await api.get<unknown>(`${base}/models`, { params: { model_id: modelId } })),
   download: async (modelId: string) => model(await api.post<unknown>(`${base}/models/download`, {}, { params: { model_id: modelId } })),

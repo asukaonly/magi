@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import importlib.util
 import json
+import platform
 import shutil
 from pathlib import Path
 from urllib.parse import quote
@@ -15,8 +16,15 @@ from ...utils.model_download import DownloadFile, DownloadTracker, download_file
 
 MODEL_ID = "kokoro-multi-lang-v1_0"
 MELO_ID = "vits-melo-tts-zh_en"
-MODEL_NAMES = {MODEL_ID: "Kokoro", MELO_ID: "MeloTTS"}
-MANIFESTS = {MODEL_ID: "kokoro-manifest.json", MELO_ID: "melo-manifest.json"}
+VOX_ID = "voxcpm2-8bit"
+NANO_ID = "moss-tts-nano"
+QWEN_ID = "qwen3-tts-customvoice-8bit"
+MOSS_ID = "moss-tts-local-1.5-4bit"
+MLX_MODELS = {VOX_ID, NANO_ID, QWEN_ID, MOSS_ID}
+MODEL_NAMES = {VOX_ID: "VoxCPM2", NANO_ID: "MOSS TTS Nano", QWEN_ID: "Qwen3-TTS CustomVoice",
+               MOSS_ID: "MOSS TTS Local 1.5", MELO_ID: "MeloTTS", MODEL_ID: "Kokoro"}
+MANIFESTS = {MODEL_ID: "kokoro-manifest.json", MELO_ID: "melo-manifest.json",
+             **{model: model + "-manifest.json" for model in MLX_MODELS}}
 VOICE_NAMES = ("af_alloy af_aoede af_bella af_heart af_jessica af_kore af_nicole af_nova af_river af_sarah af_sky "
                "am_adam am_echo am_eric am_fenrir am_liam am_michael am_onyx am_puck am_santa "
                "bf_alice bf_emma bf_isabella bf_lily bm_daniel bm_fable bm_george bm_lewis "
@@ -33,6 +41,13 @@ def local_voices(model_id: str) -> list[VoiceInfo]:
         return LOCAL_VOICES
     if model_id == MELO_ID:
         return [VoiceInfo(id="zh_en", language="zh", name="MeloTTS")]
+    if model_id == QWEN_ID:
+        return [VoiceInfo(id=name, language=language, name=name.replace('_', ' ').title())
+                for name, language in [("serena", "zh"), ("vivian", "zh"), ("uncle_fu", "zh"),
+                                       ("dylan", "zh"), ("eric", "zh"), ("ryan", "en"),
+                                       ("aiden", "en"), ("ono_anna", "ja"), ("sohee", "ko")]]
+    if model_id in MLX_MODELS:
+        return []
     raise ValueError("invalid_model")
 
 
@@ -51,6 +66,9 @@ class ModelManager:
         result = self.status.model_copy()
         modules = ("onnxruntime", "kaldifst", "espeakng_loader") if self.model_id == MODEL_ID else ("sherpa_onnx",)
         result.runtime_available = all(importlib.util.find_spec(name) is not None for name in modules)
+        if self.model_id in MLX_MODELS:
+            result.runtime_available = (platform.system() == "Darwin" and platform.machine() == "arm64"
+                                        and importlib.util.find_spec("mlx_audio") is not None)
         if (self.directory / "verified.json").is_file():
             result.state = "ready"
         result.download = self.transfer.snapshot() if self.transfer else None
@@ -59,10 +77,12 @@ class ModelManager:
     def manifest(self) -> dict:
         return json.loads(Path(__file__).with_name(MANIFESTS[self.model_id]).read_text())
 
-    def verify(self) -> None:
+    def verify(self, directory: Path | None = None, codec_directory: Path | None = None) -> None:
+        root = directory or self.directory
         for item in self.manifest()["files"]:
-            path = self.directory / item["path"]
-            if path.is_symlink() or not path.is_file() or path.stat().st_size != item["size"]:
+            name = item["path"]
+            path = codec_directory / name.removeprefix("codec/") if codec_directory and name.startswith("codec/") else root / name
+            if (directory is None and path.is_symlink()) or not path.is_file() or path.stat().st_size != item["size"]:
                 raise ValueError("model_missing")
             digest = hashlib.sha256()
             with path.open("rb") as stream:
@@ -70,6 +90,11 @@ class ModelManager:
                     digest.update(chunk)
             if digest.hexdigest() != item["sha256"]:
                 raise ValueError("model_checksum_failed")
+
+    def inspect_directory(self, path: str, codec_path: str = "") -> TTSModelStatus:
+        directory, codec = external_directories(path, codec_path, self.model_id)
+        self.verify(directory, codec)
+        return self.snapshot().model_copy(update={"state": "ready", "download": None, "error": None})
 
     def download(self, proxy_url: str | None = None) -> TTSModelStatus:
         if self.cancelling or (self.task and not self.task.done()):
@@ -91,7 +116,7 @@ class ModelManager:
             safe_path(self.directory, "verified.json")
             await download_files([DownloadFile(
                 item["path"],
-                f'https://huggingface.co/{manifest["repo"]}/resolve/{manifest["revision"]}/{quote(item["path"])}',
+                f'https://huggingface.co/{item.get("repo", manifest["repo"])}/resolve/{item.get("revision", manifest["revision"])}/{quote(item.get("source_path", item["path"]))}',
                 item["size"], item["sha256"],
             ) for item in manifest["files"]], staging, self.transfer, proxy_url)
             (staging / "verified.json").write_text(json.dumps({"revision": manifest["revision"]}))
@@ -147,3 +172,16 @@ class TTSModelStore:
         if model_id not in self.models:
             raise ValueError("invalid_model")
         return self.models[model_id]
+
+
+def external_directories(path: str, codec_path: str, model_id: str) -> tuple[Path, Path | None]:
+    """External packages are read in place, never adopted by the download manager."""
+    directory = Path(path).expanduser()
+    if not directory.is_absolute() or not directory.is_dir():
+        raise ValueError("model_directory_invalid")
+    if codec_path and model_id not in {NANO_ID, MOSS_ID}:
+        raise ValueError("unsupported_parameter")
+    codec = Path(codec_path).expanduser() if codec_path else None
+    if codec and (not codec.is_absolute() or not codec.is_dir()):
+        raise ValueError("model_directory_invalid")
+    return directory.resolve(), codec.resolve() if codec else None
