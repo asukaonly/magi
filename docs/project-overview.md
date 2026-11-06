@@ -471,6 +471,13 @@ Fresh example configuration leaves managed paths to the host defaults. Desktop
 candidate verification uses a new empty root and a distinct application identifier
 so both app data and WebView preferences are isolated from a regular installation.
 
+Desktop connection/cache reset is device-owned: `connections/reset.rs` persists
+an interrupted-cleanup marker, resets native profiles/credentials/attestations,
+and retires delivery producers. `ClientResetBoundary` checks this marker before
+mounting the application, isolates in-progress cleanup and clears center-scoped
+WebView content before acknowledging completion. This flow never deletes the
+service data root or calls server-side destructive maintenance routes.
+
 The gateway compiles its provider template and preset embedding-model catalog
 from the same versioned YAML sources bundled with Python. Native reads never
 resolve these immutable catalogs through a build-machine repository path.

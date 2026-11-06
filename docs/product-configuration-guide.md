@@ -799,6 +799,32 @@ Current log ownership:
 The excerpt remains bounded to 64 KiB and does not replace retry or connection
 selection.
 
+### Clear device connections and cache
+
+**App settings → Center connections** ends with **Clear connections and cache**.
+The same action is available on the startup failure screen and offline reader,
+so an unreachable service does not prevent device cleanup. The confirmation
+requires explicit acknowledgement of losing text drafts and pending background
+deliveries, and of needing to pair remote connections again.
+
+This operation disconnects the client, stops only its owned local service, and
+removes every remembered connection, device pairing credential, offline
+attestation and delivery producer/queue. It clears all center-scoped conversation
+caches, drafts and retry state in the current WebView origin's local/session
+storage, then reloads into the welcome screen. Already dispatched requests may
+have reached the service; cleanup does not recall them. Local and remote service
+databases, model/personality settings, independent services, device appearance
+preferences and diagnostic logs are preserved. This is not a complete OS-level
+uninstaller or secure erasure of the WebView's entire disk profile; development
+and packaged WebView origins may retain separate browser storage.
+
+The application unmounts before cleanup, invalidates pending view owners, and
+serializes native cleanup with connection/queue operations. A native marker
+keeps incomplete cleanup out of normal startup until the user retries or the
+next launch resumes it. Completion is recorded only after native stores and
+browser content both clear successfully. Delayed pairing results cannot restore
+discarded credentials; old delivery receipts cannot affect a new producer.
+
 ### Desktop uninstall
 
 Desktop uninstall removes identifier-scoped application files according to the
