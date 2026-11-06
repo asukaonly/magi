@@ -2732,12 +2732,21 @@ an unavailable second review, or a malformed claim review produces an internal
 rule fallback rather than publishing the suspect draft. This model review is
 a bounded quality check, not proof that every claim is true.
 
-A failed optional extraction still preserves prose when no evidence violation
-has been identified. Rule-backed summaries remain an internal fallback and
+A valid review is required before a temporal draft can be published. Missing,
+unparseable or unavailable review responses are not an implicit pass. After
+a successful review, failed optional metadata extraction still preserves prose.
+This separates editorial correctness from optional card/retrieval fields;
+the former best-effort structure-only rule could publish unreviewed overclaims
+when the provider returned invalid JSON. Rule-backed summaries remain an internal fallback and
 retry/debug lower bound; they are not normal Summary-page content unless a
 UI-specific quality gate explicitly allows them.
 
-The same product contract applies to thematic topic summaries and episodic/experience summaries: user-facing prose is generated first and structured fields are extracted afterward. A failed structure pass must not discard accepted prose. L3 insight renderers also apply a display-quality gate: incomplete host fact descriptions and text that still looks like a raw machine signal are skipped. The renderer never fabricates a replacement from a trait family or enum value.
+Thematic topic summaries and episodic/experience summaries also generate prose
+before optional structure; their structure-only failures preserve accepted
+prose. Temporal summaries additionally require the evidence review described
+above. L3 insight renderers apply a display-quality gate: incomplete host fact
+descriptions and text that still looks like a raw machine signal are skipped.
+The renderer never fabricates a replacement from a trait family or enum value.
 
 Generation starts from `L1` facts that are eligible for cognition and excludes runtime telemetry and disposable events. The store does not load every matching event into the prompt. Instead, [evidence_selector.py](../backend/src/magi/memory/l3/evidence_selector.py) performs source-aware compaction:
 

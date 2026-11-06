@@ -117,3 +117,15 @@ def test_english_product_names_do_not_discard_a_chinese_preview(monkeypatch):
     )
     assert fields["essence_prose"] == "查阅了 Claude Code 的工作方式。"
     assert fields["key_topics"] == ["Claude Code", "JDEasyFlow"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("review", [None, {}, {"unsupported_claims": None}])
+async def test_missing_review_is_not_an_implicit_pass(monkeypatch, review):
+    service = TemporalSummaryLLMService()
+    monkeypatch.setattr(
+        service, "_call_temporal_prose_model", AsyncMock(return_value="修复了报表。")
+    )
+    monkeypatch.setattr(service, "_call_temporal_structure_model", AsyncMock(return_value=review))
+    result = await service.generate_temporal_candidate(_pack(), fallback_summary="Fallback")
+    assert result.used_fallback

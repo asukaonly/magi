@@ -86,7 +86,8 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
             timeout_seconds=timeout_seconds,
             disable_thinking=disable_thinking,
         )
-        if review.invalid:
+        if review.invalid or not review.checked:
+            logger.warning("L3 temporal draft has no valid evidence review")
             return fallback
         if review.issues:
             prose_content = await self._repair_temporal_prose(

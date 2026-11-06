@@ -251,7 +251,10 @@ def _capture_generation_bridge(
     import json
     from unittest.mock import AsyncMock
 
-    outputs = [SimpleNamespace(content=prose), SimpleNamespace(content=json.dumps(structure or {}))]
+    outputs = [
+        SimpleNamespace(content=prose),
+        SimpleNamespace(content=json.dumps({"unsupported_claims": [], **(structure or {})})),
+    ]
     bridge = SimpleNamespace(chat_response=AsyncMock(side_effect=outputs))
     monkeypatch.setattr(
         service,
@@ -314,7 +317,7 @@ async def test_generate_temporal_candidate_keeps_prose_when_structure_extraction
 
     async def _bad_structure_call(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
         _ = prose_content
-        return None
+        return {"unsupported_claims": [], "change_and_pattern": {"changes": "invalid"}}
 
     monkeypatch.setattr(service, "_call_temporal_prose_model", _prose_call)
     monkeypatch.setattr(service, "_call_temporal_structure_model", _bad_structure_call)
@@ -350,6 +353,7 @@ async def test_generate_temporal_candidate_keeps_essence_from_structure_output(
     async def _structure_call(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
         assert prose_content.startswith("## 要点")
         return {
+            "unsupported_claims": [],
             "essence_prose": "本周主要修复 Magi 总结页，让首页更好读。",
             "key_topics": ["总结页"],
         }

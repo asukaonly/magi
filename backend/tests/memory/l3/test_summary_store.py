@@ -974,6 +974,7 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(
     async def _fake_structure_model(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
         assert prose_content == "LLM rewritten temporal summary"
         return {
+            "unsupported_claims": [],
             "key_topics": ["job_search"],
             "change_and_pattern": {
                 "changes": ["moved from exploration to planning"],
@@ -1291,6 +1292,7 @@ async def test_generate_temporal_summary_includes_plugin_summary_features(
     async def _fake_structure_model(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
         assert prose_content == "LLM rewritten temporal summary"
         return {
+            "unsupported_claims": [],
             "key_topics": ["browsing"],
             "importance_aggregate": 0.7,
         }
