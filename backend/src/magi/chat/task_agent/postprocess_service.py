@@ -8,6 +8,8 @@ from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from magi.core.logger import get_logger
 from magi.core.chat_expression import parse_chat_expression
+from magi.core.chat_assets.mutations import run_chat_asset_mutation
+from magi.chat.stickers import ChatStickerLibrary
 from magi.agent.execution.task_budget import TaskBudgetExceeded
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.trace import (
@@ -432,7 +434,7 @@ class ChatPostProcessService:
         event_emitter, latest_fact, ux_plan = preflight
 
         raw_response_text, response_text = self._resolve_visible_response_text(result)
-        if not response_text:
+        if not response_text and not result.attachments:
             if await self._complete_turn_without_visible_response(
                 context=context,
                 result=result,
@@ -475,7 +477,22 @@ class ChatPostProcessService:
         execution_status = (getattr(result, "execution_outcome", None) or {}).get("status", "completed")
         if execution_status == "completed":
             expression = parse_chat_expression(result.response_text or "")
-            if expression is not None:
+            if expression is not None and expression.sticker_id is not None:
+                if result.attachments:
+                    raise ValueError("Sticker-only replies cannot discard prepared attachments.")
+                turn_id = result.turn_id or self._resolve_turn_id(context, latest_fact.payload)
+                attachment, sticker = await run_chat_asset_mutation(
+                    ChatStickerLibrary().prepare_attachment,
+                    user_id=context.user_id, session_id=context.session_id,
+                    turn_id=turn_id, sticker_id=expression.sticker_id,
+                )
+                result.attachments = [attachment]
+                result.message_payload = {**(result.message_payload or {}), "sticker": sticker}
+                result.response_text = ""
+                result.streamed = False
+                ux_plan = {**ux_plan, "assistant_surface_mode": "final_only"}
+                result.ux_plan = ux_plan
+            elif expression is not None:
                 ux_plan = {**ux_plan, "assistant_surface_mode": expression.mode}
                 if expression.emoji is not None:
                     ux_plan["reaction_emoji"] = expression.emoji
@@ -522,7 +539,7 @@ class ChatPostProcessService:
                 response_text=raw_response_text,
                 ux_plan=ux_plan,
             )
-            if terminal_status == "completed"
+            if terminal_status == "completed" and response_text
             else None
         )
         rhythm_ended_at_ms = now_wall_ms()

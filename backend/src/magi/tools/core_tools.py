@@ -28,6 +28,7 @@ from .builtin.grep_tool import GrepTool
 from .builtin.image_generation_tool import ImageGenerationTool
 from .builtin.memory_query_tool import MemoryQueryTool
 from .builtin.powershell_tool import PowerShellTool
+from .builtin.chat_stickers_tool import ChatStickersTool
 from .builtin.prepare_chat_attachments_tool import PrepareChatAttachmentsTool
 from .builtin.read_chat_attachment_tool import ReadChatAttachmentTool
 from .builtin.schedule_tool import ScheduleTool
@@ -71,6 +72,7 @@ def core_tool_classes_for_os(os_name: str | None = None) -> tuple[type, ...]:
         TraceQueryTool,
         TaskQueryTool,
         ScheduleTool,
+        ChatStickersTool,
         PrepareChatAttachmentsTool,
         ReadChatAttachmentTool,
         ImageGenerationTool,

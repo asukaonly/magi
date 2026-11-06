@@ -216,7 +216,11 @@ class ChatAssetGC:
 
         files_deleted = 0
         dirs_deleted = 0
-        for root_dir in self._asset_roots():
+        try:
+            sticker_root = verified_chat_asset_root(self._runtime_paths.chat_stickers_dir, self._runtime_paths)
+        except ValueError as exc:
+            raise ChatAssetDeletionError("Managed sticker root was retargeted") from exc
+        for root_dir in (*self._asset_roots(), sticker_root):
             if not root_dir.exists():
                 continue
             for child in root_dir.iterdir():

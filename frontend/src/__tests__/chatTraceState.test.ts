@@ -23,6 +23,30 @@ import {
 } from '@/domain/chat/state';
 
 describe('chat trace state helpers', () => {
+  it('preserves an image-only sticker in live events and restored history', () => {
+    const attachments = [{
+      attachment_id: 'sticker-copy', kind: 'image' as const,
+      original_name: 'sticker.gif', mime_type: 'image/gif', size_bytes: 256,
+    }];
+    const live = applyAgentResponse([], {
+      content: '', attachments, messageId: 'sticker-message', messageKind: 'assistant_final',
+      turnId: 'sticker-turn', timestamp: 1000,
+    });
+    const restored = normalizeHistoryMessages([{
+      role: 'assistant', kind: 'assistant', content: '', attachments, timestamp: 1000,
+      message_id: 'sticker-message', message_kind: 'assistant_final', turn_id: 'sticker-turn',
+    }]);
+    for (const messages of [live, restored]) {
+      expect(messages).toHaveLength(1);
+      expect(messages[0].content).toBe('');
+      expect(messages[0].attachments).toEqual(attachments);
+      const row = projectChatTimelineMessage(messages[0]);
+      expect(row.surface).toBe('transcript');
+      if (row.surface !== 'transcript') throw new Error('Expected a visible image message');
+      expect(row.transcript.bubbleTop.showAttachments).toBe(true);
+    }
+  });
+
   it.each(['failed', 'blocked', 'cancelled'])('presents a durable %s outcome as runtime status', (state) => {
     const message: ChatTimelineMessage = {
       id: 'outcome', role: 'assistant', kind: 'assistant', messageKind: 'assistant_final',

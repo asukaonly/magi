@@ -169,6 +169,38 @@ The streaming sink buffers a possible leading control until it can distinguish
 it from prose; ordinary answers continue streaming normally. These choices are
 available with either token streaming or natural reply rhythm.
 
+## Picture stickers
+
+The main chat model receives the current user's saved sticker names and IDs in
+working context. It can reply with exactly `[[STICKER:sticker_id]]` to send one
+picture without text. Selection uses the main model and these descriptions;
+there is no random supplement, extra vision selector or automatic collection.
+Names are data, not prompt instructions. Questions and substantive responses
+still take priority over a decorative sticker.
+
+Users manage the library through the `chat_stickers` builtin tool: upload an image
+using the existing composer, ask to save it with a descriptive name, then ask to
+list or remove saved stickers as needed. Saving only accepts an attachment owned
+by the current user in the active session. The existing composer vision
+requirement still applies to uploads; choosing a previously saved sticker does
+not require a vision-capable model. PNG, JPEG, WebP and GIF are supported, with
+up to 64 images per user and 5 MiB per image. GIF bytes and animation are preserved.
+
+Postprocessing validates the exact library ID and imports a copy into the current
+turn's managed attachments. It persists and delivers one `assistant_final` with
+empty text, a normal image attachment, and `sticker` metadata containing the ID
+and name. No control text becomes visible or gets stored as spoken prose. The
+normal authenticated attachment, ownership, history and delivery paths serve the
+image. Missing IDs or unreadable images fail visibly through normal turn error
+handling; they do not silently drop the reply. Sticker controls cannot discard
+other prepared attachments or be combined with text/bubble markers.
+
+Library files live under `data/resources/chat/stickers/<user-hash>/`, with an atomic
+`index.json` and content-addressed images. Writes use the chat asset mutation
+boundary. Source-chat deletion and orphan-session sweeps retain saved stickers;
+removing a sticker retains copies already sent in messages. Global chat/content
+clear removes both the library and ordinary message assets.
+
 ## Persistence Contract
 
 `chat_turns` remains the owner of turn-level execution state and UX plan.

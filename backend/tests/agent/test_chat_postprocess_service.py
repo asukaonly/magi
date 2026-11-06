@@ -4564,3 +4564,72 @@ async def test_segmented_notification_failure_keeps_rhythm_without_duplicate_fin
     assert len(controls) == 1
     assert json.loads(controls[0].payload_json)["state"] == "completed"
     assert json.loads(controls[0].payload_json)["turn_id"] == "turn-partial-channel"
+
+
+@pytest.mark.asyncio
+async def test_sticker_reply_persists_and_delivers_an_image_without_control_text(
+    runtime_trace_store, chat_store, monkeypatch,
+):
+    import io
+    from pathlib import Path
+    from PIL import Image
+    from magi.chat.stickers import ChatStickerLibrary
+    import magi.chat.task_agent.postprocess_service as postprocess_module
+
+    library = ChatStickerLibrary(chat_store._runtime_paths)
+    monkeypatch.setattr(postprocess_module, "ChatStickerLibrary", lambda: library)
+    image = io.BytesIO()
+    Image.new("RGB", (2, 2), "red").save(image, format="PNG")
+    source_attachment = await _managed_test_attachment(
+        chat_store, session_id="source", turn_id="source-turn", attachment_id="source-image",
+        original_name="smile.png", content=image.getvalue(), include_mime_and_size=True,
+    )
+    sticker = await run_chat_asset_mutation(
+        library.save, user_id="local_user", session_id="source", attachment=source_attachment, name="开心猫",
+    )
+    await _create_admitted_user_turn(chat_store, turn_id="turn-sticker", message_text="发个开心的表情包")
+    fact = FactRecord(
+        agent_id="chat:local_user", agent_type="chat", agent_instance_id="local_user",
+        event_type=EventTypes.USER_MESSAGE, timestamp=1710000000.0,
+        payload={"content": "发个开心的表情包", "user_id": "local_user", "session_id": "session-1",
+                 "turn_id": "turn-sticker"},
+        correlation_id="corr-sticker", delivery_attempt_no=0, runtime_command_id=101,
+    )
+    context = ChatRuntimeContext(
+        latest_fact=fact, recent_facts=[fact], batch_facts=[fact], agent_id="local_user",
+        agent_type="chat", runtime_key="chat:local_user", user_id="local_user", session_id="session-1",
+        history_key="local_user::session-1", history=[], conversation_history=[],
+        latest_user_message="发个开心的表情包", incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(user_id="local_user", session_id="session-1",
+                                          content="发个开心的表情包", turn_id="turn-sticker"),
+    )
+    service = ChatPostProcessService(
+        agent_id="chat:local_user", context_assembler=_FakeContextAssembler(),
+        get_event_emitter=lambda: _FakeEventEmitter(), get_task_agent_manager=lambda: None,
+        get_source_hub=lambda: None, runtime_trace_store=runtime_trace_store, chat_store=chat_store,
+        deliver_final_response=_chat_sse_seam(runtime_trace_store), max_fact_memory=10,
+    )
+    result = ExecutionResult(mode=None, response_text=f"[[STICKER:{sticker['sticker_id']}]]",
+                             turn_id="turn-sticker", ux_plan={"assistant_surface_mode": "final_only"})
+    await service.handle(context, result)
+    messages = await chat_store.list_messages(session_id="session-1")
+    assert [message.message_kind for message in messages] == ["user_text", "assistant_final"]
+    assert messages[-1].content_text == ""
+    payload = json.loads(messages[-1].payload_json)
+    assert payload["sticker"] == sticker
+    assert len(payload["attachments"]) == 1
+    assert "storage_path" not in payload["attachments"][0]
+    reader = build_chat_reader(runtime_paths=chat_store._runtime_paths)
+    attachment = await reader.aget_attachment_payload(
+        "local_user", "session-1", payload["attachments"][0]["attachment_id"],
+    )
+    assert attachment is not None
+    assert Path(attachment["storage_path"]).read_bytes() == image.getvalue()
+    notifications = await runtime_trace_store.list_notifications(after_id=0)
+    response = next(json.loads(item.payload_json) for item in notifications if item.channel == "agent_response")
+    assert response["content"] == ""
+    from magi.chat.attachment_payloads import public_attachment_payloads
+    assert public_attachment_payloads(response["attachments"]) == payload["attachments"]
+    assert "[[STICKER:" not in json.dumps(response)
+    assert (await chat_store.get_turn("turn-sticker")).status == "completed"
+    assert (await chat_store.get_user_turn_delivery(turn_id="turn-sticker")).delivery_state == CHAT_DELIVERY_STATE_TERMINAL

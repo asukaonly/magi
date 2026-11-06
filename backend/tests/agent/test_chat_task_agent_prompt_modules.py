@@ -7,8 +7,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-pytestmark = pytest.mark.usefixtures("bound_chat_reader")
-
 from magi.agent.task_agents.handlers import (
     ChatRuntimeContext,
     CapabilitySelection,
@@ -21,6 +19,8 @@ from magi.config.models import LLMScenario
 from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.personality.models import EmotionalState, TaskBehaviorProfile
 from magi.personality.loader import PersonalityConfig
+
+pytestmark = pytest.mark.usefixtures("bound_chat_reader")
 
 
 class _FakeLLMAdapter:
@@ -126,6 +126,7 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             history_key="u-chat::s-1",
             history=[{"role": "user", "content": "你好"}],
             conversation_history=[{"role": "user", "content": "你好"}],
+            sticker_catalog=[{"sticker_id": "st_0123456789abcdef01234567", "name": "开心猫"}],
             latest_user_message="今天天气怎么样",
             incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
             latest_payload=GenericFactPayload(),
@@ -145,6 +146,9 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("# Tool Use Guidance", system_prompt)
         self.assertIn("# Tool Use Guidance", request.working_context)
         self.assertNotIn("weather", request.working_context)
+        self.assertIn("st_0123456789abcdef01234567", request.working_context)
+        self.assertIn("开心猫", request.working_context)
+        self.assertNotIn("开心猫", system_prompt)
         self.assertIn("# Runtime World State", request.runtime_world_state)
         self.assertIsNone(request.mode)
 

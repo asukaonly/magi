@@ -5,7 +5,7 @@ const MAX_IMAGE_ATTACHMENTS = 5;
 const MAX_IMAGE_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_FILE_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
-const SUPPORTED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const SUPPORTED_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 const SUPPORTED_PDF_MIME_TYPES = new Set(['application/pdf']);
 const SUPPORTED_TEXT_MIME_TYPES = new Set([
   'application/json',

@@ -94,7 +94,7 @@ def open_managed_chat_attachment(
                 return None
         return resolved
 
-    return _open_resolved_managed_file(resolve)
+    return open_resolved_managed_file(resolve)
 
 
 def open_managed_chat_derived_file(
@@ -116,12 +116,13 @@ def open_managed_chat_derived_file(
             runtime_paths=runtime_paths,
         )
 
-    return _open_resolved_managed_file(resolve)
+    return open_resolved_managed_file(resolve)
 
 
-def _open_resolved_managed_file(
+def open_resolved_managed_file(
     resolver: Callable[[], Path | None],
 ) -> BinaryIO | None:
+    """Open a validated managed path without following links or identity changes."""
     path = resolver()
     if path is None:
         return None

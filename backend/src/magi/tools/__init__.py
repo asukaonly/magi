@@ -40,6 +40,7 @@ from .builtin.weather_tool import WeatherTool
 from .builtin.system_settings_tool import SystemSettingsTool
 from .builtin.memory_query_tool import MemoryQueryTool
 from .builtin.schedule_tool import ScheduleTool
+from .builtin.chat_stickers_tool import ChatStickersTool
 from .builtin.prepare_chat_attachments_tool import PrepareChatAttachmentsTool
 from .builtin.read_chat_attachment_tool import ReadChatAttachmentTool
 
@@ -96,6 +97,7 @@ __all__ = [
     "SystemSettingsTool",
     "MemoryQueryTool",
     "ScheduleTool",
+    "ChatStickersTool",
     "PrepareChatAttachmentsTool",
     "ReadChatAttachmentTool",
 

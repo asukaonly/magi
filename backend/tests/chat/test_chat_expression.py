@@ -27,7 +27,7 @@ def test_invalid_reaction_is_an_error_not_silence() -> None:
         parse_chat_expression("[[REACT:hello]]")
 
 
-@pytest.mark.parametrize("text", ["[[SILENT]]", " [[REACT:👩🏽‍💻]] ", "[[REACT:hello]]"])
+@pytest.mark.parametrize("text", ["[[SILENT]]", " [[REACT:👩🏽‍💻]] ", "[[REACT:hello]]", "[[STICKER:st_0123456789abcdef01234567]]", "[[STICKER:../bad]]"])
 def test_controls_do_not_leak_at_any_stream_boundary(text: str) -> None:
     for split in range(len(text) + 1):
         buffer = ChatExpressionStreamBuffer()
@@ -38,3 +38,11 @@ def test_controls_do_not_leak_at_any_stream_boundary(text: str) -> None:
 def test_stream_preserves_normal_text(text: str) -> None:
     buffer = ChatExpressionStreamBuffer()
     assert "".join(buffer.feed(char) for char in text) + buffer.flush() == text
+
+
+def test_sticker_requires_a_library_identifier() -> None:
+    parsed = parse_chat_expression("[[STICKER:st_0123456789abcdef01234567]]")
+    assert parsed is not None and parsed.sticker_id == "st_0123456789abcdef01234567"
+    with pytest.raises(ValueError, match="valid library ID"):
+        parse_chat_expression("[[STICKER:../cat.png]]")
+    assert parse_chat_expression("`[[STICKER:cat]]`") is None

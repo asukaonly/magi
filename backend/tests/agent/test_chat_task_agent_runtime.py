@@ -8,8 +8,6 @@ from types import SimpleNamespace
 
 import pytest
 
-pytestmark = pytest.mark.usefixtures("bound_chat_reader")
-
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.runtime.types import TaskAgentType
 from magi.chat.task_agent.postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
@@ -24,6 +22,8 @@ from magi.control.run_control import DetachSignal, null_run_control
 from magi.events.contracts import RuntimeCommandType, UserMessageCommand
 from magi.events.events import EventTypes
 from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+pytestmark = pytest.mark.usefixtures("bound_chat_reader")
 
 
 class _FakeLLMAdapter:
@@ -158,6 +158,7 @@ class _AroutePausedChatAgent(ChatTaskAgent):
             recent_tool_state=[],
             reply_context=None,
             recall_feedback=None,
+            sticker_catalog=[],
             preferences=SimpleNamespace(
                 streaming_chat_enabled=False,
                 allow_media_grounding_for_conversation=False,

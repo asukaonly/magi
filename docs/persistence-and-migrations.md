@@ -61,6 +61,18 @@ The gateway data epoch additionally invalidates offline work on clear/restore.
 The next normal worker retires inbox work and receipts from replaced epochs before
 recovering claims; restricted restore workers leave the inbox paused and intact.
 
+## Saved picture stickers
+
+Saved picture stickers are chat-owned files under
+`data/resources/chat/stickers/<sha256-user-id>/`, separate from session/turn attachment
+directories. Each bounded library has an atomically replaced `index.json` and
+content-addressed PNG/JPEG/WebP/GIF files. The source attachment is copied only
+after an explicit save request; sending creates another managed turn attachment.
+Chat asset mutation serialization covers library writes and clears. Session
+deletion and orphan-session sweeps leave the library intact; global chat/content
+clear erases it. Removing a library entry does not erase pictures in existing
+messages. See `conversation-rhythm-architecture.md` for controls and limits.
+
 ## Async SQLite lifetime
 
 Projection repositories only read and write migrated schemas. Profile and portrait

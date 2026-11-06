@@ -262,6 +262,38 @@ class _HostChatPort:
             mime_type=mime_type,
         )
 
+    async def manage_stickers(
+        self, *, user_id: str, session_id: str, action: str,
+        attachment_id: str | None = None, name: str | None = None,
+        sticker_id: str | None = None,
+    ) -> dict[str, Any]:
+        import asyncio
+        from magi.chat.provider import get_chat_read_service
+        from magi.chat.stickers import ChatStickerLibrary
+        from magi.core.chat_assets.mutations import run_chat_asset_mutation
+
+        library = ChatStickerLibrary()
+        if action == "list":
+            return {"stickers": await asyncio.to_thread(library.catalog, user_id)}
+        if action == "save":
+            if not attachment_id or not name:
+                raise ValueError("Saving a sticker requires an attachment ID and name.")
+            attachment = await get_chat_read_service().aget_attachment_payload(
+                user_id, session_id, attachment_id,
+            )
+            if attachment is None:
+                raise ValueError("Image attachment is not available in the current session.")
+            sticker = await run_chat_asset_mutation(
+                library.save, user_id=user_id, session_id=session_id, attachment=attachment, name=name,
+            )
+        elif action == "remove":
+            if not sticker_id:
+                raise ValueError("Removing a sticker requires its library ID.")
+            sticker = await run_chat_asset_mutation(library.remove, user_id=user_id, sticker_id=sticker_id)
+        else:
+            raise ValueError("Invalid sticker action.")
+        return {"action": action, "sticker": sticker}
+
 
 class _HostImageGenPort:
     """Adapter routing ImageGenPort calls to host llm layer (lazy imports)."""

@@ -21,6 +21,7 @@ from magi.chat.contracts import (
     CHAT_DELIVERY_STATE_ADMITTED,
     CHAT_DELIVERY_STATE_TERMINAL,
 )
+from magi.chat.stickers import ChatStickerLibrary
 from magi.chat.rhythm_completion import complete_visible_rhythm_segments
 from magi.chat.terminal_outcomes import PRE_SUCCESS_TERMINAL_CHAT_STATUSES
 from magi.chat.user_turn_delivery import parse_user_turn_runtime_envelope
@@ -111,6 +112,7 @@ class _ChatContextInputs:
     reply_context: Any
     recall_feedback: Any
     preferences: _ChatRuntimePreferences
+    sticker_catalog: list[dict[str, str]]
 
 
 class ChatTaskAgent(
@@ -552,6 +554,11 @@ class ChatTaskAgent(
         history_key = self._context_assembler.history_key(classified.user_id, session_id)
         reply_context = await self._resolve_reply_context(run_decision.latest_payload)
         recall_feedback = await self._resolve_recall_feedback_context(run_decision.latest_payload)
+        try:
+            sticker_catalog = await asyncio.to_thread(ChatStickerLibrary().catalog, classified.user_id)
+        except (ValueError, OSError) as exc:
+            logger.warning("Sticker catalog unavailable", error_type=type(exc).__name__)
+            sticker_catalog = []
         return _ChatContextInputs(
             session_id=session_id,
             active_persona_id=active_persona_id,
@@ -563,6 +570,7 @@ class ChatTaskAgent(
             reply_context=reply_context,
             recall_feedback=recall_feedback,
             preferences=_resolve_chat_runtime_preferences(),
+            sticker_catalog=sticker_catalog,
         )
 
     def _build_chat_runtime_context(
@@ -588,6 +596,7 @@ class ChatTaskAgent(
             history_key=context_inputs.history_key,
             history=context_inputs.history,
             conversation_history=context_inputs.history,
+            sticker_catalog=context_inputs.sticker_catalog,
             recent_tool_errors=context_inputs.recent_tool_errors,
             recent_tool_state=context_inputs.recent_tool_state,
             latest_user_message=run_decision.planner_user_message,

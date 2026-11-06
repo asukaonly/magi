@@ -44,12 +44,14 @@ SUPPORTED_IMAGE_MIME_TYPES = {
     "image/jpeg",
     "image/png",
     "image/webp",
+    "image/gif",
 }
 SUPPORTED_IMAGE_EXTENSIONS = {
     ".jpeg",
     ".jpg",
     ".png",
     ".webp",
+    ".gif",
 }
 CONVERTIBLE_HEIC_MIME_TYPES = {
     "image/heic",

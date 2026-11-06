@@ -104,7 +104,7 @@ class MemoryQueryPort(Protocol):
 
 @runtime_checkable
 class ChatPort(Protocol):
-    """Port for chat attachment read/ingestion operations.
+    """Port for chat attachments and user-owned sticker libraries.
 
     Wraps ChatReadRepository.get_attachment_payload and
     LocalChatAttachmentIngestionService.prepare_runtime_attachment /
@@ -135,6 +135,12 @@ class ChatPort(Protocol):
         file_path: str,
         original_name: Optional[str] = None,
         mime_type: Optional[str] = None,
+    ) -> dict[str, Any]: ...
+
+    async def manage_stickers(
+        self, *, user_id: str, session_id: str, action: str,
+        attachment_id: str | None = None, name: str | None = None,
+        sticker_id: str | None = None,
     ) -> dict[str, Any]: ...
 
 

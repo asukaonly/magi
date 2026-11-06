@@ -12,6 +12,7 @@ import regex
 class ChatExpression:
     mode: str
     emoji: str | None = None
+    sticker_id: str | None = None
 
 
 def is_single_emoji(value: str) -> bool:
@@ -38,6 +39,12 @@ def parse_chat_expression(text: str) -> ChatExpression | None:
         if not is_single_emoji(emoji):
             raise ValueError("A chat reaction must contain exactly one emoji.")
         return ChatExpression("reaction_only", emoji)
+    match = re.fullmatch(r"\[\[STICKER:([^\[\]\r\n]*)\]\]", value)
+    if match is not None:
+        sticker_id = match.group(1).strip()
+        if re.fullmatch(r"st_[a-f0-9]{24}", sticker_id) is None:
+            raise ValueError("A chat sticker must reference a valid library ID.")
+        return ChatExpression("sticker", sticker_id=sticker_id)
     return None
 
 
@@ -53,10 +60,10 @@ class ChatExpressionStreamBuffer:
             return text
         self.pending += text
         stripped = self.pending.lstrip()
-        prefixes = ("[[SILENT]]", "[[REACT:")
+        prefixes = ("[[SILENT]]", "[[REACT:", "[[STICKER:")
         if not stripped or any(prefix.startswith(stripped) for prefix in prefixes):
             return ""
-        if stripped.startswith("[[REACT:") and "]]" not in stripped:
+        if stripped.startswith(("[[REACT:", "[[STICKER:")) and "]]" not in stripped:
             if len(stripped) <= 64:
                 return ""
         try:

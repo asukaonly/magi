@@ -76,6 +76,7 @@ class ChatRuntimeContext(BaseRuntimeContext):
     """Fully built runtime context for a chat task-agent turn."""
 
     conversation_history: list[dict[str, Any]]
+    sticker_catalog: list[dict[str, str]] = field(default_factory=list)
     recent_tool_errors: list[dict[str, Any]] = field(default_factory=list)
     recent_tool_state: list[dict[str, Any]] = field(default_factory=list)
     active_run: AgentRun | None = None

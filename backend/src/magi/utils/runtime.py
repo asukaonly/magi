@@ -123,6 +123,11 @@ class RuntimePaths:
         return self.chat_resources_dir / "files"
 
     @property
+    def chat_stickers_dir(self) -> Path:
+        """Return the user-owned sticker library root."""
+        return self.chat_resources_dir / "stickers"
+
+    @property
     def chat_derived_dir(self) -> Path:
         """Managed chat derived-asset directory."""
         return self.chat_resources_dir / "derived"
