@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+from ...media_usage import gemini_image_usage
 
 from ..base import ImageGenerationAdapter
 from ..errors import ImageGenInvalidParameterError
@@ -112,7 +113,8 @@ class GeminiImageAdapter(ImageGenerationAdapter):
         return ImageGenerationResponse(
             images=images,
             model=model,
-            raw_metadata={"provider_id": self.provider_id, "request": payload, "response": body},
+            raw_metadata={"provider_id": self.provider_id, "request": payload, "response": body,
+                          "usage": gemini_image_usage(body.get("usage"))},
         )
 
 

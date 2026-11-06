@@ -183,7 +183,10 @@ async def test_gemini_interactions_adapter_uses_native_endpoint_and_parses_base6
         capability=_capability(sizes=["1024x1024", "1792x1024"], max_n=1),
     )
     fake_client = _FakeHttpClient(
-        {"status": "completed", "steps": [{"type": "model_output", "content": [{"type": "image", "data": "ZmFrZQ==", "mime_type": "image/png"}]}]}
+        {"status": "completed", "steps": [{"type": "model_output", "content": [{"type": "image", "data": "ZmFrZQ==", "mime_type": "image/png"}]}],
+         "usage": {"total_input_tokens": 7, "total_output_tokens": 1000, "total_thought_tokens": 49,
+                   "input_tokens_by_modality": [{"modality": "text", "tokens": 7}],
+                   "output_tokens_by_modality": [{"modality": "image", "tokens": 1000}]}}
     )
     adapter._client = fake_client
 
@@ -207,6 +210,10 @@ async def test_gemini_interactions_adapter_uses_native_endpoint_and_parses_base6
         "response_format": {"type": "image", "mime_type": "image/png", "aspect_ratio": "16:9", "image_size": "2K"},
     }
     assert response.images[0].b64 == "ZmFrZQ=="
+    assert response.raw_metadata["usage"] == {
+        "input_tokens": 7, "text_input_tokens": 7, "output_tokens": 1049,
+        "image_output_tokens": 1000, "text_output_tokens": 49,
+    }
 
 
 @pytest.mark.asyncio

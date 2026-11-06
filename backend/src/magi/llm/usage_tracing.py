@@ -21,6 +21,7 @@ async def publish_llm_usage_span(
     usage_available: bool = False,
     error: str | None = None,
     event_context: dict[str, Any] | None = None,
+    billing: dict[str, Any] | None = None,
 ) -> None:
     """Publish a ``SpanCompleted(node_type='llm_call')`` usage event."""
     from magi.events.domain_payloads import ToolError
@@ -68,6 +69,9 @@ async def publish_llm_usage_span(
             "total_tokens": normalized_total_tokens,
             "image_count": int(image_count or 0),
             "usage_available": bool(usage_available),
+            "billing": billing,
+            "provider_plan": (billing or {}).get("provider_plan"),
+            "cost_override": (billing or {}).get("cost_override"),
             "correlation_id": context.get("correlation_id"),
             "session_id": context.get("session_id"),
             "turn_id": context.get("turn_id"),

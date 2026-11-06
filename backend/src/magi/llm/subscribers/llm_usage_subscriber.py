@@ -17,6 +17,7 @@ from magi.events.domain_payloads import SpanCompleted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
 from magi.llm.pricing import (
     calculate_chat_cost,
+    calculate_audio_cost,
     calculate_embedding_cost,
     calculate_image_generation_cost,
 )
@@ -202,6 +203,16 @@ class LLMUsageSubscriber:
         if not attrs.get("usage_available") and not attrs.get("image_count"):
             return None, None
         billing = attrs.get("billing") or {}
+        if attrs.get("request_kind") == "image_generation":
+            return self._resolve_non_chat_cost(attrs=attrs, payload=payload, provider=provider,
+                provider_plan=provider_plan, model=model, prompt_tokens=prompt_tokens)
+        if attrs.get("request_kind") == "tts":
+            if provider_plan:
+                return None, None
+            return calculate_audio_cost(provider=provider, model=model, usage=billing.get("media_usage"),
+                characters=billing.get("characters"), endpoint_host=billing.get("endpoint_host") or "",
+                requested_at=billing.get("requested_at"),
+                cost_override=LLMModelCostModel.model_validate(attrs["cost_override"]) if attrs.get("cost_override") else None)
         cost_amount, cost_currency = calculate_chat_cost(
             provider=provider,
             provider_plan=provider_plan,
@@ -258,6 +269,12 @@ class LLMUsageSubscriber:
             provider_plan=provider_plan,
             model=str(attrs.get("model") or payload.name),
             image_count=image_count,
+            usage=(attrs.get("billing") or {}).get("media_usage"),
+            input_image_count=(attrs.get("billing") or {}).get("input_image_count", 0),
+            image_size=(attrs.get("billing") or {}).get("image_size", ""),
+            endpoint_host=(attrs.get("billing") or {}).get("endpoint_host"),
+            requested_at=(attrs.get("billing") or {}).get("requested_at"),
+            cost_override=LLMModelCostModel.model_validate(attrs["cost_override"]) if attrs.get("cost_override") else None,
         )
 
     def _build_cache_observation_payload(

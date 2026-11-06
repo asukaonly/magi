@@ -70,6 +70,7 @@ const REQUEST_KIND_DISPLAY_KEYS: Record<string, { scenario: string; stage: strin
   'config:provider_test': { scenario: 'configurationTest', stage: 'providerConnectivity' },
   'eval:memory_answering': { scenario: 'evaluationTool', stage: 'memoryAnswering' },
   image_generation: { scenario: 'multimodalGeneration', stage: 'imageGeneration' },
+  tts: { scenario: 'multimodalGeneration', stage: 'speechGeneration' },
   embedding: { scenario: 'embeddingModel', stage: 'embedding' },
 };
 

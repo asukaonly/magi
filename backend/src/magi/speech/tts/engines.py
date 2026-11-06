@@ -6,14 +6,17 @@ import io
 import threading
 import wave
 import ipaddress
-from dataclasses import dataclass
-from typing import Sequence
+import logging
+import time
+from dataclasses import dataclass, field
+from typing import Any, Sequence
 from urllib.parse import urlsplit
 
 import httpx
 from magi_plugin_sdk.audio import AudioClip
 
 from magi.config.models import AppConfig
+from magi.llm.usage_tracing import publish_llm_usage_span
 from .catalog import endpoint, provider_models, local_capabilities
 from .models import MELO_ID, MLX_MODELS, VOICE_NAMES, TTSModelStore, local_voices, external_directories
 from .voices import TTSReferenceStore
@@ -37,6 +40,7 @@ class EngineOptions:
     voice_description: str = ""
     reference_audio: str = ""
     seed: int = 42
+    billing_context: dict[str, Any] = field(default_factory=dict)
 
 
 def resolve_options(config: AppConfig) -> EngineOptions:
@@ -93,9 +97,15 @@ def resolve_options(config: AppConfig) -> EngineOptions:
     key = service.api_key or provider.api_key or ""
     if (service.protocol in {"minimax", "dashscope"} or selection.remote_model == "gpt-realtime-2.1-mini") and not key:
         raise ValueError("provider_not_configured")
+    override = provider.model_metadata_overrides.get(selection.remote_model)
     return EngineOptions("remote", selection.remote_model, selection.remote_voice, selection.remote_speed, base_url,
                          key, service.timeout, None if service.protocol == "openai_compatible" else config.network.proxy_url(), service.protocol,
-                         selection.instructions, selection.emotion)
+                         selection.instructions, selection.emotion, billing_context={
+                             "provider": service.protocol if service.protocol in {"openai", "minimax", "dashscope"} else str(provider.provider_type),
+                             "provider_plan": provider.provider_plan,
+                             "endpoint_host": urlsplit(base_url).hostname,
+                             "cost_override": override.cost.model_dump(mode="json") if override and override.cost else None,
+                         })
 
 
 def validate_local_voice(model: str, voice: str, speed: float, description: str, reference: str) -> None:
@@ -267,9 +277,30 @@ class TTSEngine:
         return pcm_wav(samples, audio.sample_rate)
 
     async def _remote(self, text: str, options: EngineOptions, cancellation: threading.Event) -> AudioClip:
+        billing = {**options.billing_context, "requested_at": time.time()}
+        success, error = False, None
+        try:
+            clip = await self._remote_request(text, options, cancellation, billing)
+            success = True
+            return clip
+        except BaseException as exc:
+            error = str(exc)
+            raise
+        finally:
+            usage = billing.get("media_usage") or {}
+            try:
+                await publish_llm_usage_span(provider=billing.pop("provider", options.protocol), model=options.model,
+                    request_kind="tts", success=success, started_at=billing["requested_at"],
+                    prompt_tokens=usage.get("input_tokens", 0), completion_tokens=usage.get("output_tokens", 0),
+                    usage_available=bool(usage) or billing.get("characters") is not None, billing=billing, error=error)
+            except Exception:
+                logging.getLogger(__name__).debug("Speech usage publication failed", exc_info=True)
+
+    async def _remote_request(self, text: str, options: EngineOptions, cancellation: threading.Event,
+                              billing: dict[str, Any]) -> AudioClip:
         if options.protocol == "openai" and options.model == "gpt-realtime-2.1-mini":
             from .realtime import synthesize_pcm
-            return pcm_wav(await synthesize_pcm(text, options, cancellation), 24000)
+            return pcm_wav(await synthesize_pcm(text, options, cancellation, billing), 24000)
         headers = {"Authorization": f"Bearer {options.api_key}"} if options.api_key else {}
         path = "/audio/speech"
         payload = {"model": options.model, "voice": options.voice, "input": text,
@@ -307,6 +338,7 @@ class TTSEngine:
                         raise ValueError("provider_rejected")
                     if result["data"]["status"] != 2 or not isinstance(result["data"]["audio"], str):
                         raise ValueError("provider_invalid_response")
+                    billing["characters"] = (result.get("extra_info") or {}).get("usage_characters")
                     data = bytes.fromhex(result["data"]["audio"])
                 except (KeyError, TypeError, json.JSONDecodeError) as exc:
                     raise ValueError("provider_invalid_response") from exc
@@ -315,12 +347,19 @@ class TTSEngine:
                     result = json.loads(data)
                     if result.get("code") or result.get("output", {}).get("finish_reason") != "stop":
                         raise ValueError("provider_rejected")
+                    usage = result.get("usage") or {}
+                    billing["characters"] = usage.get("characters")
+                    if "input_tokens" in usage and "output_tokens" in usage:
+                        billing["media_usage"] = {"input_tokens": usage["input_tokens"], "text_input_tokens": usage["input_tokens"],
+                                                  "output_tokens": usage["output_tokens"], "audio_output_tokens": usage["output_tokens"]}
                     url = dashscope_audio_url(result["output"]["audio"]["url"])
                 except (KeyError, TypeError, AttributeError, json.JSONDecodeError) as exc:
                     raise ValueError("provider_invalid_response") from exc
                 # Signed resource URLs never receive the provider credential and never redirect.
                 async with client.stream("GET", url) as response:
                     data = await bounded_response(response, cancellation, 2 * 1024 * 1024)
+            elif options.model in {"tts-1", "tts-1-hd"}:
+                billing["characters"] = len(text)
         if cancellation.is_set():
             raise ValueError("cancelled")
         return complete_provider_wav(data, options.protocol)

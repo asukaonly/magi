@@ -21,6 +21,14 @@ class LLMRateOverrides(TypedDict, total=False):
     output_per_million_tokens: Rate | None
     cache_storage_per_million_token_hours: Rate | None
     per_image: Rate | None
+    image_input_per_million_tokens: Rate | None
+    cached_image_input_per_million_tokens: Rate | None
+    image_output_per_million_tokens: Rate | None
+    audio_input_per_million_tokens: Rate | None
+    cached_audio_input_per_million_tokens: Rate | None
+    audio_output_per_million_tokens: Rate | None
+    per_input_image: Rate | None
+    per_million_characters: Rate | None
 
 
 class LLMTokenRates(BaseModel):
@@ -33,6 +41,14 @@ class LLMTokenRates(BaseModel):
     output_per_million_tokens: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     cache_storage_per_million_token_hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     per_image: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    image_input_per_million_tokens: Rate | None = None
+    cached_image_input_per_million_tokens: Rate | None = None
+    image_output_per_million_tokens: Rate | None = None
+    audio_input_per_million_tokens: Rate | None = None
+    cached_audio_input_per_million_tokens: Rate | None = None
+    audio_output_per_million_tokens: Rate | None = None
+    per_input_image: Rate | None = None
+    per_million_characters: Rate | None = None
 
 
 class LLMPricingRule(BaseModel):
@@ -46,6 +62,7 @@ class LLMPricingRule(BaseModel):
     ends_at: AwareDatetime | None = None
     endpoint_hosts: list[str] = Field(default_factory=list)
     service_tiers: list[str] = Field(default_factory=list)
+    image_sizes: list[str] = Field(default_factory=list)
     thinking: bool | None = None
     cache_mode: Literal["implicit", "explicit"] | None = None
     inference_geo: str | None = None

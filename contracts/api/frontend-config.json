@@ -936,6 +936,32 @@
       "LLMModelCostModel": {
         "description": "Provider-published prices; absent rates mean unknown, never free.",
         "properties": {
+          "audio_input_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Audio Input Per Million Tokens"
+          },
+          "audio_output_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Audio Output Per Million Tokens"
+          },
           "cache_storage_per_million_token_hours": {
             "anyOf": [
               {
@@ -988,6 +1014,32 @@
             "default": null,
             "title": "Cache Write Per Million Tokens"
           },
+          "cached_audio_input_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cached Audio Input Per Million Tokens"
+          },
+          "cached_image_input_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cached Image Input Per Million Tokens"
+          },
           "cached_input_per_million_tokens": {
             "anyOf": [
               {
@@ -1012,6 +1064,32 @@
             },
             "title": "Endpoint Hosts",
             "type": "array"
+          },
+          "image_input_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Image Input Per Million Tokens"
+          },
+          "image_output_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Image Output Per Million Tokens"
           },
           "input_per_million_tokens": {
             "anyOf": [
@@ -1062,6 +1140,32 @@
             ],
             "default": null,
             "title": "Per Image"
+          },
+          "per_input_image": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Per Input Image"
+          },
+          "per_million_characters": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Per Million Characters"
           },
           "rules": {
             "items": {
@@ -1118,6 +1222,14 @@
           "output_per_million_tokens",
           "cache_storage_per_million_token_hours",
           "per_image",
+          "image_input_per_million_tokens",
+          "cached_image_input_per_million_tokens",
+          "image_output_per_million_tokens",
+          "audio_input_per_million_tokens",
+          "cached_audio_input_per_million_tokens",
+          "audio_output_per_million_tokens",
+          "per_input_image",
+          "per_million_characters",
           "source",
           "source_note",
           "verified_on",
@@ -1418,6 +1530,13 @@
             "default": null,
             "title": "Ends At"
           },
+          "image_sizes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Image Sizes",
+            "type": "array"
+          },
           "inference_geo": {
             "anyOf": [
               {
@@ -1533,6 +1652,7 @@
           "ends_at",
           "endpoint_hosts",
           "service_tiers",
+          "image_sizes",
           "thinking",
           "cache_mode",
           "inference_geo",
@@ -1905,6 +2025,30 @@
       "LLMRateOverrides": {
         "description": "Omitted prices inherit; explicit null makes the price unknown.",
         "properties": {
+          "audio_input_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audio Input Per Million Tokens"
+          },
+          "audio_output_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audio Output Per Million Tokens"
+          },
           "cache_storage_per_million_token_hours": {
             "anyOf": [
               {
@@ -1953,6 +2097,30 @@
             ],
             "title": "Cache Write Per Million Tokens"
           },
+          "cached_audio_input_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached Audio Input Per Million Tokens"
+          },
+          "cached_image_input_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached Image Input Per Million Tokens"
+          },
           "cached_input_per_million_tokens": {
             "anyOf": [
               {
@@ -1975,6 +2143,30 @@
               }
             ],
             "title": "Currency"
+          },
+          "image_input_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Input Per Million Tokens"
+          },
+          "image_output_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Output Per Million Tokens"
           },
           "input_per_million_tokens": {
             "anyOf": [
@@ -2011,6 +2203,30 @@
               }
             ],
             "title": "Per Image"
+          },
+          "per_input_image": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Input Image"
+          },
+          "per_million_characters": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Million Characters"
           }
         },
         "title": "LLMRateOverrides",

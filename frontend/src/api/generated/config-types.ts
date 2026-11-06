@@ -460,6 +460,16 @@ export interface components {
          */
         LLMModelCostModel: {
             /**
+             * Audio Input Per Million Tokens
+             * @default null
+             */
+            audio_input_per_million_tokens: number | null;
+            /**
+             * Audio Output Per Million Tokens
+             * @default null
+             */
+            audio_output_per_million_tokens: number | null;
+            /**
              * Cache Storage Per Million Token Hours
              * @default null
              */
@@ -480,6 +490,16 @@ export interface components {
              */
             cache_write_per_million_tokens: number | null;
             /**
+             * Cached Audio Input Per Million Tokens
+             * @default null
+             */
+            cached_audio_input_per_million_tokens: number | null;
+            /**
+             * Cached Image Input Per Million Tokens
+             * @default null
+             */
+            cached_image_input_per_million_tokens: number | null;
+            /**
              * Cached Input Per Million Tokens
              * @default null
              */
@@ -491,6 +511,16 @@ export interface components {
             currency: string;
             /** Endpoint Hosts */
             endpoint_hosts: string[];
+            /**
+             * Image Input Per Million Tokens
+             * @default null
+             */
+            image_input_per_million_tokens: number | null;
+            /**
+             * Image Output Per Million Tokens
+             * @default null
+             */
+            image_output_per_million_tokens: number | null;
             /**
              * Input Per Million Tokens
              * @default null
@@ -508,6 +538,16 @@ export interface components {
              * @default null
              */
             per_image: number | null;
+            /**
+             * Per Input Image
+             * @default null
+             */
+            per_input_image: number | null;
+            /**
+             * Per Million Characters
+             * @default null
+             */
+            per_million_characters: number | null;
             /** Rules */
             rules: components["schemas"]["LLMPricingRule"][];
             /**
@@ -632,6 +672,8 @@ export interface components {
              * @default null
              */
             ends_at: string | null;
+            /** Image Sizes */
+            image_sizes: string[];
             /**
              * Inference Geo
              * @default null
@@ -845,6 +887,10 @@ export interface components {
          * @description Omitted prices inherit; explicit null makes the price unknown.
          */
         LLMRateOverrides: {
+            /** Audio Input Per Million Tokens */
+            audio_input_per_million_tokens?: number | null;
+            /** Audio Output Per Million Tokens */
+            audio_output_per_million_tokens?: number | null;
             /** Cache Storage Per Million Token Hours */
             cache_storage_per_million_token_hours?: number | null;
             /** Cache Write 12H Per Million Tokens */
@@ -853,16 +899,28 @@ export interface components {
             cache_write_1h_per_million_tokens?: number | null;
             /** Cache Write Per Million Tokens */
             cache_write_per_million_tokens?: number | null;
+            /** Cached Audio Input Per Million Tokens */
+            cached_audio_input_per_million_tokens?: number | null;
+            /** Cached Image Input Per Million Tokens */
+            cached_image_input_per_million_tokens?: number | null;
             /** Cached Input Per Million Tokens */
             cached_input_per_million_tokens?: number | null;
             /** Currency */
             currency?: string | null;
+            /** Image Input Per Million Tokens */
+            image_input_per_million_tokens?: number | null;
+            /** Image Output Per Million Tokens */
+            image_output_per_million_tokens?: number | null;
             /** Input Per Million Tokens */
             input_per_million_tokens?: number | null;
             /** Output Per Million Tokens */
             output_per_million_tokens?: number | null;
             /** Per Image */
             per_image?: number | null;
+            /** Per Input Image */
+            per_input_image?: number | null;
+            /** Per Million Characters */
+            per_million_characters?: number | null;
         };
         /** LLMSelectionConfigModel */
         LLMSelectionConfigModel: {

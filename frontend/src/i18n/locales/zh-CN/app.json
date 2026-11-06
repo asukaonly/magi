@@ -2697,6 +2697,7 @@
           "providerConnectivity": "供应商连通性测试",
           "memoryAnswering": "记忆问答合成",
           "imageGeneration": "图片生成",
+          "speechGeneration": "语音合成",
           "embedding": "Embedding"
         }
       },

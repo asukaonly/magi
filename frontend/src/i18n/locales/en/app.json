@@ -2698,6 +2698,7 @@
           "providerConnectivity": "Provider connectivity test",
           "memoryAnswering": "Memory answer synthesis",
           "imageGeneration": "Image generation",
+          "speechGeneration": "Speech generation",
           "embedding": "Embedding"
         }
       },

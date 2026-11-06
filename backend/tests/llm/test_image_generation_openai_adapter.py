@@ -6,6 +6,7 @@ import base64
 from types import SimpleNamespace
 
 import pytest
+from openai.types.images_response import ImagesResponse
 
 from magi.llm.image_generation import (
     ImageGenInvalidParameterError,
@@ -119,10 +120,11 @@ async def test_image_factory_selects_protocol_and_image_specific_settings(
 async def test_openai_images_adapter_sends_unified_payload() -> None:
     image_data = base64.b64encode(b"fake-image").decode("ascii")
     fake_images = _FakeImagesClient(
-        response=SimpleNamespace(
-            data=[
-                SimpleNamespace(b64_json=image_data, url=None, revised_prompt="a brighter prompt")
-            ]
+        response=ImagesResponse(
+            created=1,
+            data=[{"b64_json": image_data, "revised_prompt": "a brighter prompt"}],
+            usage={"input_tokens": 100, "output_tokens": 1000, "total_tokens": 1100,
+                   "input_tokens_details": {"text_tokens": 80, "image_tokens": 20}},
         )
     )
     adapter = _adapter()
@@ -146,6 +148,9 @@ async def test_openai_images_adapter_sends_unified_payload() -> None:
     }
     assert response.images[0].b64 == image_data
     assert response.images[0].revised_prompt == "a brighter prompt"
+    assert response.raw_metadata["usage"]["text_input_tokens"] == 80
+    assert response.raw_metadata["usage"]["image_input_tokens"] == 20
+    assert response.raw_metadata["usage"]["image_output_tokens"] == 1000
 
 
 @pytest.mark.asyncio

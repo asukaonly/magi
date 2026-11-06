@@ -134,10 +134,13 @@ async def test_image_generation_tool_saves_and_returns_chat_attachment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     image_data = base64.b64encode(b"fake-image").decode("ascii")
+    usage = {"input_tokens": 100, "text_input_tokens": 100,
+             "output_tokens": 1000, "image_output_tokens": 1000}
     fake_adapter = _FakeAdapter(
         response=ImageGenerationResponse(
             images=[ImageArtifact(b64=image_data, revised_prompt="a better prompt")],
             model="gpt-image-1",
+            raw_metadata={"usage": usage},
         )
     )
     adapter_kwargs: dict = {}
@@ -171,13 +174,16 @@ async def test_image_generation_tool_saves_and_returns_chat_attachment(
     assert fake_adapter.requests[0].prompt == "draw a small desk"
     assert fake_adapter.closed is True
     assert adapter_kwargs["timeout"] == 181
-    # Success publishes a usage span carrying the number of generated images,
-    # which the usage subscriber prices per image.
     assert fake_image_gen.usage_spans, "expected a usage span to be published"
     span = fake_image_gen.usage_spans[-1]
     assert span["success"] is True
     assert span["request_kind"] == "image_generation"
     assert span["image_count"] == 1
+    assert span["prompt_tokens"] == 100
+    assert span["completion_tokens"] == 1000
+    assert span["billing"]["media_usage"] == usage
+    assert span["billing"]["image_size"] == "1024x1024"
+    assert "draw a small desk" not in str(span["billing"])
 
 
 @pytest.mark.asyncio

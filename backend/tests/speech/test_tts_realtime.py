@@ -64,7 +64,7 @@ async def test_realtime_speech_returns_complete_wav_and_closes(tmp_path, monkeyp
 async def test_realtime_rejects_partial_invalid_and_excess_audio(monkeypatch, event, error):
     _, closed, _ = connection(monkeypatch, [event])
     with pytest.raises(ValueError, match=error):
-        await synthesize_pcm("hello", OPTIONS, threading.Event())
+        await synthesize_pcm("hello", OPTIONS, threading.Event(), {})
     assert closed == [True]
 
 
@@ -73,5 +73,5 @@ async def test_realtime_cancellation_closes_socket(monkeypatch):
     cancelled = threading.Event()
     _, closed, _ = connection(monkeypatch, [{"type": "session.created"}], cancelled)
     with pytest.raises(ValueError, match="cancelled"):
-        await synthesize_pcm("hello", OPTIONS, cancelled)
+        await synthesize_pcm("hello", OPTIONS, cancelled, {})
     assert closed == [True]

@@ -590,6 +590,17 @@ providers:
         supports_reference: false
         max_n: 1
         native_protocol: openai_images
+        cost:
+          currency: USD
+          input_per_million_tokens: 5
+          cached_input_per_million_tokens: 1.25
+          image_input_per_million_tokens: 8
+          cached_image_input_per_million_tokens: 2
+          image_output_per_million_tokens: 30
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - api.openai.com
       - id: gpt-image-2.6-flare
         label: GPT Image 2.6 Flare
         supported_sizes:
@@ -606,13 +617,60 @@ providers:
         supports_reference: false
         max_n: 1
         native_protocol: openai_images
+        cost:
+          currency: USD
+          input_per_million_tokens: 5
+          cached_input_per_million_tokens: 1.25
+          image_input_per_million_tokens: 8
+          cached_image_input_per_million_tokens: 2
+          image_output_per_million_tokens: 30
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - api.openai.com
     audio_generation_models:
       - id: gpt-realtime-2.1-mini
         label: GPT Realtime 2.1 Mini
+        cost:
+          currency: USD
+          input_per_million_tokens: 0.6
+          cached_input_per_million_tokens: 0.06
+          output_per_million_tokens: 2.4
+          audio_input_per_million_tokens: 10
+          cached_audio_input_per_million_tokens: 0.3
+          audio_output_per_million_tokens: 20
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - api.openai.com
       - id: tts-1
         label: TTS 1
+        cost:
+          currency: USD
+          per_million_characters: 15
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - api.openai.com
       - id: tts-1-hd
         label: TTS 1 HD
+        cost:
+          currency: USD
+          per_million_characters: 30
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - api.openai.com
+      - id: gpt-4o-mini-tts
+        label: gpt-4o-mini-tts
+        cost:
+          currency: USD
+          input_per_million_tokens: 0.6
+          audio_output_per_million_tokens: 12
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - api.openai.com
     fields:
       model:
         visible: true
@@ -1177,9 +1235,12 @@ providers:
         max_n: 1
         native_protocol: zai_images
         cost:
-          currency: USD
-          per_image: 0.015
-          source: https://docs.z.ai/guides/llm/price
+          currency: CNY
+          per_image: 0.1
+          source: https://docs.bigmodel.cn/cn/guide/start/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - open.bigmodel.cn
       - id: cogview-4-250304
         label: CogView 4 250304
         supported_sizes: [1024x1024, 768x1344, 864x1152, 1344x768, 1152x864, 1440x720, 720x1440]
@@ -1190,9 +1251,12 @@ providers:
         max_n: 1
         native_protocol: zai_images
         cost:
-          currency: USD
-          per_image: 0.01
-          source: https://docs.z.ai/guides/llm/price
+          currency: CNY
+          per_image: 0.06
+          source: https://docs.bigmodel.cn/cn/guide/start/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - open.bigmodel.cn
     plans:
       - id: codeplan
         display_name: Z.ai CodePlan
@@ -1418,12 +1482,36 @@ providers:
         supported_qualities: [auto, high, medium, low]
         max_n: 1
         native_protocol: gemini_interactions
+        cost:
+          currency: USD
+          input_per_million_tokens: 1.5
+          image_input_per_million_tokens: 1.5
+          output_per_million_tokens: 7.5
+          image_output_per_million_tokens: 30
+          source_note: Image output, text output and thinking are billed separately from actual response usage. Per-image
+            equivalents exclude input and thinking.
+          source: https://aistudio.google.com/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - generativelanguage.googleapis.com
       - id: gemini-3-pro-image
         label: Nano Banana Pro
         supported_sizes: [1024x1024, 1024x768, 768x1024, 1792x1024, 1024x1792]
         supported_qualities: [auto, high, medium, low]
         max_n: 1
         native_protocol: gemini_interactions
+        cost:
+          currency: USD
+          input_per_million_tokens: 2
+          image_input_per_million_tokens: 2
+          output_per_million_tokens: 12
+          image_output_per_million_tokens: 120
+          source_note: Image output, text output and thinking are billed separately from actual response usage. Per-image
+            equivalents exclude input and thinking.
+          source: https://aistudio.google.com/docs/pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - generativelanguage.googleapis.com
     fields:
       model:
         visible: true
@@ -1769,6 +1857,77 @@ providers:
     default_model: qwen3.7-plus
     default_classify_model: qwen3.8-flash
     default_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    audio_generation_models:
+      - id: qwen-audio-3.1-tts-flash
+        label: qwen-audio-3.1-tts-flash
+        cost:
+          currency: CNY
+          input_per_million_tokens: 1.5
+          audio_output_per_million_tokens: 12
+          rules:
+            - endpoint_hosts:
+                - '*.ap-southeast-1.maas.aliyuncs.com'
+              rates:
+                input_per_million_tokens: 1.677
+                audio_output_per_million_tokens: 13.636
+          source_note: Character billing counts each Han character as two; other characters count as one. SSML tags
+            are excluded.
+          source: https://help.aliyun.com/zh/model-studio/model-pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - '*.cn-beijing.maas.aliyuncs.com'
+            - '*.ap-southeast-1.maas.aliyuncs.com'
+      - id: qwen-audio-3.1-tts-plus
+        label: qwen-audio-3.1-tts-plus
+        cost:
+          currency: CNY
+          per_million_characters: 140
+          rules:
+            - endpoint_hosts:
+                - '*.ap-southeast-1.maas.aliyuncs.com'
+              rates:
+                per_million_characters: 219
+          source_note: Character billing counts each Han character as two; other characters count as one. SSML tags
+            are excluded.
+          source: https://help.aliyun.com/zh/model-studio/model-pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - '*.cn-beijing.maas.aliyuncs.com'
+            - '*.ap-southeast-1.maas.aliyuncs.com'
+      - id: qwen3-tts-flash
+        label: qwen3-tts-flash
+        cost:
+          currency: CNY
+          per_million_characters: 80
+          rules:
+            - endpoint_hosts:
+                - dashscope-intl.aliyuncs.com
+              rates:
+                per_million_characters: 73.3924
+          source_note: Character billing counts each Han character as two; other characters count as one. SSML tags
+            are excluded.
+          source: https://help.aliyun.com/zh/model-studio/model-pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - dashscope.aliyuncs.com
+            - dashscope-intl.aliyuncs.com
+      - id: qwen3-tts-instruct-flash
+        label: qwen3-tts-instruct-flash
+        cost:
+          currency: CNY
+          per_million_characters: 80
+          rules:
+            - endpoint_hosts:
+                - dashscope-intl.aliyuncs.com
+              rates:
+                per_million_characters: 80
+          source_note: Character billing counts each Han character as two; other characters count as one. SSML tags
+            are excluded.
+          source: https://help.aliyun.com/zh/model-studio/model-pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - dashscope.aliyuncs.com
+            - dashscope-intl.aliyuncs.com
     chat_models:
       - id: qwen3.8-max
         label: Qwen3.8 Max
@@ -2157,6 +2316,31 @@ providers:
         supports_reference: false
         max_n: 6
         native_protocol: dashscope_multimodal_image
+        cost:
+          currency: CNY
+          per_image: 0.25
+          per_input_image: 0.02
+          rules:
+            - image_sizes:
+                - 2048x2048
+              rates:
+                per_image: 0.5
+            - endpoint_hosts:
+                - dashscope-intl.aliyuncs.com
+              rates:
+                per_image: 0.299768
+                per_input_image: 0.022483
+            - endpoint_hosts:
+                - dashscope-intl.aliyuncs.com
+              image_sizes:
+                - 2048x2048
+              rates:
+                per_image: 0.562065
+          source: https://help.aliyun.com/zh/model-studio/model-pricing
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - dashscope.aliyuncs.com
+            - dashscope-intl.aliyuncs.com
       - id: qwen-image-2.0-pro
         label: Qwen Image 2.0 Pro
         supported_sizes:
@@ -2182,6 +2366,8 @@ providers:
           currency: CNY
           per_image: 0.5
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
+          endpoint_hosts:
+            - dashscope.aliyuncs.com
       - id: qwen-image-2.0
         label: Qwen Image 2.0
         supported_sizes:
@@ -2207,6 +2393,8 @@ providers:
           currency: CNY
           per_image: 0.2
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
+          endpoint_hosts:
+            - dashscope.aliyuncs.com
       - id: qwen-image-max
         label: Qwen Image Max
         supported_sizes:
@@ -2229,6 +2417,8 @@ providers:
           currency: CNY
           per_image: 0.5
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
+          endpoint_hosts:
+            - dashscope.aliyuncs.com
       - id: qwen-image-plus
         label: Qwen Image Plus
         supported_sizes:
@@ -2251,6 +2441,8 @@ providers:
           currency: CNY
           per_image: 0.2
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
+          endpoint_hosts:
+            - dashscope.aliyuncs.com
       - id: qwen-image
         label: Qwen Image
         supported_sizes:
@@ -2273,6 +2465,8 @@ providers:
           currency: CNY
           per_image: 0.25
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
+          endpoint_hosts:
+            - dashscope.aliyuncs.com
     plans:
       - id: codeplan
         display_name: Alibaba Cloud Coding Plan
@@ -2470,6 +2664,39 @@ providers:
     default_model: MiniMax-M3.1-Flash
     default_classify_model: MiniMax-M3.1-Flash
     default_base_url: https://api.minimaxi.com/v1
+    audio_generation_models:
+      - id: speech-2.8-hd
+        label: speech-2.8-hd
+        cost:
+          currency: CNY
+          per_million_characters: 350
+          rules:
+            - endpoint_hosts:
+                - api.minimax.io
+              rates:
+                currency: USD
+                per_million_characters: 100
+          source: https://platform.minimax.cn/docs/pricing/overview
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - api.minimaxi.com
+            - api.minimax.io
+      - id: speech-2.8-turbo
+        label: speech-2.8-turbo
+        cost:
+          currency: CNY
+          per_million_characters: 200
+          rules:
+            - endpoint_hosts:
+                - api.minimax.io
+              rates:
+                currency: USD
+                per_million_characters: 60
+          source: https://platform.minimax.cn/docs/pricing/overview
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - api.minimaxi.com
+            - api.minimax.io
     chat_models:
       - id: MiniMax-M3.1-Flash
         label: MiniMax M3.1 Flash
@@ -2599,7 +2826,18 @@ providers:
         cost:
           currency: CNY
           per_image: 0.025
-          source: https://platform.minimaxi.com/docs/guides/pricing-paygo.md
+          per_input_image: 0
+          rules:
+            - endpoint_hosts:
+                - api.minimax.io
+              rates:
+                currency: USD
+                per_image: 0.0035
+          source: https://platform.minimax.cn/docs/pricing/overview
+          verified_on: '2026-11-07'
+          endpoint_hosts:
+            - api.minimaxi.com
+            - api.minimax.io
     plans:
       - id: tokenplan
         display_name: MiniMax M Plan
