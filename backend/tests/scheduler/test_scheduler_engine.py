@@ -133,6 +133,64 @@ async def test_shutdown_drains_runtime_job_cleanup(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fire_and_forget", [False, True])
+@pytest.mark.parametrize("one_off", [False, True])
+async def test_shutdown_drains_manual_execution_and_closes_admission(tmp_path, fire_and_forget, one_off):
+    service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
+    entered = asyncio.Event()
+    cancelling = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    cleaned = asyncio.Event()
+
+    async def handler(context):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelling.set()
+            await release_cleanup.wait()
+            cleaned.set()
+
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
+    await service.start(paused=True)
+    schedule = service.schedule_once if one_off else service.schedule_interval
+    timing = {"run_at": time.time() + 3600} if one_off else {"seconds": 3600}
+    await schedule(
+        schedule_id="manual", target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        target_key="global", target_payload={}, **timing,
+    )
+    if fire_and_forget:
+        assert (await service.execute_schedule_async("manual")).message == "queued"
+        execution = next(iter(service._execution_tasks))
+    else:
+        execution = asyncio.create_task(service.execute_schedule("manual", manual=True))
+    await asyncio.wait_for(entered.wait(), 2)
+    stopping = asyncio.create_task(service.stop())
+    try:
+        await asyncio.wait_for(cancelling.wait(), 2)
+        assert not stopping.done()
+        for execute in (service.execute_schedule, service.execute_schedule_async):
+            result = await execute("manual")
+            assert not result.success
+            assert result.message == "scheduler_not_running"
+    finally:
+        release_cleanup.set()
+        await asyncio.wait_for(stopping, 2)
+        await asyncio.gather(execution, return_exceptions=True)
+
+    assert cleaned.is_set()
+    assert not service._execution_tasks
+    state = await service.get_target_state(ScheduledTargetType.MEMORY_L2_MAINTENANCE, "global")
+    assert not state.running
+    rows = await service.repository.list_executions(schedule_id="manual")
+    assert len(rows) == 1
+    assert rows[0]["status"] == "failed"
+    assert rows[0]["error"] == "execution_cancelled"
+    assert await service.repository.get_schedule("manual") is not None
+    assert (await service.execute_schedule_async("manual")).message == "scheduler_not_running"
+
+
+@pytest.mark.asyncio
 async def test_cancelled_scheduler_write_retains_owner_until_settled(tmp_path):
     service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
     entered = threading.Event()

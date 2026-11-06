@@ -139,8 +139,10 @@ replacement reads and preserves the next deadline under the same job-store
 lock as due-job processing, so a concurrent tick cannot be overwritten. SQLite
 lock waits must never prevent the asynchronous transaction holding that lock
 from committing. Cancelled management calls retain ownership until their thread
-operation settles; shutdown joins the scheduler and drains scheduled coroutine
-cleanup before returning. Due-job scans acquire the executor lock before the
+operation settles; shutdown closes execution admission, joins the scheduler,
+and cancels and drains both scheduled and manually triggered coroutine cleanup
+before returning. Cancelled executions release their target and record failure;
+cancelled one-off schedules remain available after restart. Due-job scans acquire the executor lock before the
 job-store lock, matching shutdown so an in-flight tick cannot deadlock service
 exit. A scan rechecks stopped state under that lock, so a tick queued behind
 shutdown cannot admit fresh work after the executor's cancellation sweep.

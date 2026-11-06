@@ -835,7 +835,7 @@ async def test_user_data_clear_fences_stale_user_handler_and_preserves_system_jo
         assert queued.message == "queued"
         assert blocked_execution.message == "data_clear_in_progress"
         assert enqueue_attempts == []
-        assert service._background_tasks == set()
+        assert service._execution_tasks == set()
         assert [schedule.schedule_id for schedule in schedules] == ["system-maintenance"]
         assert service._scheduler.get_job("agent-task:stale") is None
         assert service._scheduler.get_job("system-maintenance") is not None
@@ -897,7 +897,7 @@ async def test_system_handler_finishing_after_clear_cannot_restore_result_conten
         )
         queued = await service.execute_schedule_async("system-maintenance-stale")
         assert queued.message == "queued"
-        background_task = next(iter(service._background_tasks))
+        background_task = next(iter(service._execution_tasks))
         await asyncio.wait_for(handler_started.wait(), timeout=2.0)
 
         async with service.user_data_clear_boundary():

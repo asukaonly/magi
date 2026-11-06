@@ -104,10 +104,7 @@ class SchedulerService:
         self._data_clear_active = False
         self._data_generation = 0
         self._active_user_execution_tasks: set[asyncio.Task[Any]] = set()
-        # Strong references to background-execution tasks spawned by
-        # execute_schedule_async — without this, asyncio may GC pending
-        # tasks before their handlers finish. Removed via done_callback.
-        self._background_tasks: set[asyncio.Task] = set()
+        self._execution_tasks: set[asyncio.Task[Any]] = set()
         self._jobstore_engine = create_engine(
             f"sqlite:///{self._db_path}",
             connect_args={"timeout": 30, "check_same_thread": False},
@@ -129,6 +126,7 @@ class SchedulerService:
         )
         self._running = False
         self._active = False
+        self._stopping = False
 
     @property
     def repository(self) -> ScheduleRepository:
@@ -156,7 +154,7 @@ class SchedulerService:
 
     async def activate(self) -> None:
         """Allow persisted jobs to run under their target readiness gates."""
-        if not self._running:
+        if not self._running or self._stopping:
             raise RuntimeError("Scheduler service is not started")
         if self._active:
             return
@@ -169,13 +167,21 @@ class SchedulerService:
         await finish_cleanup(self._stop_engine())
 
     async def _stop_engine(self) -> None:
+        async with self._data_clear_lock:
+            self._stopping = True
         await self._scheduler_call(self._scheduler.shutdown, wait=False)
         if self._executor is not None:
             await self._executor.drain()
+        tasks = list(self._execution_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         await self._scheduler_call(self._scheduler.remove_executor, "default", shutdown=False)
         await self._scheduler_call(self._jobstore_engine.dispose)
         self._running = False
         self._active = False
+        self._stopping = False
 
     async def _scheduler_call(self, operation: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
         # An accepted database operation must settle before cancellation releases
@@ -191,7 +197,7 @@ class SchedulerService:
         """Report whether a persisted schedule can run in this runtime."""
         if not schedule.enabled:
             return "paused"
-        if not self._running or not self._target_ready(schedule.target_type) or schedule.target_type not in self._handlers:
+        if not self._running or self._stopping or not self._target_ready(schedule.target_type) or schedule.target_type not in self._handlers:
             return "unavailable"
         job = await self._scheduler_call(self._scheduler.get_job, schedule.job_id or schedule.schedule_id)
         if job is None:
@@ -433,6 +439,8 @@ class SchedulerService:
             if tracks_user_execution:
                 assert current_task is not None
                 self._active_user_execution_tasks.add(current_task)
+            if prep.early_result is None and current_task is not None:
+                self._execution_tasks.add(current_task)
         if prep.early_result is not None:
             await self._reschedule_busy_once(schedule_id, prep.early_result)
             return prep.early_result
@@ -446,9 +454,10 @@ class SchedulerService:
                 data_generation=prep.data_generation,
             )
         finally:
-            if tracks_user_execution and current_task is not None:
+            if current_task is not None:
                 async with self._data_clear_lock:
                     self._active_user_execution_tasks.discard(current_task)
+                    self._execution_tasks.discard(current_task)
 
     async def execute_schedule_async(
         self,
@@ -515,8 +524,8 @@ class SchedulerService:
                     and prep.schedule.target_type is ScheduledTargetType.USER_AGENT_TASK
                 ):
                     self._active_user_execution_tasks.add(task)
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
+                self._execution_tasks.add(task)
+                task.add_done_callback(self._execution_tasks.discard)
         if early_result is not None:
             await self._reschedule_busy_once(schedule_id, early_result)
             return early_result
@@ -571,6 +580,8 @@ class SchedulerService:
         override_payload: dict[str, Any] | None,
     ) -> "_ExecutionPrep":
         """Prepare an execution while the data-clear admission lock is held."""
+        if not self._running or self._stopping:
+            return self._early_execution_prep("scheduler_not_running")
         schedule, early_result = await self._load_execution_schedule(
             schedule_id,
             override_payload=override_payload,
@@ -754,7 +765,8 @@ class SchedulerService:
             if schedule.trigger.trigger_type == TriggerType.ONCE:
                 await self._consume_once_schedule(schedule)
             return result
-        except Exception as exc:
+        except (Exception, asyncio.CancelledError) as exc:
+            error = "execution_cancelled" if isinstance(exc, asyncio.CancelledError) else str(exc)
             async with self._data_clear_lock:
                 await self._assert_execution_settlement_current(
                     schedule,
@@ -763,16 +775,16 @@ class SchedulerService:
                 await self._repository.record_target_failure(
                     schedule.target_type,
                     schedule.target_key,
-                    error=str(exc),
+                    error=error,
                     scheduler_job_id=schedule.job_id or schedule.schedule_id,
                 )
                 await self._repository.complete_execution_failure(
                     execution_id,
-                    error=str(exc),
+                    error=error,
                     scheduler_job_id=schedule.job_id or schedule.schedule_id,
                     finished_at=time.time(),
                 )
-            if schedule.trigger.trigger_type == TriggerType.ONCE:
+            if schedule.trigger.trigger_type == TriggerType.ONCE and not isinstance(exc, asyncio.CancelledError):
                 await self._consume_once_schedule(schedule)
             raise
 
