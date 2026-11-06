@@ -94,6 +94,11 @@ pub async fn run(
     let listener_address = listener.local_addr().map_err(|e| e.to_string())?;
     let port = listener_address.port();
     state.listener_address = Some(listener_address);
+    state.apns = match magi_gateway::push::Apns::from_env() {
+        Ok(provider) => provider.map(Arc::new),
+        Err(error) => { eprintln!("APNs is unavailable: {error}"); None }
+    };
+    let _push_task = tokio::spawn(magi_gateway::push::run(state.clone(), shutdown.clone()));
     let router = api::build_router(state);
     #[cfg(unix)]
     let mut management = crate::management::ManagementServer::bind(

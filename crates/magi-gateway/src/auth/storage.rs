@@ -21,7 +21,7 @@ impl AuthDatabase {
         let version: i64 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 4 {
+        if version > 5 {
             return Err("Service authentication database requires a newer server".into());
         }
         if version == 0 {
@@ -68,7 +68,43 @@ impl AuthDatabase {
                 .map_err(|e| e.to_string())?;
             transaction.commit().map_err(|e| e.to_string())?;
         }
+        if version < 5 {
+            let transaction = connection.transaction().map_err(|e| e.to_string())?;
+            transaction.execute_batch("CREATE TABLE push_devices (
+                client_id TEXT PRIMARY KEY REFERENCES clients(client_id), token TEXT NOT NULL,
+                environment TEXT NOT NULL, data_epoch TEXT NOT NULL, after_id INTEGER NOT NULL,
+                UNIQUE(token, environment)); PRAGMA user_version=5;").map_err(|e| e.to_string())?;
+            transaction.commit().map_err(|e| e.to_string())?;
+        }
         Ok(Self(connection))
+    }
+
+    pub fn register_push(&self, device: &super::push::PushDevice) -> Result<(), String> {
+        let active: bool = self.0.query_row("SELECT EXISTS(SELECT 1 FROM clients c WHERE client_id=?1 AND revoked_at_ms IS NULL AND NOT EXISTS(SELECT 1 FROM collector_scopes s WHERE s.client_id=c.client_id))", [&device.client_id], |r| r.get(0)).map_err(|e|e.to_string())?;
+        if !active { return Err("Push requires a paired owner device".into()); }
+        let tx = self.0.unchecked_transaction().map_err(|e|e.to_string())?;
+        tx.execute("DELETE FROM push_devices WHERE token=?1 AND environment=?2 AND client_id<>?3", params![device.token,device.environment,device.client_id]).map_err(|e|e.to_string())?;
+        tx.execute("INSERT INTO push_devices VALUES (?1,?2,?3,?4,?5) ON CONFLICT(client_id) DO UPDATE SET token=excluded.token, environment=excluded.environment, after_id=CASE WHEN push_devices.data_epoch=excluded.data_epoch THEN push_devices.after_id ELSE excluded.after_id END, data_epoch=excluded.data_epoch",
+            params![device.client_id,device.token,device.environment,device.data_epoch,device.after_id]).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())
+    }
+
+    pub fn push_devices(&self) -> Result<Vec<super::push::PushDevice>, String> {
+        let mut stmt = self.0.prepare("SELECT p.* FROM push_devices p JOIN clients c USING(client_id) WHERE c.revoked_at_ms IS NULL").map_err(|e|e.to_string())?;
+        let rows = stmt.query_map([], |r| Ok(super::push::PushDevice {client_id:r.get(0)?,token:r.get(1)?,environment:r.get(2)?,data_epoch:r.get(3)?,after_id:r.get(4)?})).map_err(|e|e.to_string())?;
+        rows.collect::<Result<Vec<_>,_>>().map_err(|e|e.to_string())
+    }
+
+    pub fn remove_push(&self, client: &str) -> Result<(), String> {
+        self.0.execute("DELETE FROM push_devices WHERE client_id=?", [client]).map_err(|e|e.to_string())?;
+        Ok(())
+    }
+
+    pub fn advance_push(&self, device: &super::push::PushDevice, next: i64, invalid: bool) -> Result<(), String> {
+        let sql = if invalid { "DELETE FROM push_devices WHERE client_id=?1 AND token=?2 AND data_epoch=?3 AND after_id=?4 AND ?5>=0" }
+            else { "UPDATE push_devices SET after_id=?5 WHERE client_id=?1 AND token=?2 AND data_epoch=?3 AND after_id=?4" };
+        self.0.execute(sql, params![device.client_id,device.token,device.data_epoch,device.after_id,next]).map_err(|e|e.to_string())?;
+        Ok(())
     }
 
     pub fn notification_policy(&self) -> Result<String, String> {

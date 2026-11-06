@@ -18,3 +18,12 @@ async def read_notifications(params: dict[str, Any] | None) -> dict[str, Any]:
     if store is None:
         raise RuntimeError("Notification feed owner is unavailable")
     return asdict(await store.read_notification_feed(after_id=cursor.after_id))
+
+
+async def read_push_notifications(params: dict[str, Any] | None) -> dict[str, Any]:
+    import asyncio
+    from ..identity.defaults import CANONICAL_LOCAL_USER
+    from ..notifications.store import get_notification_store
+
+    cursor = NotificationCursor.model_validate(params or {})
+    return await asyncio.to_thread(get_notification_store().push_feed, str(CANONICAL_LOCAL_USER), cursor.after_id)

@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from magi.notifications.service import NotificationService
+from magi.notifications.actions import NotificationTarget, notification_target
 from magi.identity.defaults import CANONICAL_LOCAL_USER
 from magi.memory.l2.assertions.conflict_notification_display import (
     project_profile_conflict_notifications,
@@ -28,6 +29,7 @@ class NotificationItemModel(BaseModel):
     status: str
     created_at_ms: int
     read_at_ms: Optional[int] = None
+    target: NotificationTarget | None = None
 
 
 class ListResponse(BaseModel):
@@ -67,6 +69,10 @@ def build_default_notifications_router(
         ),
         methods=["GET"],
         response_model=ListResponse,
+    )
+    router.add_api_route(
+        "/notifications/{notification_id}",
+        _get_notification_endpoint(service_dep, profile_conflict_suppression_dep, unified_memory_dep), methods=["GET"], response_model=NotificationItemModel,
     )
     router.add_api_route(
         "/notifications/mark-read",
@@ -141,7 +147,25 @@ def _notification_item_model(row) -> NotificationItemModel:
         status=row.status,
         created_at_ms=row.created_at_ms,
         read_at_ms=row.read_at_ms,
+        target=notification_target(row),
     )
+
+
+def _get_notification_endpoint(service_dep, suppression_dep, memory_dep):
+    async def get_notification(notification_id: int) -> NotificationItemModel:
+        row = service_dep()._store.get(notification_id)
+        if row is None or row.user_id != _USER_ID or row.status not in {"unread", "read"}:
+            raise HTTPException(status_code=404, detail="Notification is no longer available")
+        item = _notification_item_model(row)
+        if item.payload.get("conflict_type") == "profile_conflict":
+            if suppression_dep is not None and await suppression_dep():
+                raise HTTPException(status_code=404, detail="Notification is no longer available")
+            memory = (memory_dep or _default_unified_memory_dep)()
+            projected = await project_profile_conflict_notifications(memory.l2 if memory else None, [item.payload])
+            item.title, item.body = projected[0]
+        return item
+
+    return get_notification
 
 
 def _mark_read_endpoint(service_dep: Callable[[], NotificationService]):

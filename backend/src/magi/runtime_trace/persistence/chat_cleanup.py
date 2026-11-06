@@ -24,6 +24,11 @@ class SqliteTraceContentRepository:
                     "SELECT name FROM sqlite_master WHERE type = 'table'"
                 ).fetchall()
             }
+            if "user_notifications" in existing_tables:
+                conn.execute(
+                    "DELETE FROM user_notifications WHERE user_id=? AND kind IN ('interaction_required','background_task_finished') AND json_extract(payload_json,'$.session_id')=?",
+                    (user_id, session_id),
+                )
             if "trace_turns" in existing_tables:
                 for table in (
                     "trace_llm_calls",

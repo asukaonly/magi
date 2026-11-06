@@ -35,6 +35,10 @@ async def broadcast_background_task_state_changed(task: "BackgroundTask | Any") 
                 payload_json=json.dumps(payload, default=str),
             )
         )
+        from ...notifications.actions import materialize_runtime_event
+        await materialize_runtime_event(
+            channel="background_task_state_changed", user_id=user_id, session_id=session_id, payload=payload,
+        )
     except Exception as exc:
         logger.debug(
             "Failed to write background_task_state_changed notification",

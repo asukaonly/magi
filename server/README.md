@@ -626,3 +626,25 @@ private-resource tickets belong in asset URLs.
   Poll `/api/server/maintenance/{operation_id}` until terminal. Reuse the clear
   transaction identity or restore candidate ID when checking a lost response;
   never generate a new destructive operation simply because a request timed out.
+
+## Optional iOS push notifications
+
+Set these environment variables on the **service process**, then restart it:
+
+- `MAGI_APNS_KEY_FILE`: absolute path to the Apple APNs `.p8` private key; keep it outside the repository with owner-only access.
+- `MAGI_APNS_KEY_ID` and `MAGI_APNS_TEAM_ID`: the Apple key and team identifiers.
+- `MAGI_APNS_TOPIC`: the exact iOS app bundle identifier (normally `com.asuka.magi.ios`).
+
+No push provider is started when these are absent. Partial/invalid configuration
+leaves push unavailable and logs a configuration error without the key or tokens.
+The service must reach Apple's APNs endpoints over HTTPS/HTTP2; it needs no public
+inbound push callback. The iOS app must be signed with Push Notifications enabled
+and register with the environment in its provisioning profile. Development and
+production tokens are sent to their respective Apple endpoints. Users opt in under
+iOS Magi Settings → Notifications; pairing alone does not enable push.
+
+Tokens live in the protected service authentication database and are excluded from
+revoked device queries. Disabling notifications removes the subscription; local
+app disconnection also unregisters with iOS. A request already in flight can still
+arrive. Revoking the paired device on the service is the authoritative remote cutoff.
+Apple setup: https://developer.apple.com/documentation/usernotifications/setting-up-a-remote-notification-server

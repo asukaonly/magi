@@ -9,6 +9,7 @@ use super::security::GatewaySecurity;
 
 #[derive(Clone)]
 pub struct ApiState {
+    pub apns: Option<Arc<crate::push::Apns>>,
     pub ipc_client: Arc<RuntimeConnection>,
     pub security: Arc<GatewaySecurity>,
     pub events: Arc<crate::events::EventHub>,
@@ -39,6 +40,7 @@ impl ApiState {
         security: Arc<GatewaySecurity>,
     ) -> Self {
         Self {
+            apns: None,
             ipc_client,
             maintenance: None,
             events: Arc::new(crate::events::EventHub::new(

@@ -336,6 +336,29 @@ class NotificationStore:
             finally:
                 conn.close()
 
+    def push_feed(self, user_id: str, after_id: int | None) -> dict:
+        """Read a bounded, content-free push feed; registration starts at the current tail."""
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN")
+            latest = int(conn.execute("SELECT COALESCE(MAX(id),0) FROM user_notifications").fetchone()[0])
+            if after_id is None or after_id > latest:
+                return {"next_id": latest, "items": []}
+            rows = conn.execute(
+                "SELECT id,kind,status,created_at_ms FROM user_notifications WHERE user_id=? AND id>? ORDER BY id LIMIT 100",
+                (user_id, after_id),
+            ).fetchall()
+            items = []
+            for row in rows:
+                kind = row["kind"]
+                ttl = 300_000 if kind in {"interaction_required", "personal_task_reminder"} else 86_400_000
+                if (kind in {"interaction_required", "personal_task_reminder", "background_task_finished"}
+                        and row["status"] == "unread" and _now_ms() - row["created_at_ms"] < ttl):
+                    items.append({"id": row["id"], "kind": kind, "expires_at": (row["created_at_ms"] + ttl) // 1000})
+            return {"next_id": int(rows[-1]["id"]) if rows else latest, "items": items}
+        finally:
+            conn.close()
+
     def delete_expired_user_notifications(self, cutoff_ms: int) -> int:
         with self._lock:
             conn = self._connect()

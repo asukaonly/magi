@@ -196,6 +196,10 @@ async def publish_control_event(
 
     try:
         await store.append_notification(record)
+        from ...notifications.actions import materialize_runtime_event
+        await materialize_runtime_event(
+            channel=channel, user_id=record.user_id, session_id=record.session_id, payload=payload,
+        )
     except Exception as exc:
         logger.warning(
             "control_event.append_failed",

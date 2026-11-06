@@ -3959,6 +3959,16 @@
             "title": "Status",
             "type": "string"
           },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotificationTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -3997,6 +4007,37 @@
           "notification_id"
         ],
         "title": "NotificationRead",
+        "type": "object"
+      },
+      "NotificationTarget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "kind": {
+            "enum": [
+              "chat",
+              "task",
+              "memory",
+              "extensions"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "NotificationTarget",
         "type": "object"
       },
       "ObservationChange": {
@@ -6963,6 +7004,67 @@
           "timestamp"
         ],
         "title": "ProductTurnPresentation",
+        "type": "object"
+      },
+      "PushRegistration": {
+        "additionalProperties": false,
+        "properties": {
+          "data_epoch": {
+            "type": "string"
+          },
+          "environment": {
+            "enum": [
+              "development",
+              "production"
+            ],
+            "type": "string"
+          },
+          "server_id": {
+            "type": "string"
+          },
+          "token": {
+            "maxLength": 512,
+            "minLength": 32,
+            "pattern": "^[0-9a-fA-F]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id",
+          "data_epoch",
+          "token",
+          "environment"
+        ],
+        "type": "object"
+      },
+      "PushStatusResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "registered": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "available",
+              "registered"
+            ],
+            "type": "object"
+          },
+          "success": {
+            "const": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
         "type": "object"
       },
       "RecallFeedbackKind": {
@@ -11099,6 +11201,105 @@
           }
         },
         "summary": "Mark Read",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/notifications/push": {
+      "delete": {
+        "operationId": "delete_notification_push",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushStatusResponse"
+                }
+              }
+            },
+            "description": "Device push subscription status"
+          }
+        }
+      },
+      "get": {
+        "operationId": "get_notification_push",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushStatusResponse"
+                }
+              }
+            },
+            "description": "Device push subscription status"
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_notification_push",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushStatusResponse"
+                }
+              }
+            },
+            "description": "Device push subscription status"
+          }
+        }
+      }
+    },
+    "/api/notifications/{notification_id}": {
+      "get": {
+        "operationId": "get_notification_api_notifications__notification_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "notification_id",
+            "required": true,
+            "schema": {
+              "title": "Notification Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationItemModel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Notification",
         "tags": [
           "Notifications"
         ]

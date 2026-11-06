@@ -188,3 +188,17 @@ async fn owner_pairing_reports_the_bound_port_without_exposing_network_info_publ
     assert_eq!(response["data"]["pairing_token"].as_str().unwrap().len(), 64);
     assert!(response["data"]["network"].get("public_ip").is_none());
 }
+
+#[tokio::test]
+async fn push_subscription_is_authenticated_and_optional() {
+    let security = Arc::new(GatewaySecurity::new("owner"));
+    let state = ApiState::with_runtime(Arc::new(RuntimeConnection::default()), security);
+    state.storage_ready.store(true, Ordering::Release);
+    let router = api::build_router(state);
+    assert_eq!(request(&router,"GET","/api/notifications/push","",Value::Null).await.0,401);
+    let (status,value)=request(&router,"GET","/api/notifications/push","owner",Value::Null).await;
+    assert_eq!(status,200);
+    assert_eq!(value["data"],json!({"available":false,"registered":false}));
+    assert_eq!(request(&router,"PUT","/api/notifications/push","owner",json!({"server_id":"s","data_epoch":"e","environment":"development","token":"ab".repeat(32)})).await.0,503);
+    assert_eq!(request(&router,"DELETE","/api/notifications/push","owner",Value::Null).await.0,200);
+}

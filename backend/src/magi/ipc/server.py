@@ -56,12 +56,13 @@ class IpcServer:
             from magi.ipc.handlers import ApiForwardHandler, RuntimeReadyHandler
             from magi.ipc.attachment_handler import resolve_chat_attachment
             from magi.ipc.metrics_handler import runtime_metrics
-            from magi.ipc.notification_handler import read_notifications
+            from magi.ipc.notification_handler import read_notifications, read_push_notifications
 
             self._api_forward = ApiForwardHandler(asgi_app)
             self._dispatcher.register("api.forward", self._api_forward.handle)
             self._dispatcher.register("chat.resolve_attachment", resolve_chat_attachment)
             self._dispatcher.register("runtime.notifications", read_notifications)
+            self._dispatcher.register("notifications.push-feed", read_push_notifications)
             self._dispatcher.register("runtime.metrics", runtime_metrics)
             self._dispatcher.register("runtime.ready", RuntimeReadyHandler(asgi_app).handle)
 

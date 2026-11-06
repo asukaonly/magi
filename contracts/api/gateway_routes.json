@@ -30,6 +30,13 @@
   },
   "native_routes": [
     {
+      "path": "/api/notifications/push",
+      "methods": ["GET", "PUT", "DELETE"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/push.rs",
+      "response_envelope": "native-json"
+    },
+    {
       "path": "/api/openapi.json",
       "methods": ["GET"],
       "owner": "rust-native",

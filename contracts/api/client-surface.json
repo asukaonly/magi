@@ -1197,6 +1197,26 @@
       "surface": "product"
     },
     {
+      "method": "DELETE",
+      "path": "/api/notifications/push",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications/push",
+      "surface": "product"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/notifications/push",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications/{notification_id}",
+      "surface": "product"
+    },
+    {
       "method": "POST",
       "path": "/api/notifications/{notification_id}/action",
       "surface": "product"

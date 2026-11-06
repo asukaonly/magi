@@ -12,6 +12,7 @@ mod request_lifetime;
 pub mod security;
 mod server;
 pub mod state;
+mod push;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -41,6 +42,7 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/api/memory/portability/restores/{candidate_id}/confirm", axum::routing::post(maintenance::restore))
         .route("/api/memory/clear", axum::routing::delete(maintenance::clear))
         .route("/api/events", axum::routing::get(events::subscribe))
+        .route("/api/notifications/push", axum::routing::get(push::status).put(push::register).delete(push::remove))
         .route("/api/server/notification-policy", axum::routing::get(server::notification_policy).put(server::set_notification_policy))
         .route("/api/server/notification-claims", axum::routing::post(server::claim_notification))
         .route("/api/server/info", axum::routing::get(server::info))

@@ -1072,6 +1072,63 @@
           }
         }
       }
+    },
+    "/api/notifications/push": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Device push subscription status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "get_notification_push"
+      },
+      "put": {
+        "responses": {
+          "200": {
+            "description": "Device push subscription status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "put_notification_push",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushRegistration"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "responses": {
+          "200": {
+            "description": "Device push subscription status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "delete_notification_push"
+      }
     }
   },
   "components": {
@@ -1360,6 +1417,67 @@
           "identity_key",
           "signature"
         ]
+      },
+      "PushRegistration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "server_id",
+          "data_epoch",
+          "token",
+          "environment"
+        ],
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "data_epoch": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 512,
+            "pattern": "^[0-9a-fA-F]+$"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "development",
+              "production"
+            ]
+          }
+        }
+      },
+      "PushStatusResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "const": true,
+            "type": "boolean"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "available",
+              "registered"
+            ],
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "registered": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
       }
     }
   }

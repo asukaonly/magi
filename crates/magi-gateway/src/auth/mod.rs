@@ -1,5 +1,7 @@
 //! Per-client credentials and ephemeral sessions owned by the center.
 
+pub mod push;
+
 mod storage;
 
 use std::collections::{HashMap, HashSet};
@@ -453,7 +455,7 @@ mod tests {
         let client = store.pair(&grant.pairing_token, "Phone").unwrap();
         drop(store);
         let db = rusqlite::Connection::open(&path).unwrap();
-        db.execute_batch("ALTER TABLE server_identity DROP COLUMN signing_key; PRAGMA user_version=3;").unwrap();
+        db.execute_batch("DROP TABLE push_devices; ALTER TABLE server_identity DROP COLUMN signing_key; PRAGMA user_version=3;").unwrap();
         drop(db);
         let migrated = super::AuthStore::open(&path).unwrap();
         assert_eq!(migrated.server_id, client.server_id);

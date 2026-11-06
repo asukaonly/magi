@@ -40,6 +40,41 @@ The export also contains optional plugin management and device observation
 operations for clients presenting those surfaces. Inclusion is not a permission
 grant: collector credentials retain their existing source-only restrictions.
 
+## Notifications and device push
+
+The durable `/api/notifications` inbox carries an optional typed `target`: a chat,
+personal task, memory, or extensions destination. `GET /api/notifications/{id}`
+rechecks visibility before opening a notification. Clients fetch current interaction
+state in the target conversation; opening never approves a permission or answers a
+question. Deleted, resolved, or previous-data-generation targets are not replayed.
+Important control requests and terminal background tasks materialize once per
+request/attempt; personal-task reminders retain their existing scheduler ownership.
+Chat deletion also removes its associated notification content.
+
+`GET/PUT/DELETE /api/notifications/push` manages only the authenticated paired owner
+device's APNs subscription. The Rust gateway owns tokens, credential revocation,
+provider signing and HTTP/2 delivery; Python owns the bounded, content-free feed of
+eligible unread inbox records. Collector grants cannot subscribe. Registrations bind
+to the service data epoch, preserve their delivery position on token rotation, and
+start at the current tail on first registration or a new epoch. Unsubscribing and
+subscribing again deliberately skips existing inbox records.
+
+APNs is optional and off until configured and explicitly enabled on the device.
+Only interaction requests, terminal background tasks and due personal reminders
+qualify; ordinary streaming progress and connection changes do not. Each subscribed
+iOS device receives these inbox alerts independently of the desktop chat-banner
+claim policy. Push contains only a localized generic alert, server ID, data epoch,
+and notification ID; no transcript, task title, health record, credential or URL.
+The app validates the service/epoch and reads authoritative content after a tap.
+
+The delivery position advances after APNs accepts a notification; transient failures
+back off up to five minutes, and invalid tokens are retired. Interaction/reminder
+alerts expire after five minutes and task-result alerts after a day, avoiding stale
+catch-up floods. A timeout after APNs acceptance can cause a retry (the same collapse
+ID is reused); APNs acceptance is not proof that the phone displayed or read it.
+The in-app inbox remains available without push. The app suppresses foreground
+system banners and keeps the normal inbox/chat presentation.
+
 ## Exact send confirmation and turn state
 
 `contracts/api/frontend-client.json` is generated from production public routes.
