@@ -101,9 +101,9 @@ impl AuthDatabase {
     }
 
     pub fn advance_push(&self, device: &super::push::PushDevice, next: i64, invalid: bool) -> Result<(), String> {
-        let sql = if invalid { "DELETE FROM push_devices WHERE client_id=?1 AND token=?2 AND data_epoch=?3 AND after_id=?4 AND ?5>=0" }
-            else { "UPDATE push_devices SET after_id=?5 WHERE client_id=?1 AND token=?2 AND data_epoch=?3 AND after_id=?4" };
-        self.0.execute(sql, params![device.client_id,device.token,device.data_epoch,device.after_id,next]).map_err(|e|e.to_string())?;
+        let sql = if invalid { "DELETE FROM push_devices WHERE client_id=?1 AND token=?2 AND data_epoch=?3 AND after_id=?4 AND environment=?6 AND ?5>=0" }
+            else { "UPDATE push_devices SET after_id=?5 WHERE client_id=?1 AND token=?2 AND data_epoch=?3 AND after_id=?4 AND environment=?6" };
+        self.0.execute(sql, params![device.client_id,device.token,device.data_epoch,device.after_id,next,device.environment]).map_err(|e|e.to_string())?;
         Ok(())
     }
 

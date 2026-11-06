@@ -98,7 +98,7 @@ pub async fn run(
         Ok(provider) => provider.map(Arc::new),
         Err(error) => { eprintln!("APNs is unavailable: {error}"); None }
     };
-    let _push_task = tokio::spawn(magi_gateway::push::run(state.clone(), shutdown.clone()));
+    let push_task = tokio::spawn(magi_gateway::push::run(state.clone(), shutdown.clone()));
     let router = api::build_router(state);
     #[cfg(unix)]
     let mut management = crate::management::ManagementServer::bind(
@@ -368,6 +368,8 @@ pub async fn run(
     };
     storage_ready.store(false, Ordering::Release);
     connection.replace(None);
+    push_task.abort();
+    let _ = push_task.await;
     bridge.abort();
     if !bridge.is_finished() {
         let _ = bridge.await;

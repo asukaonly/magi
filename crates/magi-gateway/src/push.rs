@@ -282,6 +282,7 @@ pub async fn run(state: ApiState, mut shutdown: tokio::sync::watch::Receiver<boo
             }
             failed |= retry;
         }
+        if failed && delay == 5 { eprintln!("APNs delivery deferred; retrying eligible inbox notifications"); }
         delay = if failed { (delay * 2).min(300) } else { 5 };
     }
 }
