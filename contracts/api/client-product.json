@@ -2138,6 +2138,35 @@
         ],
         "type": "object"
       },
+      "GatewayRouteProof": {
+        "additionalProperties": false,
+        "properties": {
+          "identity_key": {
+            "type": "string"
+          },
+          "nonce": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "server_id": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "status": {
+            "const": "ok"
+          }
+        },
+        "required": [
+          "status",
+          "server_id",
+          "nonce",
+          "identity_key",
+          "signature"
+        ],
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -9528,6 +9557,57 @@
         ]
       }
     },
+    "/api/health": {
+      "get": {
+        "operationId": "gateway_get_api_health",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "nonce",
+            "required": false,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "status": {
+                          "const": "ok"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GatewayRouteProof"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Gateway process liveness"
+          },
+          "400": {
+            "description": "Invalid route challenge"
+          }
+        },
+        "summary": "Gateway liveness and credential-free route proof",
+        "tags": [
+          "Gateway"
+        ]
+      }
+    },
     "/api/memory/l1/events/{event_id}": {
       "delete": {
         "operationId": "delete_l1_event_api_memory_l1_events__event_id__delete",
@@ -13019,6 +13099,10 @@
                           ],
                           "type": "object"
                         },
+                        "identity_key": {
+                          "description": "Base64 Ed25519 public key bound to the persistent service identity.",
+                          "type": "string"
+                        },
                         "maintenance": {
                           "anyOf": [
                             {
@@ -13053,7 +13137,8 @@
                         "service_ready",
                         "supervisor",
                         "plugin_execution",
-                        "client_contract"
+                        "client_contract",
+                        "identity_key"
                       ],
                       "type": "object"
                     },

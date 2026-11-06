@@ -2,7 +2,7 @@
   "paths": {
     "/api/health": {
       "get": {
-        "summary": "Gateway process liveness",
+        "summary": "Gateway liveness and credential-free route proof",
         "tags": [
           "Gateway"
         ],
@@ -12,21 +12,43 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "status": {
-                      "const": "ok"
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "const": "ok"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "$ref": "#/components/schemas/GatewayRouteProof"
                     }
-                  },
-                  "required": [
-                    "status"
                   ]
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid route challenge"
           }
         },
-        "operationId": "gateway_get_api_health"
+        "operationId": "gateway_get_api_health",
+        "parameters": [
+          {
+            "name": "nonce",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        ]
       }
     },
     "/api/server/info": {
@@ -113,6 +135,10 @@
                             "diagnostic_events",
                             "schema"
                           ]
+                        },
+                        "identity_key": {
+                          "type": "string",
+                          "description": "Base64 Ed25519 public key bound to the persistent service identity."
                         }
                       },
                       "required": [
@@ -123,7 +149,8 @@
                         "service_ready",
                         "supervisor",
                         "plugin_execution",
-                        "client_contract"
+                        "client_contract",
+                        "identity_key"
                       ]
                     }
                   },
@@ -1303,6 +1330,35 @@
           "listen_host",
           "listen_port",
           "lan_ips"
+        ]
+      },
+      "GatewayRouteProof": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "server_id": {
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "identity_key": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "server_id",
+          "nonce",
+          "identity_key",
+          "signature"
         ]
       }
     }

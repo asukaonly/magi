@@ -239,7 +239,10 @@ Center authorization lives in `service/server.db`, owned exclusively by
 `crates/magi-gateway/src/auth/storage.rs`. Schema version 1 contains the stable
 server identity and client names, creation/revocation times and SHA-256 hashes
 of high-entropy device credentials. Raw credentials are returned only at
-pairing. A newer `user_version` fails closed. The CLI uses a same-account,
+pairing. Schema version 4 adds a persistent Ed25519 private key to `server_identity` for
+credential-free route proofs. It stays in the protected service database; only
+the public key is exposed. Migration generates it once without changing server
+or client identities. A newer `user_version` fails closed. The CLI uses a same-account,
 permission-protected Unix management socket rather than modifying an active
 service database directly.
 

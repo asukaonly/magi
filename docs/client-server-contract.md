@@ -189,3 +189,26 @@ existing owners; these reads introduce no separate content store. Clients may
 cache reads under server/client/data-epoch identity and must invalidate that cache
 after local clear or forgetting. Local unsent observations remain owned by the
 collector journal and must not be presented as service receipts.
+
+### Multiple routes to one service
+
+A client connection is identified by `server_id` and `client_id`, independently
+of its network addresses. Route changes do not change local journals, drafts,
+media caches, epochs, collector identities or idempotency keys. Clients may
+select a verified HTTPS route on foreground/network changes or transport
+failure; loopback HTTP remains limited to development. TLS validation and
+redirect rejection still apply to every route.
+
+Authenticated `/api/server/info` includes the service's persistent Ed25519
+`identity_key` (standard base64). A client pins this key using its paired
+address before accepting additional addresses. Credential-free
+`GET /api/health?nonce=<64 lowercase hex characters>` returns `status`,
+`server_id`, `nonce`, `identity_key` and a base64 `signature` over UTF-8
+`magi-route-v1\n{server_id}\n{nonce}`. Verify both the pinned key and a fresh
+nonce before sending any existing credential to a new address. Plain health
+requests remain a minimal liveness check. Proof responses must not be cached.
+
+Only reads may be retried automatically on another route. An uncertain write
+retains its exact operation identity and uses the existing receipt protocol
+before any replay. Route switching never implies a new logical connection or
+a business-data epoch change. Event reconnection preserves the replay cursor.

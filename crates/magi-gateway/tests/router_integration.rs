@@ -588,6 +588,43 @@ async fn health_returns_ok() {
 }
 
 #[tokio::test]
+async fn health_proof_is_public_and_not_cacheable() {
+    let guard = router_test_guard();
+    let state = test_state().await;
+    let expected = state.security.auth.identity_key();
+    let router = api::build_router(state);
+    let nonce = "a".repeat(64);
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/health?nonce={nonce}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let json: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(json["nonce"], nonce);
+    assert_eq!(json["identity_key"], expected);
+    assert!(json["signature"].as_str().unwrap().len() > 80);
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri("/api/health?nonce=bad")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+    drop(guard);
+}
+
+#[tokio::test]
 async fn business_routes_require_the_desktop_session_token() {
     let guard = router_test_guard();
     let (state, forwarded_requests) = test_state_with_api_forward_response(serde_json::json!({

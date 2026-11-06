@@ -86,6 +86,12 @@
       "table": "notification_claims",
       "index": "notification_claim_age",
       "purpose": "Bound notification-claim expiry work within gateway-owned service/server.db."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "update",
+      "table": "server_identity",
+      "purpose": "Migrate the persistent route-signing key without changing service or client identities."
     }
   ]
 }

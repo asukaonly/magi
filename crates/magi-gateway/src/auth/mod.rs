@@ -7,6 +7,8 @@ use std::path::Path;
 use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
+use ring::signature::{Ed25519KeyPair, KeyPair};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -16,6 +18,7 @@ pub const LOCAL_OWNER: &str = "local-owner";
 
 pub struct AuthStore {
     pub server_id: String,
+    identity: Ed25519KeyPair,
     database: Mutex<storage::AuthDatabase>,
     memory: RwLock<Memory>,
 }
@@ -72,7 +75,39 @@ pub struct AccessSession {
     pub expires_at_ms: i64,
 }
 
+#[derive(Serialize)]
+pub struct RouteProof {
+    pub status: &'static str,
+    pub server_id: String,
+    pub nonce: String,
+    pub identity_key: String,
+    pub signature: String,
+}
+
 impl AuthStore {
+    pub fn identity_key(&self) -> String {
+        base64::engine::general_purpose::STANDARD.encode(self.identity.public_key().as_ref())
+    }
+
+    pub fn route_proof(&self, nonce: &str) -> Result<RouteProof, String> {
+        if nonce.len() != 64
+            || !nonce
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err("Invalid route challenge".into());
+        }
+        let message = format!("magi-route-v1\n{}\n{}", self.server_id, nonce);
+        Ok(RouteProof {
+            status: "ok",
+            server_id: self.server_id.clone(),
+            nonce: nonce.into(),
+            identity_key: self.identity_key(),
+            signature: base64::engine::general_purpose::STANDARD
+                .encode(self.identity.sign(message.as_bytes()).as_ref()),
+        })
+    }
+
     pub fn notification_policy(&self) -> Result<String, String> {
         self.database
             .lock()
@@ -123,6 +158,8 @@ impl AuthStore {
             .collect();
         Ok(Self {
             server_id: database.server_id()?,
+            identity: Ed25519KeyPair::from_pkcs8(&database.signing_key()?)
+                .map_err(|_| "Invalid service identity key")?,
             database: Mutex::new(database),
             memory: RwLock::new(Memory {
                 active_clients,
@@ -408,6 +445,60 @@ fn now_ms() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn signing_key_migration_preserves_paired_clients() {
+        let path = std::env::temp_dir().join(format!("magi-route-migration-{}.db", uuid::Uuid::new_v4()));
+        let store = super::AuthStore::open(&path).unwrap();
+        let grant = store.create_pairing_grant().unwrap();
+        let client = store.pair(&grant.pairing_token, "Phone").unwrap();
+        drop(store);
+        let db = rusqlite::Connection::open(&path).unwrap();
+        db.execute_batch("ALTER TABLE server_identity DROP COLUMN signing_key; PRAGMA user_version=3;").unwrap();
+        drop(db);
+        let migrated = super::AuthStore::open(&path).unwrap();
+        assert_eq!(migrated.server_id, client.server_id);
+        assert_eq!(migrated.renew(&client.client_credential).unwrap().client_id, client.client_id);
+        assert!(!migrated.identity_key().is_empty());
+        drop(migrated);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn route_identity_survives_restart_and_rejects_replay() {
+        use base64::Engine;
+        let path = std::env::temp_dir().join(format!("magi-route-{}.db", uuid::Uuid::new_v4()));
+        let first = super::AuthStore::open(&path).unwrap();
+        let id = first.server_id.clone();
+        let key = first.identity_key();
+        let nonce = "a".repeat(64);
+        let proof = first.route_proof(&nonce).unwrap();
+        assert!(first.route_proof("arbitrary message").is_err());
+        drop(first);
+        let reopened = super::AuthStore::open(&path).unwrap();
+        assert_eq!(reopened.server_id, id);
+        assert_eq!(reopened.identity_key(), key);
+        let decoder = base64::engine::general_purpose::STANDARD;
+        let verifier = ring::signature::UnparsedPublicKey::new(
+            &ring::signature::ED25519,
+            decoder.decode(key).unwrap(),
+        );
+        let signature = decoder.decode(proof.signature).unwrap();
+        assert!(verifier
+            .verify(
+                format!("magi-route-v1\n{id}\n{nonce}").as_bytes(),
+                &signature
+            )
+            .is_ok());
+        assert!(verifier
+            .verify(
+                format!("magi-route-v1\n{id}\n{}", "b".repeat(64)).as_bytes(),
+                &signature
+            )
+            .is_err());
+        drop(reopened);
+        std::fs::remove_file(path).unwrap();
+    }
+
     use super::*;
 
     #[test]

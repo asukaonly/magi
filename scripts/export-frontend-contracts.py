@@ -708,7 +708,7 @@ def build_product_client_contract() -> dict:
         path: operations for path, operations in document["paths"].items()
         if (path.startswith(("/api/messages", "/api/personal-tasks", "/api/notifications"))
             and "/trace" not in path and "/workspace" not in path)
-        or path in {"/api/auth/pair", "/api/auth/session", "/api/server/info", "/api/events",
+        or path in {"/api/health", "/api/auth/pair", "/api/auth/session", "/api/server/info", "/api/events",
                     "/api/server/collector-grants", "/api/server/clients", "/api/server/clients/{client_id}",
                     "/api/memory/library", "/api/memory/library/evidence/{event_id}",
                     "/api/memory/l2/corrections", "/api/memory/l1/events/{event_id}",

@@ -21,7 +21,7 @@ impl AuthDatabase {
         let version: i64 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 3 {
+        if version > 4 {
             return Err("Service authentication database requires a newer server".into());
         }
         if version == 0 {
@@ -51,6 +51,21 @@ impl AuthDatabase {
                 CREATE TABLE notification_claims (data_epoch TEXT NOT NULL, notification_id TEXT NOT NULL, client_id TEXT NOT NULL, claimed_at_ms INTEGER NOT NULL, PRIMARY KEY(data_epoch,notification_id,client_id));
                 CREATE INDEX notification_claim_age ON notification_claims(claimed_at_ms);
                 PRAGMA user_version=3;").map_err(|e|e.to_string())?;
+            transaction.commit().map_err(|e| e.to_string())?;
+        }
+        if version < 4 {
+            let key =
+                ring::signature::Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new())
+                    .map_err(|_| "Could not generate service identity key")?;
+            let transaction = connection.transaction().map_err(|e| e.to_string())?;
+            transaction.execute_batch("ALTER TABLE server_identity ADD COLUMN signing_key BLOB; PRAGMA user_version=4;")
+                .map_err(|e| e.to_string())?;
+            transaction
+                .execute(
+                    "UPDATE server_identity SET signing_key=?1 WHERE singleton=1",
+                    [key.as_ref()],
+                )
+                .map_err(|e| e.to_string())?;
             transaction.commit().map_err(|e| e.to_string())?;
         }
         Ok(Self(connection))
@@ -109,6 +124,16 @@ impl AuthDatabase {
         }
         transaction.commit().map_err(|e| e.to_string())?;
         Ok(allowed)
+    }
+
+    pub fn signing_key(&self) -> Result<Vec<u8>, String> {
+        self.0
+            .query_row(
+                "SELECT signing_key FROM server_identity WHERE singleton=1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())
     }
 
     pub fn server_id(&self) -> Result<String, String> {

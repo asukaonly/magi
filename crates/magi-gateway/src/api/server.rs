@@ -19,6 +19,7 @@ pub async fn info(State(state): State<ApiState>) -> Json<serde_json::Value> {
         "success": true,
         "data": {
             "server_id": state.security.auth.server_id,
+            "identity_key": state.security.auth.identity_key(),
             "protocol_version": magi_service_contract::SERVER_PROTOCOL_VERSION,
             "client_contract": {"version": 1, "product_events": "/api/events?scope=product", "diagnostic_events": "/api/events?scope=diagnostics", "schema": "/api/openapi.json"},
             "events": state.events.status(),
