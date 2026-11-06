@@ -5,7 +5,7 @@ import asyncio
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable, Optional, Protocol, TypeVar, runtime_checkable
+from typing import Any, Awaitable, Callable, Optional, Protocol, TypeVar, runtime_checkable
 
 from ..contracts import (
     AdapterName,
@@ -107,6 +107,72 @@ async def wait_for_run_or_cancel(
             await cancel_task
 
 
+def render_constraints(req: DelegateRequest) -> str:
+    parts: list[str] = []
+    if req.constraints.forbid_git_commit:
+        parts.append("Do not run git commit.")
+    if req.constraints.forbid_git_push:
+        parts.append("Do not run git push.")
+    if req.constraints.forbid_paths:
+        parts.append(
+            "Do not read or modify these paths: "
+            + ", ".join(req.constraints.forbid_paths)
+            + "."
+        )
+    return " ".join(parts)
+
+
+async def terminate_process(
+    process: asyncio.subprocess.Process,
+    *,
+    managed: Any = None,
+) -> None:
+    """Reap a managed or direct child, escalating termination when needed."""
+    if process.returncode is not None:
+        if managed is not None:
+            await managed.wait()
+        return
+    if managed is not None:
+        try:
+            await managed.shutdown(
+                sigterm_grace_seconds=1.0,
+                sigkill_grace_seconds=1.0,
+            )
+        except Exception:
+            pass
+        if process.returncode is not None:
+            await managed.wait()
+            return
+    try:
+        process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=2)
+        except asyncio.TimeoutError:
+            process.kill()
+            await asyncio.wait_for(process.wait(), timeout=2)
+    except ProcessLookupError:
+        await process.wait()
+
+
+def persist_log(path: Path, chunks: list[bytes]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as f:
+        for chunk in chunks:
+            f.write(chunk)
+
+
+def format_stderr_tail(chunks: list[bytes], max_chars: int = 200) -> str:
+    if not chunks:
+        return ""
+    text = b"".join(chunks).decode("utf-8", errors="replace").strip()
+    if not text:
+        return ""
+    last = text.splitlines()[-1].strip()
+    if len(last) > max_chars:
+        last = last[:max_chars] + "…"
+    return last
+
+
 OnEvent = Callable[[RunEvent], Awaitable[None]]
 
 
@@ -140,4 +206,8 @@ __all__ = [
     "CodeAgentAdapter",
     "OnEvent",
     "wait_for_run_or_cancel",
+    "render_constraints",
+    "terminate_process",
+    "persist_log",
+    "format_stderr_tail",
 ]

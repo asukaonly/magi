@@ -33,6 +33,10 @@ from .base import (
     CancelToken,
     OnEvent,
     wait_for_run_or_cancel,
+    render_constraints,
+    terminate_process,
+    persist_log,
+    format_stderr_tail,
 )
 
 
@@ -85,7 +89,7 @@ class ClaudeCodeAdapter:
             exit_code, cancelled = await wait_for_run_or_cancel(
                 self._drain_until_exit(req, spawned, state, on_event),
                 cancel_token=cancel_token,
-                terminate=lambda: self._terminate(
+                terminate=lambda: terminate_process(
                     spawned.process,
                     managed=spawned.managed,
                 ),
@@ -98,7 +102,7 @@ class ClaudeCodeAdapter:
                 error=f"adapter timeout after {req.timeout_s}s",
             )
         except BaseException:
-            await self._terminate(spawned.process, managed=spawned.managed)
+            await terminate_process(spawned.process, managed=spawned.managed)
             raise
         finally:
             self._persist_logs(stdout_path, stderr_path, state)
@@ -269,8 +273,8 @@ class ClaudeCodeAdapter:
         stderr_path: Path,
         state: _ClaudeRunState,
     ) -> None:
-        self._persist(stdout_path, state.stdout_buf)
-        self._persist(stderr_path, state.stderr_buf)
+        persist_log(stdout_path, state.stdout_buf)
+        persist_log(stderr_path, state.stderr_buf)
 
     async def _outcome_from_exit_code(
         self,
@@ -280,7 +284,7 @@ class ClaudeCodeAdapter:
     ) -> AdapterRunOutcome:
         cost = self._state_cost_or_none(state)
         if exit_code != 0:
-            stderr_tail = _stderr_tail(state.stderr_buf)
+            stderr_tail = format_stderr_tail(state.stderr_buf)
             error_message = (
                 f"adapter exited with code {exit_code}: {stderr_tail}"
                 if stderr_tail
@@ -328,7 +332,7 @@ class ClaudeCodeAdapter:
             "--input-format",
             "text",
         ]
-        constraints_text = self._render_constraints(req)
+        constraints_text = render_constraints(req)
         if constraints_text:
             argv += ["--append-system-prompt", constraints_text]
         if req.constraints.max_budget_usd is not None:
@@ -351,21 +355,6 @@ class ClaudeCodeAdapter:
             "and summaries should be in Chinese."
         )
         return f"{bundle_hint}\n\n{req.prompt}\n"
-
-    @staticmethod
-    def _render_constraints(req: DelegateRequest) -> str:
-        parts: list[str] = []
-        if req.constraints.forbid_git_commit:
-            parts.append("Do not run git commit.")
-        if req.constraints.forbid_git_push:
-            parts.append("Do not run git push.")
-        if req.constraints.forbid_paths:
-            parts.append(
-                "Do not read or modify these paths: "
-                + ", ".join(req.constraints.forbid_paths)
-                + "."
-            )
-        return " ".join(parts)
 
     @staticmethod
     def _extract_assistant_text(obj: dict[str, Any]) -> Optional[str]:
@@ -398,44 +387,6 @@ class ClaudeCodeAdapter:
             return None
         return CostInfo(usd=usd, input_tokens=inp, output_tokens=out)
 
-    @staticmethod
-    async def _terminate(
-        process: asyncio.subprocess.Process,
-        *,
-        managed: Any = None,
-    ) -> None:
-        if process.returncode is not None:
-            if managed is not None:
-                await managed.wait()
-            return
-        if managed is not None:
-            try:
-                await managed.shutdown(
-                    sigterm_grace_seconds=1.0,
-                    sigkill_grace_seconds=1.0,
-                )
-            except Exception:
-                pass
-            if process.returncode is not None:
-                await managed.wait()
-                return
-        try:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=2)
-            except asyncio.TimeoutError:
-                process.kill()
-                await asyncio.wait_for(process.wait(), timeout=2)
-        except ProcessLookupError:
-            await process.wait()
-
-    @staticmethod
-    def _persist(path: Path, chunks: list[bytes]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "wb") as f:
-            for chunk in chunks:
-                f.write(chunk)
-
 
 __all__ = ["ClaudeCodeAdapter"]
 
@@ -446,15 +397,3 @@ def _format_uuid(delegation_id: str) -> str:
         return str(uuid.UUID(delegation_id))
     except (ValueError, AttributeError):
         return delegation_id
-
-
-def _stderr_tail(chunks: list[bytes], max_chars: int = 200) -> str:
-    if not chunks:
-        return ""
-    text = b"".join(chunks).decode("utf-8", errors="replace").strip()
-    if not text:
-        return ""
-    last = text.splitlines()[-1].strip()
-    if len(last) > max_chars:
-        last = last[:max_chars] + "…"
-    return last
