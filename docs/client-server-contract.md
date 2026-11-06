@@ -195,9 +195,13 @@ collector journal and must not be presented as service receipts.
 A client connection is identified by `server_id` and `client_id`, independently
 of its network addresses. Route changes do not change local journals, drafts,
 media caches, epochs, collector identities or idempotency keys. Clients may
-select a verified HTTPS route on foreground/network changes or transport
-failure; loopback HTTP remains limited to development. TLS validation and
-redirect rejection still apply to every route.
+select a verified user-configured HTTP or HTTPS route on foreground/network
+changes or transport failure. Local and public HTTP addresses are allowed; the
+iOS client shows a concise plaintext notice without blocking pairing or saving.
+HTTPS retains normal certificate validation. Redirect rejection applies to every
+route, and clients never silently rewrite the selected scheme. Signed identity
+proofs do not encrypt HTTP traffic or protect initial HTTP pairing from an
+intermediary. Transport choice belongs to the user.
 
 Authenticated `/api/server/info` includes the service's persistent Ed25519
 `identity_key` (standard base64). A client pins this key using its paired
