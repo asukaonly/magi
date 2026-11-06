@@ -259,6 +259,7 @@ assert "/install/upload/inspect" in {r.path for r in public.routes}
 - Keep component logic clear and composable.
 - AI-generated comments/log/error text must be English.
 - UI copy language is product-driven and may be non-English.
+- Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.
 
 ### Frontend type boundaries
 - Production TypeScript must pass the type-aware ESLint rules in `frontend/eslint.config.mjs`: no explicit `any` or unsafe access, calls, arguments, assignments, and returns.
