@@ -21,6 +21,7 @@ The repository automation source of truth is `.github/workflows/release.yml`.
 Current release expectations are:
 
 - official desktop release targets are macOS Apple Silicon and Windows x64; standalone Mac service packages target Apple Silicon. Releases after v0.1.30 no longer build or officially validate Intel Mac packages. Existing release assets are retained; generic build tooling may still accept Intel targets for contributor builds
+- macOS candidate builds use the supported `macos-15` Apple Silicon runner image; retired runner labels must be updated before a release
 - maintainers run `scripts/bump-release.sh` only from an up-to-date `main` branch; the script synchronizes version metadata, pushes `main`, and gates tag creation on a successful `ci.yml` run for the exact release commit
 - `release.yml` independently verifies that exact-commit CI result before any platform build, so a manually pushed tag cannot bypass the validation gate
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
