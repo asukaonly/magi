@@ -995,14 +995,19 @@ async def test_retry_running_task_is_rejected(runtime_paths_with_schema) -> None
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("stale_status", [
+    BackgroundTaskStatus.RUNNING,
+    BackgroundTaskStatus.CANCELLING,
+    BackgroundTaskStatus.SUSPENDED_WAITING_USER,
+])
 async def test_start_marks_stale_running_as_failed_and_rehydrates_pending(
-    runtime_paths_with_schema,
+    runtime_paths_with_schema, stale_status,
 ) -> None:
     store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
 
     # Simulate a previous process that was mid-run.
     stale = BackgroundTask.new(_make_spec(origin_turn_id="stale"))
-    stale.status = BackgroundTaskStatus.RUNNING
+    stale.status = stale_status
     stale.started_at = 100.0
     pending = BackgroundTask.new(_make_spec(origin_turn_id="pending"))
     for t in (stale, pending):
@@ -1019,6 +1024,8 @@ async def test_start_marks_stale_running_as_failed_and_rehydrates_pending(
         assert stale_row is not None
         assert stale_row.status == BackgroundTaskStatus.FAILED
         assert stale_row.error == "backend_restart"
+        assert await manager.retry(stale.task_id) is not None
+        await _wait_until(_status_reaches(store, stale.task_id, BackgroundTaskStatus.SUCCEEDED))
     finally:
         await manager.stop()
 

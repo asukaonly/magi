@@ -235,7 +235,7 @@ class BackgroundTaskRowStoreMixin:
     async def recover_stale_running(
         self, *, reason: str = "backend_restart"
     ) -> list[BackgroundTask]:
-        """Mark orphaned ``running``/``cancelling`` tasks as ``failed``."""
+        """Fail tasks whose running or suspended execution was lost on restart."""
         await self.initialize()
         now = time.time()
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
@@ -243,11 +243,12 @@ class BackgroundTaskRowStoreMixin:
             cursor = await db.execute(
                 """
                 SELECT * FROM background_tasks
-                WHERE status IN (?, ?)
+                WHERE status IN (?, ?, ?)
                 """,
                 (
                     BackgroundTaskStatus.RUNNING.value,
                     BackgroundTaskStatus.CANCELLING.value,
+                    BackgroundTaskStatus.SUSPENDED_WAITING_USER.value,
                 ),
             )
             rows = await cursor.fetchall()

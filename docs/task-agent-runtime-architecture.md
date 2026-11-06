@@ -1384,6 +1384,10 @@ timezone, while exact wall-clock time comes from the resident `current_time`
 tool.
 Background completion is stored before delivery fan-out so startup can resume
 pending completion intents without rerunning the model task.
+On worker restart, interrupted `running`, `cancelling`, and
+`suspended_waiting_user` attempts become failed with `backend_restart` and a
+durable completion intent. Their coroutine and pending question cannot survive
+the process; users may explicitly retry instead of leaving an unresumable wait.
 
 Scheduler targets own timing and enqueueing. The background runtime owns model
 and tool execution. Successful user-facing results are projected back to the

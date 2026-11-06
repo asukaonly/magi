@@ -8,7 +8,7 @@ router, and the periodic recovery hook.
 Lifecycle:
 
 1. Call :meth:`start` once at bootstrap. It runs restart recovery
-   (``running`` / ``cancelling`` rows from a previous process become
+   (``running`` / ``cancelling`` / ``suspended_waiting_user`` rows become
    ``failed(reason="backend_restart")``), rehydrates any leftover
    ``pending`` rows into the in-memory queue, and spawns the dispatcher
    loop.

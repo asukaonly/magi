@@ -398,7 +398,7 @@ async def test_list_pending_returns_fifo_order(store: BackgroundTaskStore) -> No
 
 
 @pytest.mark.asyncio
-async def test_recover_stale_running_marks_running_and_cancelling_as_failed(
+async def test_recover_stale_running_marks_interrupted_attempts_as_failed(
     store: BackgroundTaskStore,
 ) -> None:
     running = BackgroundTask.new(_make_spec(origin_turn_id="t-running"))
@@ -407,21 +407,29 @@ async def test_recover_stale_running_marks_running_and_cancelling_as_failed(
     cancelling = BackgroundTask.new(_make_spec(origin_turn_id="t-cancelling"))
     cancelling.status = BackgroundTaskStatus.CANCELLING
     cancelling.started_at = 100.0
+    suspended = BackgroundTask.new(_make_spec(origin_turn_id="t-suspended"))
+    suspended.status = BackgroundTaskStatus.SUSPENDED_WAITING_USER
+    suspended.started_at = 100.0
     pending = BackgroundTask.new(_make_spec(origin_turn_id="t-pending"))
     succeeded = BackgroundTask.new(_make_spec(origin_turn_id="t-ok"))
     succeeded.status = BackgroundTaskStatus.SUCCEEDED
-    for task in (running, cancelling, pending, succeeded):
+    for task in (running, cancelling, suspended, pending, succeeded):
         await store.create_task(task)
 
     recovered = await store.recover_stale_running()
 
     recovered_ids = {task.task_id for task in recovered}
-    assert recovered_ids == {running.task_id, cancelling.task_id}
+    assert recovered_ids == {running.task_id, cancelling.task_id, suspended.task_id}
 
     for task in recovered:
         assert task.status is BackgroundTaskStatus.FAILED
         assert task.error == "backend_restart"
         assert task.finished_at is not None
+        events = await store.list_events(task.task_id)
+        assert events[-1].to_status is BackgroundTaskStatus.FAILED
+        assert events[-1].message == "backend_restart"
+
+    assert {item.task.task_id for item in await store.list_pending_completions()} == recovered_ids
 
     fetched_pending = await store.get_task(pending.task_id)
     fetched_succeeded = await store.get_task(succeeded.task_id)
@@ -431,11 +439,11 @@ async def test_recover_stale_running_marks_running_and_cancelling_as_failed(
     )
 
     first_pass = [
-        await store.get_task(task.task_id) for task in (running, cancelling, pending, succeeded)
+        await store.get_task(task.task_id) for task in (running, cancelling, suspended, pending, succeeded)
     ]
     assert await store.recover_stale_running() == []
     assert [
-        await store.get_task(task.task_id) for task in (running, cancelling, pending, succeeded)
+        await store.get_task(task.task_id) for task in (running, cancelling, suspended, pending, succeeded)
     ] == first_pass
 
 
