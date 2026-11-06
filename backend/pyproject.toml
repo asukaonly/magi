@@ -74,9 +74,7 @@ dependencies = [
     "python-socketio>=5.11.0",
     "aiohttp>=3.13.4",
 
-    # Authentication
-    "pyjwt>=2.8.0",
-    "passlib[bcrypt]>=1.7.4",
+    # Encrypted memory backups
     "cryptography>=50.0.0,<51.0.0",
 
     # Natural language date parsing
