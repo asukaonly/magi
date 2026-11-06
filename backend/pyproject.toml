@@ -112,7 +112,7 @@ dependencies = [
     "soundfile==0.14.0; sys_platform == 'darwin' and platform_machine == 'arm64'",
 
     # Plugin SDK (shared contracts; install sdk/ in editable mode for local dev)
-    "magi-plugin-sdk>=0.2.4,<0.3.0",
+    "magi-plugin-sdk>=0.2.7,<0.3.0",
 ]
 
 [project.optional-dependencies]
