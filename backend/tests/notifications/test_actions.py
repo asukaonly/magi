@@ -1,4 +1,5 @@
 import pytest
+import os
 import json
 import time
 
@@ -46,7 +47,8 @@ def test_feed_expiry_and_public_notification_read(tmp_path):
     app = FastAPI()
     router = build_default_notifications_router(service_dep=lambda: service)
     app.include_router(_build_public_router(router, _PUBLIC_ROUTE_METHODS["notifications"]))
-    client = TestClient(app)
+    client = TestClient(app, headers={"x-magi-data-epoch": os.environ["MAGI_DATA_EPOCH"]})
+    assert client.get(f"/notifications/{live}", headers={"x-magi-data-epoch": "old"}).status_code == 409
     assert client.get(f"/notifications/{live}").json()["target"] == {"kind": "task", "id": "todo"}
     assert client.get(f"/notifications/{other}").status_code == 404
     store.mark_dismissed(old, "explicit")

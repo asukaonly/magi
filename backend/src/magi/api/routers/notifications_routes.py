@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Awaitable, Callable
 from typing import Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel
 
 from magi.notifications.service import NotificationService
@@ -152,7 +153,11 @@ def _notification_item_model(row) -> NotificationItemModel:
 
 
 def _get_notification_endpoint(service_dep, suppression_dep, memory_dep):
-    async def get_notification(notification_id: int) -> NotificationItemModel:
+    async def get_notification(
+        notification_id: int, x_magi_data_epoch: str = Header(min_length=1, max_length=128),
+    ) -> NotificationItemModel:
+        if x_magi_data_epoch != os.environ.get("MAGI_DATA_EPOCH"):
+            raise HTTPException(status_code=409, detail="Notification data epoch changed")
         row = service_dep()._store.get(notification_id)
         if row is None or row.user_id != _USER_ID or row.status not in {"unread", "read"}:
             raise HTTPException(status_code=404, detail="Notification is no longer available")

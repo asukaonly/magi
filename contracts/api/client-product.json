@@ -11275,6 +11275,17 @@
               "title": "Notification Id",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-magi-data-epoch",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "X-Magi-Data-Epoch",
+              "type": "string"
+            }
           }
         ],
         "responses": {

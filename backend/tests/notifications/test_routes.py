@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from magi.notifications.store import NotificationStore, NotificationRow
@@ -62,7 +63,7 @@ def test_list_hides_profile_conflicts_while_memory_clear_is_pending(tmp_path):
 
     assert body["unread_count"] == 1
     assert [item["dedupe_key"] for item in body["items"]] == ["browser_history"]
-    assert TestClient(app).get("/notifications/1").status_code == 404
+    assert TestClient(app).get("/notifications/1", headers={"x-magi-data-epoch": os.environ["MAGI_DATA_EPOCH"]}).status_code == 404
 
 
 def test_mark_read_routes_preserve_selected_and_owner_scope(tmp_path):

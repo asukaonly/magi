@@ -44,7 +44,8 @@ grant: collector credentials retain their existing source-only restrictions.
 
 The durable `/api/notifications` inbox carries an optional typed `target`: a chat,
 personal task, memory, or extensions destination. `GET /api/notifications/{id}`
-rechecks visibility before opening a notification. Clients fetch current interaction
+requires `x-magi-data-epoch` and rechecks visibility before opening a notification,
+so clearing/restoring data between the identity read and inbox read cannot reuse an old ID. Clients fetch current interaction
 state in the target conversation; opening never approves a permission or answers a
 question. Deleted, resolved, or previous-data-generation targets are not replayed.
 Important control requests and terminal background tasks materialize once per
