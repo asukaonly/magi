@@ -1,14 +1,15 @@
-import { PairingCodeDialog } from './PairingCodeDialog';
-import { MonitorSmartphone } from 'lucide-react';
+import { CenterNotificationPolicy } from './CenterNotificationPolicy';
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { serverApi } from '@/api/modules/server';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { getRuntimeConfig, resetRuntimeInitialization } from '@/runtime/config';
 import { listConnectionProfiles } from '@/runtime/connections';
 
 type Client = Awaited<ReturnType<typeof serverApi.clients>>[number];
+type Grant = Awaited<ReturnType<typeof serverApi.pairingGrant>> & { address: string; loopback: boolean };
 
 /** Device authorization is managed on the connected center, independently of saved profiles. */
 export function CenterAccessPanel() {
@@ -16,6 +17,9 @@ export function CenterAccessPanel() {
   const [clients, setClients] = useState<Client[] | null>(null);
   const [currentClientId, setCurrentClientId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [grant, setGrant] = useState<Grant | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [addressCopied, setAddressCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const owner = useRef(0);
@@ -36,7 +40,11 @@ export function CenterAccessPanel() {
     }
   }, [t]);
   useEffect(() => { void load(); return () => { owner.current += 1; }; }, [load]);
-
+  useEffect(() => {
+    if (!grant) return;
+    const timer = window.setTimeout(() => { setGrant(null); setCopied(false); setAddressCopied(false); }, Math.max(0, grant.expires_at_ms - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [grant]);
 
   useCenterRefresh(load, ["server"], !busy);
 
@@ -61,16 +69,12 @@ export function CenterAccessPanel() {
     setClients((current) => current?.map((client) => client.client_id === clientId ? { ...client, revoked_at_ms: Date.now() } : client) ?? null);
   };
 
-  return <section className="space-y-4 border-t border-border/60 pt-8">
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <div className="min-w-0 flex-1 basis-64 space-y-1.5">
-        <h2 className="text-[15px] font-semibold">{t('connections.access.title')}</h2>
-        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('connections.access.description')}</p>
-      </div>
-      <PairingCodeDialog disabled={!clients || busy} />
-    </div>
-    {clients?.filter((client) => client.revoked_at_ms === null).map((client) => <div key={client.client_id} className="space-y-2 rounded-xl bg-muted/25 px-4 py-3">
-      <div className="flex items-center gap-3"><MonitorSmartphone className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" /><p className="min-w-0 flex-1 truncate text-sm">{client.name}{client.client_id === currentClientId ? ` · ${t('connections.access.thisDevice')}` : ''}</p>
+  return <section className="space-y-3 border-t border-border pt-5">
+    <CenterNotificationPolicy />
+    <h2 className="text-sm font-semibold">{t('connections.access.title')}</h2>
+    <p className="text-xs leading-5 text-muted-foreground">{t('connections.access.description')}</p>
+    {clients?.filter((client) => client.revoked_at_ms === null).map((client) => <div key={client.client_id} className="space-y-2 rounded-md border border-border p-3">
+      <div className="flex items-center gap-3"><p className="min-w-0 flex-1 truncate text-sm">{client.name}{client.client_id === currentClientId ? ` · ${t('connections.access.thisDevice')}` : ''}</p>
         <Button size="sm" variant="outline" disabled={busy} onClick={() => setConfirming(client.client_id)}>{t('connections.access.revoke')}</Button>
       </div>
       <p className="break-all text-xs text-muted-foreground">{t(client.role === 'collector' ? 'connections.access.collectorRole' : 'connections.access.adminRole')}{client.collector_scope ? ` · ${client.collector_scope.source_type} · ${client.collector_scope.connection_id}` : ''}</p>
@@ -80,6 +84,24 @@ export function CenterAccessPanel() {
       </div> : null}
     </div>)}
     {clients && clients.every((client) => client.revoked_at_ms !== null) ? <p className="text-sm text-muted-foreground">{t('connections.access.empty')}</p> : null}
+    {clients ? <Button variant="outline" disabled={busy} onClick={() => { void run(async () => {
+      const generation = owner.current;
+      const address = new URL(getRuntimeConfig().apiBaseUrl);
+      const next = await serverApi.pairingGrant();
+      if (generation === owner.current) {
+        setGrant({ ...next, address: address.origin, loopback: ['127.0.0.1', 'localhost', '[::1]'].includes(address.hostname) });
+        setCopied(false); setAddressCopied(false);
+      }
+    }); }}>{t('connections.access.createCode')}</Button> : null}
+    {grant ? <div className="space-y-2 rounded-md bg-muted p-3">
+      <label className="block text-xs font-medium" htmlFor="pairing-service-address">{t('connections.address')}</label>
+      <div className="flex gap-2"><Input id="pairing-service-address" readOnly value={grant.address} />
+        <Button variant="outline" disabled={busy} onClick={() => { void run(async () => { await navigator.clipboard.writeText(grant.address); setAddressCopied(true); }); }}>{t(addressCopied ? 'connections.access.copied' : 'connections.access.copyAddress')}</Button></div>
+      {grant.loopback ? <p className="text-xs text-muted-foreground">{t('connections.access.localAddressHint')}</p> : null}
+      <p className="text-xs text-muted-foreground">{t('connections.access.codeHint')}</p>
+      <div className="flex gap-2"><Input aria-label={t('connections.pairingCode')} type="password" autoComplete="off" readOnly value={grant.pairing_token} />
+        <Button variant="outline" disabled={busy} onClick={() => { void run(async () => { await navigator.clipboard.writeText(grant.pairing_token); setCopied(true); }); }}>{t(copied ? 'connections.access.copied' : 'connections.access.copy')}</Button></div>
+    </div> : null}
     {!clients && !error ? <p role="status" className="text-sm text-muted-foreground">{t('common.loading')}</p> : null}
     {error ? <div role="alert" className="space-y-2 text-sm text-destructive"><p>{error}</p><Button variant="outline" disabled={busy} onClick={() => { void load(); }}>{t('common.retry')}</Button></div> : null}
   </section>;
