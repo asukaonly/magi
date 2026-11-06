@@ -141,7 +141,7 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
           data-testid="story-detail-scroll"
           className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-2 text-sm leading-7 text-[hsl(var(--memory-body))] sm:px-8"
         >
-          <MarkdownBlock className="mx-auto max-w-[740px] text-[0.95rem] font-normal leading-7 text-[hsl(var(--memory-body))] [&_code]:rounded-sm [&_code]:border-0 [&_code]:bg-[hsl(var(--memory-panel-subtle)/0.62)] [&_code]:font-sans [&_code]:shadow-none [&_h1]:mb-6 [&_h1]:border-0 [&_h1]:pb-0 [&_h1]:text-2xl [&_h2]:mb-3 [&_h2]:mt-8 [&_h2]:text-base [&_h2]:normal-case [&_h2]:tracking-normal [&_h2]:text-[hsl(var(--memory-title))] [&_li]:pl-0.5 [&_ol]:my-3 [&_ol]:space-y-2 [&_p]:leading-7 [&_ul]:my-3 [&_ul]:space-y-2">
+          <MarkdownBlock className="mx-auto max-w-[740px] text-[0.95rem] font-normal leading-7 text-[hsl(var(--memory-body))] [&_code]:rounded-sm [&_code]:border-0 [&_code]:bg-[hsl(var(--memory-panel-subtle)/0.62)] [&_code]:font-sans [&_code]:shadow-none [&_h1]:mb-6 [&_h1]:border-0 [&_h1]:pb-0 [&_h1]:text-2xl [&_h2]:mb-3 [&_h2]:mt-8 [&_h2]:text-base [&_h2]:normal-case [&_h2]:tracking-normal [&_h2]:text-[hsl(var(--memory-title))] [&_li]:pl-0.5 [&_ol]:my-3 [&_ol]:space-y-2 [&_p]:mb-4 [&_p]:leading-7 [&_p:last-child]:mb-0 [&_ul]:my-3 [&_ul]:space-y-2">
             {story.content}
           </MarkdownBlock>
 

@@ -54,7 +54,7 @@ class TemporalSummaryPolicy:
         """Give a reading budget, never a section or minimum-length template."""
         budgets = {
             "hour": "Usually 1-2 sentences about one activity.",
-            "day": "Usually 2-5 concrete points in a short paragraph or a few bullets.",
+            "day": "Usually 2-5 concrete points, grouped into short paragraphs by subject.",
             "week": "Usually 3-6 concrete developments, grouped by subject only when helpful.",
             "month": "Usually 4-7 concrete developments or experiences.",
             "quarter": "Usually 4-7 lasting developments or memorable experiences.",
@@ -65,6 +65,10 @@ class TemporalSummaryPolicy:
             + " These are upper reading budgets, not quotas or required sections. "
             "Use fewer points when evidence is thin. No mandatory headline, timeline, "
             "decisions, open-threads or comparison sections. Do not state the same fact twice. "
+            "Keep one subject per paragraph, usually 1-3 sentences, with a blank line between paragraphs. "
+            "Start a new paragraph when the subject changes; never pack unrelated projects, "
+            "shopping and entertainment into one block. For independent brief items, bullets are fine. "
+            "Preserve these paragraph breaks when repairing factual claims. "
             "A longer period calls for stronger selection, not more filler."
         )
 

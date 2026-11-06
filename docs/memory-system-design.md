@@ -2720,7 +2720,13 @@ budgets, not mandatory headings or minimum bullet counts. A short period may
 need only one sentence. The writer must distinguish browsing, requests, plans
 and completed actions, and must not infer life priorities, mood, productivity
 or unresolved tasks from missing records or activity counts. Retrieval metadata
-is optional and must not dictate a report outline.
+is optional and must not dictate a report outline. Multi-topic recaps use one
+subject per short paragraph (usually one to three sentences), separated by blank
+lines; brief independent items may use bullets. Initial generation and evidence
+repair share this layout rule, so correcting a claim must not collapse the body
+into one block. The story detail body preserves visible paragraph spacing instead
+of inheriting the compact card renderer's zero margins. Short single-topic recaps
+do not need artificial paragraph breaks.
 
 Temporal LLM generation normally uses two calls over the same raw source
 evidence. The first produces the user-facing draft. The second checks its factual
