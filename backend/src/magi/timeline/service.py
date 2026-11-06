@@ -503,6 +503,13 @@ class TimelineService:
                 return path.strip(), content_type.strip()
         return None, None
 
+    async def get_event_context_bundle(self, event_ids: list[str]) -> dict:
+        """Read the exact visible members selected in a transient timeline group."""
+        return await self._viewport_builder.build_context_bundle(anchor={
+            "anchor_id": "selection", "anchor_type": "cluster", "title": "", "summary": "",
+            "source_event_ids": list(dict.fromkeys(event_ids)),
+        })
+
     async def get_context_bundle(self, anchor_id: str) -> Optional[dict]:
         if getattr(self._unified_memory, "l1", None) is None:
             return None

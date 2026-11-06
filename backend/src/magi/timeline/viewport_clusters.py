@@ -8,6 +8,7 @@ from typing import Any
 
 from .state_band_builder import derive_state_from_tone
 from .viewport_i18n import is_zh_locale, source_label
+from .presentation_text import display_text, readable_label
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,14 @@ class TimelineClusterPresentationBuilder:
         self._localize_labels(clusters, locale=locale)
         self._enrich_states(clusters, summaries, start=start, end=end)
         self._enrich_source_types(clusters, events)
+        for cluster in clusters:
+            sources = cluster.get("source_types") or []
+            source = sources[0] if sources else "memory"
+            if not cluster.get("user_label") and not readable_label(cluster.get("label")):
+                cluster["label"] = source_label(source, locale)
+                cluster["label_is_themeable"] = False
+            for field in ("summary", "slice_narrative"):
+                cluster[field] = display_text(cluster.get(field), source)
         return clusters
 
     def _enrich_states(
@@ -110,7 +119,7 @@ class TimelineClusterPresentationBuilder:
             return False
         time_start = float(cluster.get("time_start") or 0.0)
         time_end = float(cluster.get("time_end") or 0.0)
-        return time_end > time_start
+        return time_end >= time_start
 
     def _episode_source_details(
         self,

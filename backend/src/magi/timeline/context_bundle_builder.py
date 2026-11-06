@@ -7,6 +7,7 @@ from typing import Any
 from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 
 from .. import i18n as core_i18n
+from .presentation_text import AGENT_SOURCES, display_text, prompt_excerpts
 
 
 class TimelineContextBundleBuilder:
@@ -31,9 +32,9 @@ class TimelineContextBundleBuilder:
         if episode_id and self._l2 is not None and hasattr(self._l2, "list_episode_events"):
             return await self._build_episode_bundle(anchor, episode_id)
 
-        event_ids = list(
-            anchor.get("representative_event_ids") or anchor.get("source_event_ids") or []
-        )
+        event_ids = list(dict.fromkeys(
+            anchor.get("source_event_ids") or anchor.get("representative_event_ids") or []
+        ))
 
         l1_events: list[dict[str, Any]] = []
         if self._l1 is not None:
@@ -41,6 +42,8 @@ class TimelineContextBundleBuilder:
                 event = await self._l1.get_user_visible_event(str(event_id))
                 if event is not None:
                     l1_events.append(self._to_event_preview(event))
+        await self._enrich_prompts(l1_events)
+        event_ids = [event["event_id"] for event in l1_events]
 
         l2_state_evidence: list[dict[str, Any]] = []
         if self._l2 is not None:
@@ -101,6 +104,8 @@ class TimelineContextBundleBuilder:
                 event = await self._l1.get_user_visible_event(eid)
                 if event is not None:
                     l1_events.append(self._to_event_preview(event))
+        await self._enrich_prompts(l1_events)
+        event_ids = [event["event_id"] for event in l1_events]
 
         l2_state_evidence: list[dict[str, Any]] = []
         if hasattr(self._l2, "find_edges_by_event_id"):
@@ -138,16 +143,25 @@ class TimelineContextBundleBuilder:
     def _to_event_preview(self, event: dict[str, Any]) -> dict[str, Any]:
         metadata = self._event_metadata(event)
         activity_snapshot = activity_snapshot_from_metadata(metadata)
+        source = str(activity_snapshot.get("source_type") or event.get("source") or "memory")
+        content_blocks = activity_snapshot.get("content_blocks") or []
+        url = next((block.get("value") for block in content_blocks
+                    if isinstance(block, dict) and source == "chrome_history"
+                    and isinstance(block.get("value"), str)
+                    and block["value"].startswith(("https://", "http://"))), None)
         return {
             "event_id": str(event.get("event_id")),
             "timestamp": float(event.get("timestamp") or 0.0),
-            "title": str(
+            "title": display_text(
                 activity_snapshot.get("title")
                 or event.get("event_type")
                 or event.get("event_id")
-                or core_i18n.t("timeline.raw_event.title", fallback="Event")
+                or core_i18n.t("timeline.raw_event.title", fallback="Event"),
+                source,
             ),
-            "summary": str(activity_snapshot.get("summary") or event.get("content") or ""),
+            "summary": display_text(activity_snapshot.get("summary") or event.get("content"), source),
+            "url": url,
+            "user_prompts": [],
             "source_type": str(
                 activity_snapshot.get("source_type") or event.get("source") or "memory"
             ),
@@ -158,6 +172,19 @@ class TimelineContextBundleBuilder:
                 or ""
             ),
         }
+
+    async def _enrich_prompts(self, events: list[dict[str, Any]]) -> None:
+        """Only fetch pinned text after the event passed user-visibility checks."""
+        ids = [event["event_id"] for event in events if event["source_type"] in AGENT_SOURCES]
+        if not ids or not hasattr(self._l1, "get_pinned_payloads"):
+            return
+        payloads = await self._l1.get_pinned_payloads(ids)
+        for event in events:
+            if event["event_id"] in payloads:
+                prompts = prompt_excerpts(payloads[event["event_id"]])
+                event["user_prompts"] = prompts
+                if prompts:
+                    event["summary"] = prompts[0].splitlines()[0][:280]
 
     @staticmethod
     def _with_evidence_events_alias(edge: dict[str, Any]) -> dict[str, Any]:

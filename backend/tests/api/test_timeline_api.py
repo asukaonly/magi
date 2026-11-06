@@ -14,6 +14,10 @@ class _FakeTimelineService:
         self.context_calls = []
         self.cover_calls = []
 
+    async def get_event_context_bundle(self, event_ids):
+        self.context_calls.append(event_ids)
+        return {"l1_events": [{"event_id": item} for item in event_ids]}
+
     async def get_viewport(self, **kwargs):
         self.viewport_calls.append(kwargs)
         return {
@@ -106,6 +110,16 @@ def _build_client(monkeypatch):
     service = _FakeTimelineService()
     monkeypatch.setattr(timeline_module, "get_timeline_service", lambda: service)
     return TestClient(app), service
+
+
+def test_selection_context_is_reachable_through_public_router(monkeypatch):
+    client, service = _build_client(monkeypatch)
+    response = client.post("/api/timeline/context", json={"event_ids": ["a", "b"]})
+    assert response.status_code == 200
+    assert service.context_calls == [["a", "b"]]
+    assert len(response.json()["l1_events"]) == 2
+    assert client.post("/api/timeline/context", json={"event_ids": []}).status_code == 422
+    assert client.post("/api/timeline/context", json={"event_ids": ["a"] * 5001}).status_code == 422
 
 
 @pytest.mark.parametrize("scale", ["month", "week", "day", "hour"])

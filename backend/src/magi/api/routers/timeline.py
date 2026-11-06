@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ... import i18n as core_i18n
 from ..runtime_dependencies import get_api_runtime_dependencies
@@ -13,6 +13,15 @@ from ...timeline.cover_preferences import TimelineCoverAssetSource
 from ...timeline.service import TimelineService
 
 timeline_router = APIRouter()
+
+
+class TimelineEventContextRequest(BaseModel):
+    event_ids: list[str] = Field(min_length=1, max_length=5000)
+
+
+@timeline_router.post("/context")
+async def get_timeline_event_context(payload: TimelineEventContextRequest):
+    return await get_timeline_service().get_event_context_bundle(payload.event_ids)
 
 
 class TimelineCoverPreferenceRequest(BaseModel):

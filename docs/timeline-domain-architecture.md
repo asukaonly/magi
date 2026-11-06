@@ -59,6 +59,10 @@ GET /timeline/viewport
 GET /timeline/context/{anchor_id}
   → TimelineContextBundleBuilder
   → cross-layer detail payload (L1 events, L2 evidence, L3 reflections, L4 procedures, chat excerpts)
+
+POST /timeline/context {event_ids}
+  → exact transient-cluster membership, bounded to the viewport event limit
+  → same context bundle, after filtering each event through user visibility
 ```
 
 ## Core Data Models
@@ -162,6 +166,17 @@ Assembled by `TimelineContextBundleBuilder` for UI detail panels:
 - `l3_reflections` — relevant reflections
 - `l4_related_procedures` — procedural memory matches
 - `chat_excerpts` — related chat turns
+
+Transient clusters carry complete `source_event_ids` separately from their small
+representative preview list. Detail reads use complete membership. Agent-history
+previews can include `user_prompts` recovered from visible events' pinned source
+snapshots; these are user-authored requests, not a reconstructed assistant
+transcript. Leading runtime envelopes are excluded from presentation. Browser
+previews expose an HTTP(S) `url` when present in the source content blocks.
+Missing or pruned source text remains unavailable; reads never invent it.
+Internal entity/site labels cannot become machine-generated display titles.
+These read-side rules also apply to existing records without modifying raw
+evidence, user labels, notes, or durable memory assertions.
 
 ## Review Surface Product Contract
 

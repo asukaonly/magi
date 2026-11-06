@@ -191,6 +191,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/api/hooks/": {"GET"},
     },
     "timeline": {
+        "/context": {"POST"},
         "/viewport": {"GET"},
         "/context/{anchor_id}": {"GET"},
         "/standout": {"GET"},

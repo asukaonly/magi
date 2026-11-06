@@ -10,6 +10,7 @@ from typing import Any
 from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 
 from ..media.adapters.photo_library import extract_photo_library_asset_ref
+from .presentation_text import display_text, readable_label
 
 # Tag values that just restate the source name — surfacing them as the
 # cluster label would duplicate what the SourceGroup header in the day
@@ -224,7 +225,7 @@ class TimelineClusterBuilder:
         if raw_user_label:
             return _EpisodeClusterLabel(raw_user_label, raw_user_label, True)
 
-        raw_label = str(episode.get("label") or "").strip()
+        raw_label = readable_label(episode.get("label"))
         if raw_label and raw_label.lower() not in _PLACEHOLDER_EPISODE_LABELS:
             return _EpisodeClusterLabel(raw_label.replace("_", " ").title(), raw_label, True)
 
@@ -301,6 +302,7 @@ class TimelineClusterBuilder:
             "representative_event_ids": [
                 str(event.get("event_id")) for event in events[:3] if event.get("event_id")
             ],
+            "source_event_ids": [str(event["event_id"]) for event in events if event.get("event_id")],
             "keywords": keywords,
             "media_refs": [],
             "state_snapshot": {},
@@ -331,8 +333,9 @@ class TimelineClusterBuilder:
         return counter
 
     def _resolve_label(self, tags: Counter[str], source_types: list[str]) -> str:
-        if tags:
-            return tags.most_common(1)[0][0]
+        readable_tags = Counter({tag: count for tag, count in tags.items() if readable_label(tag)})
+        if readable_tags:
+            return readable_tags.most_common(1)[0][0]
         if source_types:
             return source_types[0]
         return "activity"
@@ -341,7 +344,7 @@ class TimelineClusterBuilder:
         snippets: list[str] = []
         for event in events[:2]:
             activity_snapshot = self._activity_snapshot(event)
-            summary = str(activity_snapshot.get("summary") or event.get("content") or "").strip()
+            summary = display_text(activity_snapshot.get("summary") or event.get("content"), str(event.get("source") or ""))
             if summary:
                 snippets.append(summary)
         return " ".join(snippets).strip()
@@ -383,7 +386,7 @@ class TimelineClusterBuilder:
         counter: Counter[str] = Counter()
         for event in events:
             for tag in self._extract_tags(event):
-                if tag and tag not in _GENERIC_SOURCE_TAGS:
+                if readable_label(tag) and tag not in _GENERIC_SOURCE_TAGS:
                     counter[tag] += 1
         if not counter:
             return ""

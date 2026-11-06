@@ -21,6 +21,8 @@ def timeline_t(key: str, locale: str | None, *, fallback: str, **kwargs: Any) ->
 
 def source_label(source_type: Any, locale: str) -> str:
     source = str(source_type or "memory")
+    if source in {"codex_agent_history", "claude_code_agent_history"}:
+        return "Codex" if source == "codex_agent_history" else "Claude Code"
     fallback = (
         source.replace("_", " ") if is_zh_locale(locale) else source.replace("_", " ").title()
     )
