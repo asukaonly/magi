@@ -12,7 +12,7 @@ class Provider:
 
 def test_storage_binding_protects_exact_connection_lifetime():
     registry = PluginStorageRegistry()
-    spec = StorageProviderSpec(provider_id="mysql", domains=["chat"])
+    spec = StorageProviderSpec(provider_id="mysql", target_identity="mysql-db", domains=["chat"])
     provider = Provider()
     dispose = registry.register(plugin_id="storage-mysql", connection_id="primary", spec=spec, provider=provider)
     assert registry.resolve("primary", "mysql", "chat").provider is provider

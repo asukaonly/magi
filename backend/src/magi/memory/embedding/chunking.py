@@ -30,16 +30,7 @@ _SENTENCE_BOUNDARY_RE = re.compile(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class ChunkedText:
-    """One chunk of a larger source text."""
-
-    chunk_id: str
-    text: str
-    chunk_index: int
-    char_start: int
-    char_end: int
-    token_estimate: int
+from magi_plugin_sdk.storage_models.chunks import ChunkedText
 
 
 @dataclass(frozen=True, slots=True)

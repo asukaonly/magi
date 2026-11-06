@@ -15,6 +15,7 @@ class StorageContract(BaseModel):
 
 class StorageProviderSpec(StorageContract):
     provider_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
+    target_identity: str = Field(min_length=1, max_length=256)
     contract_version: Literal[1] = 1
     domains: list[StorageDomain] = Field(min_length=1, max_length=3)
 

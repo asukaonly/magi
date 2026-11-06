@@ -22,11 +22,11 @@ class Provider:
 
 class StoragePlugin(Plugin):
     def get_storage_providers(self):
-        return [(StorageProviderSpec(provider_id="test", domains=["chat"]), Provider())]
+        return [(StorageProviderSpec(provider_id="test", target_identity="test-db", domains=["chat"]), Provider())]
 
 
 @pytest.mark.parametrize("value", [
-    StorageProviderSpec(provider_id="mysql", domains=["chat", "channels", "memory_events"]),
+    StorageProviderSpec(provider_id="mysql", target_identity="mysql-db", domains=["chat", "channels", "memory_events"]),
     StorageOpen(domain="chat", center_id="center", mode="maintenance"),
     StorageOpened(session_id="session", target_identity="target", schema_version="v1"),
     StorageCall(session_id="session", repository="chat", operation="get_turn", arguments={"turn_id": "turn"}),
@@ -38,9 +38,9 @@ def test_storage_values_roundtrip(value):
 
 def test_storage_rejects_unsupported_contract_and_private_calls():
     with pytest.raises(ValidationError):
-        StorageProviderSpec(provider_id="test", contract_version=2, domains=["chat"])
+        StorageProviderSpec(provider_id="test", target_identity="test-db", contract_version=2, domains=["chat"])
     with pytest.raises(ValidationError):
-        StorageProviderSpec(provider_id="test", domains=["chat", "chat"])
+        StorageProviderSpec(provider_id="test", target_identity="test-db", domains=["chat", "chat"])
     with pytest.raises(ValidationError):
         StorageCall(session_id="s", repository="chat", operation="__dict__")
     with pytest.raises(ValidationError):
@@ -59,6 +59,6 @@ def test_worker_exposes_only_storage_lifecycle_methods(tmp_path):
 
 def test_worker_rejects_incomplete_provider(tmp_path):
     plugin = StoragePlugin()
-    plugin.get_storage_providers = lambda: [(StorageProviderSpec(provider_id="test", domains=["chat"]), object())]
+    plugin.get_storage_providers = lambda: [(StorageProviderSpec(provider_id="test", target_identity="test-db", domains=["chat"]), object())]
     with pytest.raises(ValueError, match="public protocol"):
         WorkerCatalog(plugin).describe()

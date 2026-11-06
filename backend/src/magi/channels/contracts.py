@@ -45,11 +45,4 @@ __all__ = [
 ]
 
 
-@dataclass(frozen=True, slots=True)
-class ChannelBindingSettings:
-    """The settings row (or virtual-default if no row exists yet)."""
-
-    channel_type: str
-    external_user_id: str
-    auto_approve: bool
-    updated_at_ms: int
+from magi_plugin_sdk.storage_models.channels import ChannelBindingSettings
