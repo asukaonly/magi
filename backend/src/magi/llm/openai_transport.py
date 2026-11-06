@@ -184,6 +184,17 @@ async def _completion_chunks(stream: Any, model: str, *, responses: bool) -> Asy
 
 async def create_completion(client: Any, **kwargs: Any) -> Any:
     """Select the native endpoint and keep one internal completion shape."""
+    model = kwargs["model"].lower()
+    if model.startswith(("kimi-k3.1", "minimax-m3.1-flash")):
+        for key in ("temperature", "top_p", "n", "presence_penalty", "frequency_penalty"):
+            kwargs.pop(key, None)
+    if model.startswith("mimo-v2.6"):
+        tokens = kwargs.pop("max_tokens", None)
+        if tokens is not None:
+            kwargs["max_completion_tokens"] = tokens
+        if kwargs.get("extra_body", {}).get("thinking", {}).get("type") != "disabled":
+            kwargs.pop("temperature", None)
+            kwargs.pop("top_p", None)
     responses = uses_responses_api(kwargs["model"])
     if responses:
         result = await client.responses.create(**_responses_kwargs(kwargs))

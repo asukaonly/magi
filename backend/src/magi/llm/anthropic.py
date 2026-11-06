@@ -3,7 +3,10 @@ LLM Adapter - Anthropic implementation
 """
 
 from typing import Optional, Dict, Any, AsyncIterator
+from contextlib import aclosing
+
 from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
+from .reasoning_dialect import anthropic_thinking_is_adaptive_only
 from .base import LLMAdapter
 from ..config.constants import DEFAULT_MAX_TOKENS
 
@@ -65,57 +68,14 @@ class AnthropicAdapter(LLMAdapter):
     async def generate(
         self, prompt: str, max_tokens: Optional[int] = None, temperature: float = 0.7, **kwargs
     ) -> str:
-        """
-        Generate text (non-streaming)
-
-        Args:
-            prompt: Input prompt
-            max_tokens: Maximum token count
-            temperature: Temperature parameter
-            **kwargs: Additional parameters
-
-        Returns:
-            str: Generated text
-        """
-        response = await self._client.messages.create(
-            model=self._model,
-            max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
-            temperature=temperature,
-            messages=[{"role": "user", "content": prompt}],
-            **kwargs,
-        )
-
-        if not response.content:
-            return ""
-        return response.content[0].text
+        return await self.chat([{"role": "user", "content": prompt}], max_tokens, temperature, **kwargs)
 
     async def generate_stream(
         self, prompt: str, max_tokens: Optional[int] = None, temperature: float = 0.7, **kwargs
     ) -> AsyncIterator[str]:
-        """
-        Generate text (streaming)
-
-        Args:
-            prompt: Input prompt
-            max_tokens: Maximum token count
-            temperature: Temperature parameter
-            **kwargs: Additional parameters
-
-        Yields:
-            str: Generated text chunks
-        """
-        stream = await self._client.messages.create(
-            model=self._model,
-            max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
-            temperature=temperature,
-            messages=[{"role": "user", "content": prompt}],
-            stream=True,
-            **kwargs,
-        )
-
-        async for event in stream:
-            if event.type == "content_block_delta":
-                yield event.delta.text
+        async with aclosing(self.chat_stream([{"role": "user", "content": prompt}], max_tokens, temperature, **kwargs)) as stream:
+            async for text in stream:
+                yield text
 
     async def chat(
         self,
@@ -136,17 +96,15 @@ class AnthropicAdapter(LLMAdapter):
         Returns:
             str: Assistant's response
         """
+        kwargs = self._sampling_options(temperature, kwargs)
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
-            temperature=temperature,
             messages=messages,
             **kwargs,
         )
 
-        if not response.content:
-            return ""
-        return response.content[0].text
+        return "".join(block.text for block in response.content if block.type == "text")
 
     async def chat_stream(
         self,
@@ -167,18 +125,29 @@ class AnthropicAdapter(LLMAdapter):
         Yields:
             str: Generated text chunks
         """
+        kwargs = self._sampling_options(temperature, kwargs)
         stream = await self._client.messages.create(
             model=self._model,
             max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
-            temperature=temperature,
             messages=messages,
             stream=True,
             **kwargs,
         )
 
-        async for event in stream:
-            if event.type == "content_block_delta":
-                yield event.delta.text
+        try:
+            async for event in stream:
+                if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                    yield event.delta.text
+        finally:
+            await stream.close()
+
+    def _sampling_options(self, temperature: float, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        if anthropic_thinking_is_adaptive_only(self._model):
+            for key in ("temperature", "top_p", "top_k"):
+                kwargs.pop(key, None)
+        else:
+            kwargs["temperature"] = temperature
+        return kwargs
 
     @property
     def model_name(self) -> str:

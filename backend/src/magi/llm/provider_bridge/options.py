@@ -153,10 +153,12 @@ class ProviderBridgeOptionsMixin:
 
         dialect = self._resolve_reasoning_dialect()
         model_id = self.llm.model_name.lower()
-        if dialect is ReasoningDialect.GLM_TOGGLE and model_id.startswith("glm-5.3"):
+        if dialect is ReasoningDialect.GLM_TOGGLE and model_id.startswith(("glm-5.3", "kimi-k3.1")):
             if requested in {ThinkingDepth.NONE, ThinkingDepth.LOW}:
                 return ThinkingDepth.LOW
             return ThinkingDepth.MAX if requested is ThinkingDepth.MAX else ThinkingDepth.HIGH
+        if model_id.startswith("minimax-m3.1-flash") or model_id == "grok-4.7":
+            return ThinkingDepth.LOW if requested is ThinkingDepth.NONE else requested
         if dialect is ReasoningDialect.OPENAI_EFFORT and uses_responses_api(model_id):
             return ThinkingDepth(responses_effort(model_id, requested.value))
         if dialect is ReasoningDialect.NONE:
@@ -250,6 +252,11 @@ class ProviderBridgeOptionsMixin:
         if dialect == ReasoningDialect.OPENAI_EFFORT and not self._model_supports_reasoning():
             return kwargs
 
+        model_id = self.llm.model_name.lower()
+        if model_id.startswith(("kimi-k3.1", "minimax-m3.1-flash")) or model_id == "grok-4.7":
+            depth = self.resolve_effective_reasoning_depth(thinking_depth)
+            kwargs["reasoning_effort"] = "xhigh" if model_id == "grok-4.7" and depth is ThinkingDepth.MAX else depth.value
+            return kwargs
         if dialect is ReasoningDialect.GLM_TOGGLE and self.llm.model_name.lower().startswith("glm-5.3"):
             return merge_payload(kwargs, {
                 "_kwargs": {"reasoning_effort": self.resolve_effective_reasoning_depth(thinking_depth).value},

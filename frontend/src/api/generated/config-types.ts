@@ -979,7 +979,7 @@ export interface components {
          *     extensions"; reasoning / thinking knobs are not injected.
          * @enum {string}
          */
-        ModelVendor: "openai" | "deepseek" | "anthropic" | "glm" | "dashscope" | "grok" | "gemini" | "kimi" | "minimax" | "generic";
+        ModelVendor: "openai" | "deepseek" | "anthropic" | "glm" | "dashscope" | "grok" | "gemini" | "kimi" | "minimax" | "xiaomimimo" | "generic";
         /** NetworkProxyConfigModel */
         NetworkProxyConfigModel: {
             /**

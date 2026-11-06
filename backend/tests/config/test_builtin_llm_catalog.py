@@ -188,3 +188,36 @@ def test_same_provider_accounts_resolve_distinct_credentials_and_cached_adapters
         for account in account_ids
     ]
     assert [adapter._provider_instance_id for adapter in [core, auxiliary]] == account_ids
+
+
+def test_current_catalog_has_live_defaults_and_provider_plan_boundaries():
+    providers = {p.id: p for p in _load_registry().providers}
+    expected = {
+        "openai": "gpt-6.1-sol", "anthropic": "claude-sonnet-5-5", "glm": "glm-5.3",
+        "gemini": "gemini-3.8-flash", "grok": "grok-4.7", "deepseek": "deepseek-flash",
+        "dashscope": "qwen3.7-plus", "kimi": "kimi-k3.1-pro", "minimax": "MiniMax-M3.1-Flash",
+        "xiaomimimo": "mimo-v2.6-pro",
+    }
+    assert {id: provider.default_model for id, provider in providers.items()} == expected
+    assert {m.id for m in providers["dashscope"].plans[0].chat_models} == {
+        "qwen3.7-plus", "qwen3.6-plus", "kimi-k2.5", "glm-5", "MiniMax-M2.5", "qwen3.5-plus",
+    }
+    assert {m.id for m in providers["glm"].plans[0].chat_models} == {"glm-5.3", "glm-5.3-flash"}
+    assert {m.id for m in providers["minimax"].plans[0].chat_models} == {"MiniMax-M3.1-Flash"}
+    retired = {"mimo-v2.5", "mimo-v2.5-pro", "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"}
+    for provider in providers.values():
+        assert retired.isdisjoint(m.id for m in provider.chat_models)
+        for plan in provider.plans:
+            assert retired.isdisjoint(m.id for m in plan.chat_models or [])
+    assert not any(m.id.startswith("imagen-") for m in providers["gemini"].image_generation_models)
+    assert all(m.capabilities.vision for m in providers["xiaomimimo"].chat_models)
+    assert providers["deepseek"].chat_models[0].capabilities.vision
+
+
+def test_minimal_registry_keeps_all_default_references_resolvable():
+    from magi.config.llm_registry_defaults import build_default_llm_provider_registry
+    provider = build_default_llm_provider_registry().providers[0]
+    models = {model.id for model in provider.chat_models}
+    assert {provider.default_model, provider.default_classify_model} <= models
+    assert provider.default_model == "gpt-6.1-sol"
+    assert provider.image_generation_models[0].id == "gpt-image-2.6-sunburst"

@@ -902,12 +902,16 @@
       },
       "vendorOptions": {
         "generic": "通用 OpenAI 兼容（无厂商扩展）",
-        "openai": "OpenAI（reasoning_effort）",
-        "deepseek": "DeepSeek（thinking + reasoning_effort）",
-        "anthropic": "Anthropic（thinking budget_tokens）",
-        "glm": "智谱 GLM（thinking 开关）",
-        "dashscope": "阿里 DashScope / 百炼（enable_thinking）",
-        "grok": "xAI Grok（无 reasoning 参数）"
+        "openai": "OpenAI",
+        "deepseek": "DeepSeek",
+        "anthropic": "Anthropic",
+        "glm": "智谱 GLM",
+        "dashscope": "阿里百炼",
+        "grok": "xAI Grok",
+        "gemini": "Google Gemini",
+        "kimi": "Kimi",
+        "minimax": "MiniMax",
+        "xiaomimimo": "小米 MiMo"
       },
       "dimensions": "向量维度",
       "dimensionsPlaceholder": "例如：1536, 1024",

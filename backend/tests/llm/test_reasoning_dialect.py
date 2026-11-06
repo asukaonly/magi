@@ -28,6 +28,7 @@ _VENDOR_PAYLOADS = [
     (ModelVendor.GLM, _TOGGLE_PAYLOADS),
     (ModelVendor.KIMI, _TOGGLE_PAYLOADS),
     (ModelVendor.MINIMAX, _TOGGLE_PAYLOADS),
+    (ModelVendor.XIAOMIMIMO, _TOGGLE_PAYLOADS),
     (
         ModelVendor.ANTHROPIC,
         (

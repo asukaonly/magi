@@ -902,12 +902,16 @@
       },
       "vendorOptions": {
         "generic": "Generic OpenAI-compatible (no vendor extensions)",
-        "openai": "OpenAI (reasoning_effort)",
-        "deepseek": "DeepSeek (thinking + reasoning_effort)",
-        "anthropic": "Anthropic (thinking budget_tokens)",
-        "glm": "Zhipu GLM (thinking toggle)",
-        "dashscope": "Alibaba DashScope / Bailian (enable_thinking)",
-        "grok": "xAI Grok (no reasoning param)"
+        "openai": "OpenAI",
+        "deepseek": "DeepSeek",
+        "anthropic": "Anthropic",
+        "glm": "Zhipu GLM",
+        "dashscope": "Alibaba DashScope / Bailian",
+        "grok": "xAI Grok",
+        "gemini": "Google Gemini",
+        "kimi": "Kimi",
+        "minimax": "MiniMax",
+        "xiaomimimo": "Xiaomi MiMo"
       },
       "dimensions": "Dimensions",
       "dimensionsPlaceholder": "e.g. 1536, 1024",

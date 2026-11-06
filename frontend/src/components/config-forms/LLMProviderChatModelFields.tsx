@@ -27,6 +27,11 @@ const VENDOR_OPTIONS: ReadonlyArray<{ value: ModelVendor; labelKey: string }> = 
   { value: 'glm', labelKey: 'llm.modelFields.vendorOptions.glm' },
   { value: 'dashscope', labelKey: 'llm.modelFields.vendorOptions.dashscope' },
   { value: 'grok', labelKey: 'llm.modelFields.vendorOptions.grok' },
+  { value: 'gemini', labelKey: 'llm.modelFields.vendorOptions.gemini' },
+  { value: 'kimi', labelKey: 'llm.modelFields.vendorOptions.kimi' },
+  { value: 'minimax', labelKey: 'llm.modelFields.vendorOptions.minimax' },
+  { value: 'xiaomimimo', labelKey: 'llm.modelFields.vendorOptions.xiaomimimo' },
+
 ];
 
 export function LLMProviderChatModelFields({

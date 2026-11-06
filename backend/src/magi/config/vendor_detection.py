@@ -79,6 +79,7 @@ _VENDOR_HINTS: tuple[tuple[ModelVendor, tuple[str, ...], tuple[str, ...]], ...] 
         ("deepseek",),
         ("api.deepseek.com",),
     ),
+    (ModelVendor.XIAOMIMIMO, ("mimo-",), ("xiaomimimo.com",)),
     # OpenAI family.
     (
         ModelVendor.OPENAI,

@@ -70,6 +70,7 @@ _VENDOR_TO_DIALECT: Dict[ModelVendor, "ReasoningDialect"] = {
     ModelVendor.GEMINI: ReasoningDialect.OPENAI_EFFORT,
     ModelVendor.KIMI: ReasoningDialect.GLM_TOGGLE,
     ModelVendor.MINIMAX: ReasoningDialect.GLM_TOGGLE,
+    ModelVendor.XIAOMIMIMO: ReasoningDialect.GLM_TOGGLE,
     ModelVendor.GENERIC: ReasoningDialect.NONE,
 }
 

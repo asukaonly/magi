@@ -1,11 +1,86 @@
+# Provider catalog verified against official documentation on 2026-11-07.
 providers:
   - id: openai
     display_name: OpenAI
     icon: openai
-    default_model: gpt-5.6
-    default_classify_model: gpt-5.6-luna
+    default_model: gpt-6.1-sol
+    default_classify_model: gpt-6-luna
     default_base_url: https://api.openai.com/v1
     chat_models:
+      - id: gpt-6.1-sol
+        label: GPT-6.1 Sol
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1050000
+          max_output_tokens: 128000
+        cost:
+          currency: USD
+          input_per_million_tokens: 2
+          output_per_million_tokens: 10
+          cached_input_per_million_tokens: 0.1
+          cache_write_per_million_tokens: 2.5
+          source: https://developers.openai.com/api/docs/models/gpt-6.1-sol
+          source_note: Standard short-context rates. Cache writes use default retention where listed; long-context and
+            extended-retention surcharges are excluded.
+      - id: gpt-6.1-terra
+        label: GPT-6.1 Terra
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1050000
+          max_output_tokens: 128000
+        cost:
+          currency: USD
+          input_per_million_tokens: 1
+          output_per_million_tokens: 5
+          cached_input_per_million_tokens: 0.05
+          cache_write_per_million_tokens: 1.25
+          source: https://developers.openai.com/api/docs/models/gpt-6.1-terra
+          source_note: Standard short-context rates. Cache writes use default retention where listed; long-context and
+            extended-retention surcharges are excluded.
+      - id: gpt-6-luna
+        label: GPT-6 Luna
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1050000
+          max_output_tokens: 128000
+        cost:
+          currency: USD
+          input_per_million_tokens: 0.1
+          output_per_million_tokens: 0.5
+          cached_input_per_million_tokens: 0.01
+          cache_write_per_million_tokens: 0.125
+          source: https://developers.openai.com/api/docs/models/gpt-6-luna
+          source_note: Standard short-context rates. Cache writes use default retention where listed; long-context and
+            extended-retention surcharges are excluded.
+      - id: gpt-6-astra
+        label: GPT-6 Astra
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1050000
+          max_output_tokens: 128000
+        cost:
+          currency: USD
+          input_per_million_tokens: 10
+          output_per_million_tokens: 50
+          source: https://developers.openai.com/api/docs/models/gpt-6-astra
+          source_note: Standard short-context rates. Cache writes use default retention where listed; long-context and
+            extended-retention surcharges are excluded.
       - id: gpt-5.6
         label: GPT-5.6 Sol
         capabilities:
@@ -86,22 +161,6 @@ providers:
           cached_input_per_million_tokens: 0.25
           output_per_million_tokens: 15.0
           source: https://developers.openai.com/api/docs/models/gpt-5.4
-      - id: gpt-5
-        label: GPT-5
-        capabilities:
-          vision: true
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 400000
-          max_output_tokens: 128000
-        cost:
-          currency: USD
-          input_per_million_tokens: 1.25
-          cached_input_per_million_tokens: 0.125
-          output_per_million_tokens: 10.0
-          source: https://openai.com/api/pricing/
       - id: gpt-5.2
         label: GPT-5.2
         capabilities:
@@ -117,22 +176,6 @@ providers:
           input_per_million_tokens: 1.75
           cached_input_per_million_tokens: 0.175
           output_per_million_tokens: 14.0
-          source: https://openai.com/api/pricing/
-      - id: o3
-        label: o3
-        capabilities:
-          vision: true
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 200000
-          max_output_tokens: 100000
-        cost:
-          currency: USD
-          input_per_million_tokens: 2.0
-          cached_input_per_million_tokens: 0.5
-          output_per_million_tokens: 8.0
           source: https://openai.com/api/pricing/
     embedding_models:
       - id: text-embedding-3-small
@@ -150,16 +193,41 @@ providers:
           input_per_million_tokens: 0.13
           source: https://openai.com/api/pricing/
     image_generation_models:
-      - id: gpt-image-2
-        label: GPT Image 2
-        supported_sizes: [1024x1024, 1536x1024, 1024x1536]
-        supported_qualities: [auto, high, medium, low]
+      - id: gpt-image-2.6-sunburst
+        label: GPT Image 2.6 Sunburst
+        supported_sizes:
+          - 1024x1024
+          - 1536x1024
+          - 1024x1536
+        supported_qualities:
+          - auto
+          - high
+          - medium
+          - low
+        supports_seed: false
+        supports_negative_prompt: false
+        supports_reference: false
+        max_n: 1
+        native_protocol: openai_images
+      - id: gpt-image-2.6-flare
+        label: GPT Image 2.6 Flare
+        supported_sizes:
+          - 1024x1024
+          - 1536x1024
+          - 1024x1536
+        supported_qualities:
+          - auto
+          - high
+          - medium
+          - low
         supports_seed: false
         supports_negative_prompt: false
         supports_reference: false
         max_n: 1
         native_protocol: openai_images
     audio_generation_models:
+      - id: gpt-realtime-2.1-mini
+        label: GPT Realtime 2.1 Mini
       - id: tts-1
         label: TTS 1
       - id: tts-1-hd
@@ -178,10 +246,78 @@ providers:
   - id: anthropic
     display_name: Anthropic
     icon: anthropic
-    default_model: claude-sonnet-5
-    default_classify_model: claude-haiku-4-5
+    default_model: claude-sonnet-5-5
+    default_classify_model: claude-haiku-5-5
     default_base_url: https://api.anthropic.com/v1
     chat_models:
+      - id: claude-sonnet-5-5
+        label: Claude Sonnet 5.5
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1048576
+          max_output_tokens: 131072
+        cost:
+          currency: USD
+          input_per_million_tokens: 2
+          output_per_million_tokens: 10
+          cached_input_per_million_tokens: 0.1
+          cache_write_per_million_tokens: 2.5
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          source_note: Standard base rates; cache writes use 5-minute TTL.
+      - id: claude-haiku-5-5
+        label: Claude Haiku 5.5
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1048576
+          max_output_tokens: 131072
+        cost:
+          currency: USD
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          source_note: Published rates start at $0.10 input / $0.50 output per million tokens; no flat estimate is assigned.
+      - id: claude-opus-5-5
+        label: Claude Opus 5.5
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1048576
+          max_output_tokens: 131072
+        cost:
+          currency: USD
+          input_per_million_tokens: 4
+          output_per_million_tokens: 20
+          cached_input_per_million_tokens: 0.2
+          cache_write_per_million_tokens: 5
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          source_note: Standard base rates; cache writes use 5-minute TTL.
+      - id: claude-fable-5-1
+        label: Claude Fable 5.1
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1048576
+          max_output_tokens: 131072
+        cost:
+          currency: USD
+          input_per_million_tokens: 10
+          output_per_million_tokens: 50
+          cached_input_per_million_tokens: 0.25
+          cache_write_per_million_tokens: 12.5
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          source_note: Standard base rates; cache writes use 5-minute TTL.
       - id: claude-sonnet-5
         label: Claude Sonnet 5
         capabilities:
@@ -286,10 +422,70 @@ providers:
   - id: glm
     display_name: Z.ai
     icon: zai
-    default_model: glm-5.2
-    default_classify_model: glm-4.7-flash
+    default_model: glm-5.3
+    default_classify_model: glm-5.3-flash
     default_base_url: https://open.bigmodel.cn/api/paas/v4
     chat_models:
+      - id: glm-5.3
+        label: GLM-5.3
+        capabilities:
+          vision: false
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1000000
+          max_output_tokens: 128000
+        cost:
+          currency: CNY
+          source: https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3
+          source_note: Use the selected BigModel region/account price; international Z.ai USD rates are not applied
+            to the China endpoint.
+        provider_options_example:
+          thinking:
+            type: enabled
+            clear_thinking: false
+          reasoning_effort: high
+      - id: glm-5.3-flash
+        label: GLM-5.3-Flash
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1000000
+          max_output_tokens: 128000
+        cost:
+          currency: CNY
+          source: https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash
+          source_note: Use the selected BigModel region/account price; international Z.ai USD rates are not applied
+            to the China endpoint.
+        provider_options_example:
+          thinking:
+            type: enabled
+            clear_thinking: false
+          reasoning_effort: high
+      - id: glm-5.3-flashx
+        label: GLM-5.3-FlashX
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1000000
+          max_output_tokens: 128000
+        cost:
+          currency: CNY
+          source: https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash
+          source_note: Use the selected BigModel region/account price; international Z.ai USD rates are not applied
+            to the China endpoint.
+        provider_options_example:
+          thinking:
+            type: enabled
+            clear_thinking: false
+          reasoning_effort: high
       - id: glm-5.2
         label: GLM-5.2
         capabilities:
@@ -458,10 +654,13 @@ providers:
     plans:
       - id: codeplan
         display_name: Z.ai CodePlan
-        default_model: glm-5.2
-        default_classify_model: glm-4.7
+        default_model: glm-5.3
+        default_classify_model: glm-5.3-flash
         default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
-        allowed_scenarios: [context_compact, auxiliary, core]
+        allowed_scenarios:
+          - context_compact
+          - auxiliary
+          - core
         endpoints:
           - id: china
             label: China
@@ -476,8 +675,8 @@ providers:
         image_generation_models: []
         audio_generation_models: []
         chat_models:
-          - id: glm-5.2
-            label: GLM-5.2
+          - id: glm-5.3
+            label: GLM-5.3
             capabilities:
               vision: false
               image_output: false
@@ -485,48 +684,35 @@ providers:
               reasoning: true
             limits:
               context_window: 1000000
-              max_output_tokens: 131072
+              max_output_tokens: 128000
             cost:
-              currency: USD
-              source: https://docs.z.ai/devpack/faq
-              source_note: Fixed monthly Coding Plan quota; pay-as-you-go token pricing does not apply.
+              currency: CNY
+              source: https://docs.bigmodel.cn/cn/coding-plan/overview
+              source_note: Subscription quota; pay-as-you-go token rates do not represent per-request monetary cost.
             provider_options_example:
               thinking:
-                type: disabled
-          - id: glm-5-turbo
-            label: GLM-5 Turbo
+                type: enabled
+                clear_thinking: false
+              reasoning_effort: high
+          - id: glm-5.3-flash
+            label: GLM-5.3-Flash
             capabilities:
-              vision: false
+              vision: true
               image_output: false
               tool_calling: true
               reasoning: true
             limits:
-              context_window: 204800
-              max_output_tokens: 131072
+              context_window: 1000000
+              max_output_tokens: 128000
             cost:
-              currency: USD
-              source: https://docs.z.ai/devpack/faq
-              source_note: Fixed monthly Coding Plan quota; pay-as-you-go token pricing does not apply.
+              currency: CNY
+              source: https://docs.bigmodel.cn/cn/coding-plan/overview
+              source_note: Subscription quota; pay-as-you-go token rates do not represent per-request monetary cost.
             provider_options_example:
               thinking:
-                type: disabled
-          - id: glm-4.7
-            label: GLM-4.7
-            capabilities:
-              vision: false
-              image_output: false
-              tool_calling: true
-              reasoning: true
-            limits:
-              context_window: 204800
-              max_output_tokens: 131072
-            cost:
-              currency: USD
-              source: https://docs.z.ai/devpack/faq
-              source_note: Fixed monthly Coding Plan quota; pay-as-you-go token pricing does not apply.
-            provider_options_example:
-              thinking:
-                type: disabled
+                type: enabled
+                clear_thinking: false
+              reasoning_effort: high
     fields:
       model:
         visible: true
@@ -541,10 +727,45 @@ providers:
   - id: gemini
     display_name: Google Gemini
     icon: gemini
-    default_model: gemini-3.5-flash
-    default_classify_model: gemini-3.1-flash-lite
+    default_model: gemini-3.8-flash
+    default_classify_model: gemini-3.5-flash-lite
     default_base_url: https://generativelanguage.googleapis.com/v1beta/openai
     chat_models:
+      - id: gemini-3.8-flash
+        label: Gemini 3.8 Flash
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1048576
+          max_output_tokens: 65536
+        cost:
+          currency: USD
+          input_per_million_tokens: 0.75
+          output_per_million_tokens: 3.75
+          cached_input_per_million_tokens: 0.075
+          source: https://aistudio.google.com/docs/pricing
+          source_note: Promotional standard rates through 2026-12-31; input/output/cache become $1.50/$7.50/$0.15 on
+            2027-01-01. Cache storage and tools are billed separately.
+      - id: gemini-3.5-flash-lite
+        label: Gemini 3.5 Flash-Lite
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1048576
+          max_output_tokens: 65536
+        cost:
+          currency: USD
+          input_per_million_tokens: 0.3
+          output_per_million_tokens: 2.5
+          cached_input_per_million_tokens: 0.03
+          source: https://aistudio.google.com/docs/pricing
+          source_note: Standard token rates; cache storage and tools are billed separately.
       - id: gemini-3.5-flash
         label: Gemini 3.5 Flash
         capabilities:
@@ -577,7 +798,8 @@ providers:
           cached_input_per_million_tokens: 0.2
           output_per_million_tokens: 12.0
           source: https://ai.google.dev/gemini-api/docs/pricing
-          source_note: Base tier for prompts up to 200k tokens; higher tier is 4.00 input and 18.00 output per million tokens.
+          source_note: Base tier for prompts up to 200k tokens; higher tier is 4.00 input and 18.00 output per million
+            tokens.
       - id: gemini-3.1-flash-lite
         label: Gemini 3.1 Flash-Lite
         capabilities:
@@ -628,10 +850,25 @@ providers:
   - id: grok
     display_name: xAI Grok
     icon: grok
-    default_model: grok-4.5
-    default_classify_model: grok-4.3
+    default_model: grok-4.7
+    default_classify_model: grok-4.7
     default_base_url: https://api.x.ai/v1
     chat_models:
+      - id: grok-4.7
+        label: Grok 4.7
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 500000
+        cost:
+          currency: USD
+          input_per_million_tokens: 2
+          output_per_million_tokens: 6
+          source: https://docs.x.ai/developers/grok-4-7
+          source_note: Standard global rates; long-context and regional premiums are excluded.
       - id: grok-4.5
         label: Grok 4.5
         capabilities:
@@ -659,7 +896,7 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
-          cached_input_per_million_tokens: 0.20
+          cached_input_per_million_tokens: 0.2
           output_per_million_tokens: 2.5
           source: https://docs.x.ai/docs/models
       - id: grok-4.20-multi-agent-0309
@@ -674,7 +911,7 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
-          cached_input_per_million_tokens: 0.20
+          cached_input_per_million_tokens: 0.2
           output_per_million_tokens: 2.5
           source: https://docs.x.ai/docs/models
       - id: grok-4.20-0309-reasoning
@@ -689,7 +926,7 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
-          cached_input_per_million_tokens: 0.20
+          cached_input_per_million_tokens: 0.2
           output_per_million_tokens: 2.5
           source: https://docs.x.ai/docs/models
       - id: grok-4.20-0309-non-reasoning
@@ -704,7 +941,7 @@ providers:
         cost:
           currency: USD
           input_per_million_tokens: 1.25
-          cached_input_per_million_tokens: 0.20
+          cached_input_per_million_tokens: 0.2
           output_per_million_tokens: 2.5
           source: https://docs.x.ai/docs/models
     fields:
@@ -721,14 +958,14 @@ providers:
   - id: deepseek
     display_name: DeepSeek
     icon: deepseek
-    default_model: deepseek-v4-flash
-    default_classify_model: deepseek-v4-flash
+    default_model: deepseek-flash
+    default_classify_model: deepseek-flash
     default_base_url: https://api.deepseek.com
     chat_models:
-      - id: deepseek-v4-flash
-        label: DeepSeek V4 Flash
+      - id: deepseek-flash
+        label: DeepSeek V4.1 Flash
         capabilities:
-          vision: false
+          vision: true
           image_output: false
           tool_calling: true
           reasoning: true
@@ -737,11 +974,9 @@ providers:
           max_output_tokens: 384000
         cost:
           currency: USD
-          input_per_million_tokens: 0.14
-          cached_input_per_million_tokens: 0.0028
-          output_per_million_tokens: 0.28
-          source: https://api-docs.deepseek.com/quick_start/pricing
-          source_note: Current flagship lite model; supports thinking and non-thinking modes via the same SKU.
+          source: https://api-docs.deepseek.com/quick_start/pricing/
+          source_note: Peak and off-peak rates vary by UTC time and Chinese holidays; no flat per-request cost estimate
+            is assigned.
       - id: deepseek-v4-pro
         label: DeepSeek V4 Pro
         capabilities:
@@ -754,10 +989,9 @@ providers:
           max_output_tokens: 384000
         cost:
           currency: USD
-          input_per_million_tokens: 0.435
-          cached_input_per_million_tokens: 0.003625
-          output_per_million_tokens: 0.87
-          source: https://api-docs.deepseek.com/quick_start/pricing
+          source: https://api-docs.deepseek.com/quick_start/pricing/
+          source_note: Peak and off-peak rates vary by UTC time and Chinese holidays; no flat per-request cost estimate
+            is assigned.
     fields:
       model:
         visible: true
@@ -773,9 +1007,37 @@ providers:
     display_name: 阿里云百炼
     icon: bailian
     default_model: qwen3.7-plus
-    default_classify_model: qwen3.6-flash
+    default_classify_model: qwen3.8-flash
     default_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     chat_models:
+      - id: qwen3.8-max
+        label: Qwen3.8 Max
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1000000
+          max_output_tokens: 128000
+        cost:
+          currency: CNY
+          source: https://help.aliyun.com/zh/model-studio/text-generation-model
+          source_note: Pricing depends on region, input length and thinking mode; no flat estimate is assigned.
+      - id: qwen3.8-flash
+        label: Qwen3.8 Flash
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1000000
+          max_output_tokens: 128000
+        cost:
+          currency: CNY
+          source: https://help.aliyun.com/zh/model-studio/text-generation-model
+          source_note: Pricing depends on region, input length and thinking mode; no flat estimate is assigned.
       - id: qwen3.7-plus
         label: qwen3.7-plus
         capabilities:
@@ -785,14 +1047,15 @@ providers:
           reasoning: true
         limits:
           context_window: 1000000
-          max_output_tokens: 64000
+          max_output_tokens: 128000
         cost:
           currency: CNY
           input_per_million_tokens: 2.0
           cached_input_per_million_tokens: 0.4
           output_per_million_tokens: 8.0
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 256k tokens (tiered pricing); cached_input is the implicit context-cache hit price. max_output_tokens mirrored from qwen3.6-plus (not officially published).
+          source_note: Base tier for prompts up to 256k tokens (tiered pricing); cached_input is the implicit context-cache
+            hit price. max_output_tokens mirrored from qwen3.6-plus (not officially published).
       - id: qwen3.7-max
         label: qwen3.7-max
         capabilities:
@@ -809,7 +1072,8 @@ providers:
           cached_input_per_million_tokens: 2.4
           output_per_million_tokens: 36.0
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: cached_input is the implicit context-cache hit price. max_output_tokens mirrored from family (not officially published).
+          source_note: cached_input is the implicit context-cache hit price. max_output_tokens mirrored from family
+            (not officially published).
       - id: qwen3.6-plus
         label: qwen3.6-plus
         capabilities:
@@ -826,7 +1090,8 @@ providers:
           cached_input_per_million_tokens: 0.4
           output_per_million_tokens: 12.0
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 256k tokens; 256k-1M tier is 8 input and 48 output CNY per million tokens. cached_input is the implicit context-cache hit price (= input × 20%).
+          source_note: Base tier for prompts up to 256k tokens; 256k-1M tier is 8 input and 48 output CNY per million
+            tokens. cached_input is the implicit context-cache hit price (= input × 20%).
       - id: qwen3.6-flash
         label: qwen3.6-flash
         capabilities:
@@ -843,7 +1108,8 @@ providers:
           cached_input_per_million_tokens: 0.24
           output_per_million_tokens: 7.2
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 256k tokens; 256k-1M tier is 4.8 input and 28.8 output CNY per million tokens. cached_input is the implicit context-cache hit price (= input × 20%).
+          source_note: Base tier for prompts up to 256k tokens; 256k-1M tier is 4.8 input and 28.8 output CNY per million
+            tokens. cached_input is the implicit context-cache hit price (= input × 20%).
       - id: qwen3.5-plus
         label: qwen3.5-plus
         capabilities:
@@ -860,7 +1126,8 @@ providers:
           cached_input_per_million_tokens: 0.16
           output_per_million_tokens: 4.8
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 128k tokens; higher tiers are 2/12 CNY at 128k-256k and 4/24 CNY at 256k-1M. cached_input is the implicit context-cache hit price (= input × 20%).
+          source_note: Base tier for prompts up to 128k tokens; higher tiers are 2/12 CNY at 128k-256k and 4/24 CNY
+            at 256k-1M. cached_input is the implicit context-cache hit price (= input × 20%).
       - id: qwen3.5-flash
         label: qwen3.5-flash
         capabilities:
@@ -877,28 +1144,99 @@ providers:
           cached_input_per_million_tokens: 0.04
           output_per_million_tokens: 2.0
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
-          source_note: Base tier for prompts up to 128k tokens; higher tiers are 0.8/8 CNY at 128k-256k and 1.2/12 CNY at 256k-1M. cached_input is the implicit context-cache hit price (= input × 20%).
+          source_note: Base tier for prompts up to 128k tokens; higher tiers are 0.8/8 CNY at 128k-256k and 1.2/12 CNY
+            at 256k-1M. cached_input is the implicit context-cache hit price (= input × 20%).
     embedding_models:
+      - id: qwen3.7-text-embedding
+        label: Qwen3.7 Text Embedding
+        dimensions:
+          - 1024
+          - 2560
+          - 2048
+          - 1536
+          - 768
+          - 512
+          - 256
+        cost:
+          currency: CNY
+          input_per_million_tokens: 0.5
+          source: https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api
+          source_note: Beijing standard rate.
+      - id: qwen3.7-text-embedding-flash
+        label: Qwen3.7 Text Embedding Flash
+        dimensions:
+          - 1024
+          - 768
+          - 512
+          - 256
+        cost:
+          currency: CNY
+          input_per_million_tokens: 0.125
+          source: https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api
+          source_note: Beijing standard rate.
       - id: text-embedding-v4
         label: Text Embedding v4
-        dimensions: [2048, 1536, 1024, 768, 512, 256, 128, 64]
+        dimensions:
+          - 2048
+          - 1536
+          - 1024
+          - 768
+          - 512
+          - 256
+          - 128
+          - 64
         cost:
           currency: CNY
           input_per_million_tokens: 0.5
           source: https://help.aliyun.com/en/model-studio/embedding
       - id: text-embedding-v3
         label: Text Embedding v3
-        dimensions: [1024, 768, 512]
+        dimensions:
+          - 1024
+          - 768
+          - 512
         cost:
           currency: CNY
           input_per_million_tokens: 0.5
           source: https://help.aliyun.com/zh/model-studio/billing-for-model-studio
     image_generation_models:
+      - id: qwen-image-3.0-pro
+        label: Qwen Image 3.0 Pro
+        supported_sizes:
+          - 1024x1024
+          - 2048x2048
+          - 1536x864
+          - 864x1536
+          - 1152x864
+          - 864x1152
+          - 1344x768
+          - 768x1344
+        supported_qualities:
+          - auto
+          - high
+          - medium
+          - low
+        supports_seed: false
+        supports_negative_prompt: true
+        supports_reference: false
+        max_n: 6
+        native_protocol: dashscope_multimodal_image
       - id: qwen-image-2.0-pro
         label: Qwen Image 2.0 Pro
         supported_sizes:
-          [1024x1024, 2048x2048, 1536x864, 864x1536, 1152x864, 864x1152, 1344x768, 768x1344]
-        supported_qualities: [auto, high, medium, low]
+          - 1024x1024
+          - 2048x2048
+          - 1536x864
+          - 864x1536
+          - 1152x864
+          - 864x1152
+          - 1344x768
+          - 768x1344
+        supported_qualities:
+          - auto
+          - high
+          - medium
+          - low
         supports_seed: false
         supports_negative_prompt: true
         supports_reference: false
@@ -911,8 +1249,19 @@ providers:
       - id: qwen-image-2.0
         label: Qwen Image 2.0
         supported_sizes:
-          [1024x1024, 2048x2048, 1536x864, 864x1536, 1152x864, 864x1152, 1344x768, 768x1344]
-        supported_qualities: [auto, high, medium, low]
+          - 1024x1024
+          - 2048x2048
+          - 1536x864
+          - 864x1536
+          - 1152x864
+          - 864x1152
+          - 1344x768
+          - 768x1344
+        supported_qualities:
+          - auto
+          - high
+          - medium
+          - low
         supports_seed: false
         supports_negative_prompt: true
         supports_reference: false
@@ -925,8 +1274,16 @@ providers:
       - id: qwen-image-max
         label: Qwen Image Max
         supported_sizes:
-          [1664x928, 1472x1104, 1328x1328, 1104x1472, 928x1664]
-        supported_qualities: [auto, high, medium, low]
+          - 1664x928
+          - 1472x1104
+          - 1328x1328
+          - 1104x1472
+          - 928x1664
+        supported_qualities:
+          - auto
+          - high
+          - medium
+          - low
         supports_seed: false
         supports_negative_prompt: true
         supports_reference: false
@@ -939,8 +1296,16 @@ providers:
       - id: qwen-image-plus
         label: Qwen Image Plus
         supported_sizes:
-          [1664x928, 1472x1104, 1328x1328, 1104x1472, 928x1664]
-        supported_qualities: [auto, high, medium, low]
+          - 1664x928
+          - 1472x1104
+          - 1328x1328
+          - 1104x1472
+          - 928x1664
+        supported_qualities:
+          - auto
+          - high
+          - medium
+          - low
         supports_seed: false
         supports_negative_prompt: true
         supports_reference: false
@@ -953,8 +1318,16 @@ providers:
       - id: qwen-image
         label: Qwen Image
         supported_sizes:
-          [1664x928, 1472x1104, 1328x1328, 1104x1472, 928x1664]
-        supported_qualities: [auto, high, medium, low]
+          - 1664x928
+          - 1472x1104
+          - 1328x1328
+          - 1104x1472
+          - 928x1664
+        supported_qualities:
+          - auto
+          - high
+          - medium
+          - low
         supports_seed: false
         supports_negative_prompt: true
         supports_reference: false
@@ -970,7 +1343,10 @@ providers:
         default_model: qwen3.7-plus
         default_classify_model: qwen3.6-plus
         default_base_url: https://coding.dashscope.aliyuncs.com/v1
-        allowed_scenarios: [context_compact, auxiliary, core]
+        allowed_scenarios:
+          - context_compact
+          - auxiliary
+          - core
         endpoints:
           - id: china
             label: China
@@ -994,7 +1370,7 @@ providers:
               reasoning: true
             limits:
               context_window: 1000000
-              max_output_tokens: 64000
+              max_output_tokens: 128000
             cost:
               currency: CNY
               source: https://help.aliyun.com/zh/model-studio/coding-plan
@@ -1073,66 +1449,6 @@ providers:
               currency: CNY
               source: https://help.aliyun.com/zh/model-studio/coding-plan
               source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
-          - id: qwen3-max-2026-01-23
-            label: Qwen3 Max 2026-01-23
-            capabilities:
-              vision: false
-              image_output: false
-              tool_calling: true
-              reasoning: false
-            limits:
-              context_window: 262144
-              max_output_tokens: 65536
-            cost:
-              currency: CNY
-              source: https://help.aliyun.com/zh/model-studio/coding-plan
-              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
-          - id: qwen3-coder-next
-            label: Qwen3 Coder Next
-            capabilities:
-              vision: false
-              image_output: false
-              tool_calling: true
-              reasoning: false
-            limits:
-              context_window: 262144
-              max_output_tokens: 65536
-            cost:
-              currency: CNY
-              source: https://help.aliyun.com/zh/model-studio/coding-plan
-              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
-          - id: qwen3-coder-plus
-            label: Qwen3 Coder Plus
-            capabilities:
-              vision: false
-              image_output: false
-              tool_calling: true
-              reasoning: false
-            limits:
-              context_window: 1000000
-              max_output_tokens: 65536
-            cost:
-              currency: CNY
-              source: https://help.aliyun.com/zh/model-studio/coding-plan
-              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
-          - id: glm-4.7
-            label: GLM-4.7
-            vendor: glm
-            capabilities:
-              vision: false
-              image_output: false
-              tool_calling: true
-              reasoning: true
-            limits:
-              context_window: 202752
-              max_output_tokens: 131072
-            cost:
-              currency: CNY
-              source: https://help.aliyun.com/zh/model-studio/coding-plan
-              source_note: Fixed monthly Coding Plan request quota; token pay-as-you-go pricing does not apply.
-            provider_options_example:
-              thinking:
-                type: disabled
         fields:
           base_url:
             visible: true
@@ -1152,106 +1468,38 @@ providers:
   - id: kimi
     display_name: Kimi
     icon: kimi
-    default_model: kimi-k2.7-code
-    default_classify_model: kimi-k2.6
+    default_model: kimi-k3.1-pro
+    default_classify_model: kimi-k3.1-pro
     default_base_url: https://api.moonshot.cn/v1
     chat_models:
-      - id: kimi-k2.7-code
-        label: Kimi K2.7 Code
+      - id: kimi-k3.1-pro
+        label: Kimi K3.1 Pro
         capabilities:
           vision: true
           image_output: false
           tool_calling: true
           reasoning: true
         limits:
-          context_window: 262144
-          max_output_tokens: 32768
+          context_window: 1048576
         cost:
           currency: CNY
-          input_per_million_tokens: 6.5
-          cached_input_per_million_tokens: 1.3
-          output_per_million_tokens: 27.0
-          source: https://platform.kimi.com/docs/pricing/chat-k27-code
-          source_note: Kimi K2.7 Code always uses thinking mode.
-      - id: kimi-k2.7-code-highspeed
-        label: Kimi K2.7 Code HighSpeed
+          source: https://platform.kimi.com/docs/pricing/chat
+          source_note: Numeric rates were not verified from the official pricing table; rates and maximum output are left
+            unset rather than inherited from K2.
+      - id: kimi-k3.1-pro-highspeed
+        label: Kimi K3.1 Pro Highspeed
         capabilities:
           vision: true
           image_output: false
           tool_calling: true
           reasoning: true
         limits:
-          context_window: 262144
-          max_output_tokens: 32768
+          context_window: 1048576
         cost:
           currency: CNY
-          input_per_million_tokens: 6.5
-          cached_input_per_million_tokens: 1.3
-          output_per_million_tokens: 54.0
-          source: https://platform.kimi.com/docs/pricing/chat-k27-code
-          source_note: Same model and parameter limits as Kimi K2.7 Code, with faster output.
-      - id: kimi-k2.6
-        label: Kimi K2.6
-        capabilities:
-          vision: true
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 262144
-          max_output_tokens: 32768
-        cost:
-          currency: CNY
-          input_per_million_tokens: 6.5
-          cached_input_per_million_tokens: 1.1
-          output_per_million_tokens: 27.0
-          source: https://platform.kimi.com/docs/pricing/chat-k26
-          source_note: Current flagship — 256k context, multimodal, supports thinking and non-thinking modes.
-      - id: moonshot-v1-128k
-        label: Moonshot V1 128K (legacy)
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: false
-        limits:
-          context_window: 128000
-          max_output_tokens: 8192
-        cost:
-          currency: CNY
-          input_per_million_tokens: 10.0
-          output_per_million_tokens: 30.0
-          source: https://platform.kimi.com/docs/pricing/chat-v1
-      - id: moonshot-v1-32k
-        label: Moonshot V1 32K (legacy)
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: false
-        limits:
-          context_window: 32768
-          max_output_tokens: 8192
-        cost:
-          currency: CNY
-          input_per_million_tokens: 5.0
-          output_per_million_tokens: 20.0
-          source: https://platform.kimi.com/docs/pricing/chat-v1
-      - id: moonshot-v1-8k
-        label: Moonshot V1 8K (legacy)
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: false
-        limits:
-          context_window: 8192
-          max_output_tokens: 8192
-        cost:
-          currency: CNY
-          input_per_million_tokens: 2.0
-          output_per_million_tokens: 10.0
-          source: https://platform.kimi.com/docs/pricing/chat-v1
+          source: https://platform.kimi.com/docs/pricing/chat
+          source_note: Numeric rates were not verified from the official pricing table; rates and maximum output are left
+            unset rather than inherited from K2.
     embedding_models: []
     fields:
       model:
@@ -1267,10 +1515,25 @@ providers:
   - id: minimax
     display_name: MiniMax
     icon: minimax
-    default_model: MiniMax-M3
-    default_classify_model: MiniMax-M2.7
+    default_model: MiniMax-M3.1-Flash
+    default_classify_model: MiniMax-M3.1-Flash
     default_base_url: https://api.minimaxi.com/v1
     chat_models:
+      - id: MiniMax-M3.1-Flash
+        label: MiniMax M3.1 Flash
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1000000
+        cost:
+          currency: CNY
+          input_per_million_tokens: 1
+          output_per_million_tokens: 4
+          cached_input_per_million_tokens: 0.1
+          source: https://platform.minimax.cn/docs/pricing/overview
       - id: MiniMax-M3
         label: MiniMax M3
         capabilities:
@@ -1283,10 +1546,10 @@ providers:
         cost:
           currency: CNY
           input_per_million_tokens: 2.1
-          cached_input_per_million_tokens: 0.42
           output_per_million_tokens: 8.4
-          source: https://platform.minimax.io/docs/api-reference/text-openai-api
-          source_note: cached_input is the standing 永久五折 effective rate (原价 0.84).
+          cached_input_per_million_tokens: 0.42
+          source: https://platform.minimax.cn/docs/pricing/overview
+          source_note: Standard service up to 512K input tokens; rates double above 512K. Priority service costs extra.
       - id: MiniMax-M2.7
         label: MiniMax M2.7
         capabilities:
@@ -1335,11 +1598,14 @@ providers:
           source: https://platform.minimaxi.com/docs/guides/pricing-paygo.md
     plans:
       - id: tokenplan
-        display_name: MiniMax Token Plan
-        default_model: MiniMax-M2.7
-        default_classify_model: MiniMax-M2.7
+        display_name: MiniMax M Plan
+        default_model: MiniMax-M3.1-Flash
+        default_classify_model: MiniMax-M3.1-Flash
         default_base_url: https://api.minimaxi.com/v1
-        allowed_scenarios: [context_compact, auxiliary, core]
+        allowed_scenarios:
+          - context_compact
+          - auxiliary
+          - core
         endpoints:
           - id: china
             label: China
@@ -1354,32 +1620,19 @@ providers:
         image_generation_models: []
         audio_generation_models: []
         chat_models:
-          - id: MiniMax-M2.7
-            label: MiniMax M2.7
+          - id: MiniMax-M3.1-Flash
+            label: MiniMax M3.1 Flash
             capabilities:
-              vision: false
+              vision: true
               image_output: false
               tool_calling: true
               reasoning: true
             limits:
-              context_window: 204800
+              context_window: 1000000
             cost:
               currency: CNY
-              source: https://platform.minimaxi.com/docs/token-plan/intro
-              source_note: Subscription quota; pay-as-you-go token pricing does not represent per-request monetary cost.
-          - id: MiniMax-M2.7-highspeed
-            label: MiniMax M2.7 Highspeed
-            capabilities:
-              vision: false
-              image_output: false
-              tool_calling: true
-              reasoning: true
-            limits:
-              context_window: 204800
-            cost:
-              currency: CNY
-              source: https://platform.minimaxi.com/docs/token-plan/intro
-              source_note: Subscription quota; pay-as-you-go token pricing does not represent per-request monetary cost.
+              source: https://platform.minimax.cn/docs/m-plan/intro
+              source_note: Subscription quota; pay-as-you-go token rates do not represent per-request monetary cost.
         fields:
           api_key:
             visible: true
@@ -1403,51 +1656,71 @@ providers:
   - id: xiaomimimo
     display_name: 小米 MiMo
     icon: xiaomimimo
-    default_model: mimo-v2.5-pro
-    default_classify_model: mimo-v2.5
+    default_model: mimo-v2.6-pro
+    default_classify_model: mimo-v2.6-flash
     default_base_url: https://api.xiaomimimo.com/v1
     chat_models:
-      - id: mimo-v2.5-pro
-        label: MiMo V2.5 Pro
-        capabilities:
-          vision: false
-          image_output: false
-          tool_calling: true
-          reasoning: true
-        limits:
-          context_window: 1048576
-          max_output_tokens: 131072
-        cost:
-          currency: CNY
-          input_per_million_tokens: 3.0
-          cached_input_per_million_tokens: 0.025
-          output_per_million_tokens: 6.0
-          source: https://platform.xiaomimimo.com/docs/zh-CN/price/pay-as-you-go
-          source_note: Flagship of the V2.5 series after the May 2026 price cut (up to 99% off legacy V2 pricing).
-      - id: mimo-v2.5
-        label: MiMo V2.5
+      - id: mimo-v2.6-pro
+        label: MiMo V2.6 Pro
         capabilities:
           vision: true
           image_output: false
           tool_calling: true
           reasoning: true
         limits:
-          context_window: 1048576
+          context_window: 1000000
           max_output_tokens: 131072
         cost:
           currency: CNY
-          input_per_million_tokens: 1.0
+          input_per_million_tokens: 3
+          output_per_million_tokens: 6
+          cached_input_per_million_tokens: 0.025
+          source: https://mimo.mi.com/docs/zh-CN/price/pay-as-you-go
+          source_note: China standard API rates; overseas endpoints use USD pricing.
+      - id: mimo-v2.6-flash
+        label: MiMo V2.6 Flash
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1000000
+          max_output_tokens: 131072
+        cost:
+          currency: CNY
+          input_per_million_tokens: 1
+          output_per_million_tokens: 2
           cached_input_per_million_tokens: 0.02
-          output_per_million_tokens: 2.0
-          source: https://platform.xiaomimimo.com/docs/zh-CN/price/pay-as-you-go
-          source_note: Lite tier of the V2.5 series — cheap default for classification / cheap workloads.
+          source: https://mimo.mi.com/docs/zh-CN/price/pay-as-you-go
+          source_note: China standard API rates; overseas endpoints use USD pricing.
+      - id: mimo-v2.6-pro-ultraspeed
+        label: MiMo V2.6 Pro Ultraspeed
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1000000
+          max_output_tokens: 131072
+        cost:
+          currency: CNY
+          input_per_million_tokens: 30
+          output_per_million_tokens: 60
+          cached_input_per_million_tokens: 0.25
+          source: https://mimo.mi.com/docs/zh-CN/price/pay-as-you-go
+          source_note: China standard API rates; overseas endpoints use USD pricing.
     plans:
       - id: tokenplan
         display_name: Xiaomi MiMo Token Plan
-        default_model: mimo-v2.5-pro
-        default_classify_model: mimo-v2.5
+        default_model: mimo-v2.6-pro
+        default_classify_model: mimo-v2.6-flash
         default_base_url: https://token-plan-cn.xiaomimimo.com/v1
-        allowed_scenarios: [context_compact, auxiliary, core]
+        allowed_scenarios:
+          - context_compact
+          - auxiliary
+          - core
         endpoints:
           - id: china
             label: China
@@ -1468,34 +1741,34 @@ providers:
         image_generation_models: []
         audio_generation_models: []
         chat_models:
-          - id: mimo-v2.5-pro
-            label: MiMo V2.5 Pro
-            capabilities:
-              vision: false
-              image_output: false
-              tool_calling: true
-              reasoning: true
-            limits:
-              context_window: 1048576
-              max_output_tokens: 131072
-            cost:
-              currency: CNY
-              source: https://mimo.mi.com/docs/zh-CN/tokenplan/Token%20Plan/subscription
-              source_note: Token Plan credit quota; pay-as-you-go token pricing does not represent per-request monetary cost.
-          - id: mimo-v2.5
-            label: MiMo V2.5
+          - id: mimo-v2.6-pro
+            label: MiMo V2.6 Pro
             capabilities:
               vision: true
               image_output: false
               tool_calling: true
               reasoning: true
             limits:
-              context_window: 1048576
+              context_window: 1000000
               max_output_tokens: 131072
             cost:
               currency: CNY
               source: https://mimo.mi.com/docs/zh-CN/tokenplan/Token%20Plan/subscription
-              source_note: Token Plan credit quota; pay-as-you-go token pricing does not represent per-request monetary cost.
+              source_note: Subscription quota; pay-as-you-go token rates do not represent per-request monetary cost.
+          - id: mimo-v2.6-flash
+            label: MiMo V2.6 Flash
+            capabilities:
+              vision: true
+              image_output: false
+              tool_calling: true
+              reasoning: true
+            limits:
+              context_window: 1000000
+              max_output_tokens: 131072
+            cost:
+              currency: CNY
+              source: https://mimo.mi.com/docs/zh-CN/tokenplan/Token%20Plan/subscription
+              source_note: Subscription quota; pay-as-you-go token rates do not represent per-request monetary cost.
         fields:
           api_key:
             visible: true

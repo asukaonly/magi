@@ -89,6 +89,7 @@ class ModelVendor(str, Enum):
     GEMINI = "gemini"
     KIMI = "kimi"
     MINIMAX = "minimax"
+    XIAOMIMIMO = "xiaomimimo"
     GENERIC = "generic"
 
 

@@ -179,7 +179,7 @@ async def test_calculates_cost_from_registry_pricing(fake_bus, fake_store):
     payload = _payload(
         attrs={
             "provider": "openai",
-            "model": "gpt-5",
+            "model": "gpt-6.1-sol",
             "request_kind": "chat",
             "prompt_tokens": 1000,
             "completion_tokens": 500,
@@ -191,7 +191,7 @@ async def test_calculates_cost_from_registry_pricing(fake_bus, fake_store):
     await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
     await sub.drain()
     written = fake_store.record_call.await_args.args[0]
-    assert written["cost_usd"] == pytest.approx(0.006025)
+    assert written["cost_usd"] == pytest.approx(0.00662)
     assert written["cost_currency"] == "USD"
 
 

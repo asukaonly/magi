@@ -1453,7 +1453,7 @@ return errors === 0;
 }
 validate68.evaluated = {"props":{"context_window":true,"max_output_tokens":true,"max_schema_tokens":true,"max_tool_schemas":true},"dynamicProps":false,"dynamicItems":false};
 
-const schema31 = {"description":"The behavioral vendor a model belongs to.\n\n``provider`` is *who hosts the endpoint* (which can be an OneAPI-style\ngateway). ``vendor`` is *who built the model* and therefore decides\npayload shape: how reasoning is expressed, how tool-calling is\nserialized, where system prompts live, etc.\n\nA single OneAPI gateway may proxy ``glm-4-plus`` (vendor=GLM),\n``qwen-max`` (vendor=DASHSCOPE), and ``claude-sonnet-4-6``\n(vendor=ANTHROPIC) under the same ``provider``. Routing dialects off\nprovider name would misroute each of these; routing off vendor is\ncorrect.\n\n``GENERIC`` means \"OpenAI-compatible transport, no vendor-specific\nextensions\"; reasoning / thinking knobs are not injected.","enum":["openai","deepseek","anthropic","glm","dashscope","grok","gemini","kimi","minimax","generic"],"title":"ModelVendor","type":"string"};
+const schema31 = {"description":"The behavioral vendor a model belongs to.\n\n``provider`` is *who hosts the endpoint* (which can be an OneAPI-style\ngateway). ``vendor`` is *who built the model* and therefore decides\npayload shape: how reasoning is expressed, how tool-calling is\nserialized, where system prompts live, etc.\n\nA single OneAPI gateway may proxy ``glm-4-plus`` (vendor=GLM),\n``qwen-max`` (vendor=DASHSCOPE), and ``claude-sonnet-4-6``\n(vendor=ANTHROPIC) under the same ``provider``. Routing dialects off\nprovider name would misroute each of these; routing off vendor is\ncorrect.\n\n``GENERIC`` means \"OpenAI-compatible transport, no vendor-specific\nextensions\"; reasoning / thinking knobs are not injected.","enum":["openai","deepseek","anthropic","glm","dashscope","grok","gemini","kimi","minimax","xiaomimimo","generic"],"title":"ModelVendor","type":"string"};
 
 function validate70(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -1469,7 +1469,7 @@ if(typeof data !== "string"){
 validate70.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(!((((((((((data === "openai") || (data === "deepseek")) || (data === "anthropic")) || (data === "glm")) || (data === "dashscope")) || (data === "grok")) || (data === "gemini")) || (data === "kimi")) || (data === "minimax")) || (data === "generic"))){
+if(!(((((((((((data === "openai") || (data === "deepseek")) || (data === "anthropic")) || (data === "glm")) || (data === "dashscope")) || (data === "grok")) || (data === "gemini")) || (data === "kimi")) || (data === "minimax")) || (data === "xiaomimimo")) || (data === "generic"))){
 validate70.errors = [{instancePath,schemaPath:"#/enum",keyword:"enum",params:{allowedValues: schema31.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }

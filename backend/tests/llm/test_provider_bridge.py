@@ -883,3 +883,57 @@ async def test_tool_roundtrip_preserves_provider_reasoning():
     state.has_tool_calls = True
     streamed = await bridge._operations._build_openai_tool_stream_result(bridge._operations, state)
     assert streamed.provider_response.assistant_message["reasoning_content"] == "part 1 part 2"
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider,model", [("kimi", "kimi-k3.1-pro"), ("minimax", "MiniMax-M3.1-Flash")])
+@pytest.mark.parametrize("depth,expected", [(ThinkingDepth.NONE, "low"), (ThinkingDepth.LOW, "low"), (ThinkingDepth.MAX, "max")])
+async def test_new_always_on_models_use_effort_without_sampling(provider, model, depth, expected):
+    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="hello", tool_calls=[]), finish_reason="stop")])
+    client = DummyOpenAIClient(response=response)
+    bridge = LLMProviderBridge(DummyLLMAdapter(model=model, provider=provider, client=client))
+    await bridge.chat_response("sys", [{"role": "user", "content": "hi"}], thinking_depth=depth)
+    assert client.kwargs["reasoning_effort"] == expected
+    assert "temperature" not in client.kwargs
+    assert "thinking" not in client.kwargs.get("extra_body", {})
+    assert bridge.resolve_effective_reasoning_depth(depth).value == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("generate", [False, True])
+async def test_direct_anthropic_calls_skip_thinking_blocks(streaming, generate):
+    calls = []
+    class Stream:
+        closed = False
+        async def __aiter__(self):
+            yield SimpleNamespace(type="content_block_delta", delta=SimpleNamespace(type="thinking_delta", thinking="private"))
+            yield SimpleNamespace(type="content_block_delta", delta=SimpleNamespace(type="text_delta", text="answer"))
+        async def close(self):
+            self.closed = True
+    stream = Stream()
+    async def create(**kwargs):
+        calls.append(kwargs)
+        return stream if streaming else SimpleNamespace(content=[SimpleNamespace(type="thinking", thinking="private"), SimpleNamespace(type="text", text="answer")])
+    adapter = AnthropicAdapter.__new__(AnthropicAdapter)
+    adapter._model = "claude-sonnet-5-5"
+    adapter._client = SimpleNamespace(messages=SimpleNamespace(create=create))
+    method = getattr(adapter, ("generate" if generate else "chat") + ("_stream" if streaming else ""))
+    arg = "hello" if generate else [{"role": "user", "content": "hello"}]
+    if streaming:
+        assert "".join([part async for part in method(arg, top_p=0.97)]) == "answer"
+        assert stream.closed
+    else:
+        assert await method(arg, top_p=0.97) == "answer"
+    assert "temperature" not in calls[0] and "top_p" not in calls[0]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("depth,disabled", [(ThinkingDepth.NONE, True), (ThinkingDepth.HIGH, False)])
+async def test_current_mimo_uses_supported_thinking_and_output_limit(depth, disabled):
+    client = DummyOpenAIClient(response=SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="hello", tool_calls=[]), finish_reason="stop")]))
+    bridge = LLMProviderBridge(DummyLLMAdapter(model="mimo-v2.6-pro", provider="xiaomimimo", client=client))
+    await bridge.chat_response("sys", [{"role": "user", "content": "hi"}], max_tokens=1234, thinking_depth=depth)
+    assert client.kwargs["max_completion_tokens"] == 1234
+    assert "max_tokens" not in client.kwargs
+    assert (client.kwargs.get("extra_body", {}).get("thinking", {}).get("type") == "disabled") is disabled
+    assert ("temperature" in client.kwargs) is disabled
+    assert bridge.resolve_effective_reasoning_depth(depth) == depth
