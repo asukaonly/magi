@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
+from _shared.source_imports import imported_names
 from magi.core.tool_capabilities import ToolCapabilities
 
 
@@ -16,14 +16,14 @@ def test_runtime_modules_do_not_import_bootstrap_tool_capabilities() -> None:
         relative = path.relative_to(source_root)
         if relative.parts[0] == "bootstrap":
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module == "magi.bootstrap.tool_capabilities":
-                offenders.append(f"{relative}:{node.lineno}")
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name == "magi.bootstrap.tool_capabilities":
-                        offenders.append(f"{relative}:{node.lineno}")
+        source = path.read_text(encoding="utf-8-sig")
+        # Every spelling of this declared import includes the module identifier.
+        if "tool_capabilities" not in source:
+            continue
+        parts = relative.with_suffix("").parts
+        package = ".".join(("magi", *parts[:-1]))
+        if "magi.bootstrap.tool_capabilities" in imported_names(source, package=package):
+            offenders.append(str(relative))
 
     assert offenders == []
 
