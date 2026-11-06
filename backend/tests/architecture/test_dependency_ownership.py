@@ -1,21 +1,12 @@
 """Declared import edges at runtime ownership boundaries."""
 import ast
-from importlib.util import resolve_name
 from pathlib import Path
 import pytest
 
+from _shared.source_imports import imported_names
+
 SRC = Path(__file__).resolve().parents[2] / "src"
 
-def imported_names(source, *, package):
-    imports = set()
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Import):
-            imports.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            base = resolve_name("." * node.level + (node.module or ""), package) if node.level else node.module or ""
-            imports.add(base)
-            imports.update(f"{base}.{alias.name}" for alias in node.names)
-    return imports
 
 @pytest.mark.parametrize("source,package,expected", [
     ("from magi import llm as model", "magi.memory.portrait", "magi.llm"),
