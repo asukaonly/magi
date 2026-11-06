@@ -14,6 +14,7 @@ import {
   type LLMProviderRegistry,
   type LLMScenario,
   type TestLLMProviderConnectionResponse,
+  resolveProviderModels,
 } from '@/api/modules/config';
 import { SelectField } from '@/components/config-forms/fields';
 import { LLMProviderTestStatus } from '@/components/config-forms/LLMProviderTestStatus';
@@ -375,6 +376,15 @@ export function LLMSetupStep({
     : activeProvider?.provider_type || '';
   const currentCoreModel = value.selections?.core?.model || '';
   const currentContextModel = value.selections?.auxiliary?.model || '';
+  const activeChatModelOptions = useMemo(() => {
+    if (!registry || !activeProviderId || !activeProvider || activeProvider.provider_type === 'custom') {
+      return [];
+    }
+
+    return resolveProviderModels(registry, activeProviderId, activeProvider).chat_models
+      .filter((model) => !model.hidden)
+      .map((model) => ({ label: model.id, value: model.id }));
+  }, [activeProvider, activeProviderId, registry]);
   useEffect(() => {
     return () => {
       catalogResolutionRequestIdRef.current += 1;
@@ -1015,16 +1025,21 @@ export function LLMSetupStep({
                     )}
 
                     {activeProvider.provider_type !== 'custom' ? (
-                      <label className="flex flex-col gap-2">
+                      <label className="flex flex-col gap-2" data-testid="llm-setup-core-model">
                         <span className="text-sm font-medium">{t('llmSetup.coreModelLabel')}</span>
-                        <input
-                          data-testid="llm-setup-core-model"
-                          aria-label={t('llmSetup.coreModelLabel')}
-                          className={fieldClassName}
+                        <SelectField
+                          className="w-full"
+                          triggerClassName={fieldClassName}
                           value={currentCoreModel}
+                          ariaLabel={t('llmSetup.coreModelLabel')}
+                          allowEmpty={false}
                           placeholder={t('llmSetup.coreModelPlaceholder')}
-                          onChange={(event) => {
-                            const model = event.target.value;
+                          searchable
+                          searchThreshold={10}
+                          searchPlaceholder={t('llm.modelSelection.searchPlaceholder')}
+                          noResultsText={t('llm.modelSelection.noSearchResults')}
+                          options={activeChatModelOptions}
+                          onChange={(model) => {
                             updateActiveProvider(
                               () => undefined,
                               { core: model, auxiliary: currentContextModel || model }
@@ -1034,22 +1049,46 @@ export function LLMSetupStep({
                       </label>
                     ) : null}
 
-                    <label className={cn('flex flex-col gap-2', activeProvider.provider_type === 'custom' && 'md:col-span-2')}>
+                    <label
+                      className={cn('flex flex-col gap-2', activeProvider.provider_type === 'custom' && 'md:col-span-2')}
+                      data-testid="llm-setup-fast-model"
+                    >
                       <span className="text-sm font-medium">{t('llmSetup.fastModelLabel')}</span>
-                      <input
-                        data-testid="llm-setup-fast-model"
-                        aria-label={t('llmSetup.fastModelLabel')}
-                        className={fieldClassName}
-                        value={currentContextModel}
-                        placeholder={currentCoreModel || t('llmSetup.fastModelPlaceholder')}
-                        onChange={(event) => {
-                          const model = event.target.value;
-                          updateActiveProvider(
-                            () => undefined,
-                            { core: currentCoreModel, auxiliary: model || currentCoreModel }
-                          );
-                        }}
-                      />
+                      {activeProvider.provider_type === 'custom' ? (
+                        <input
+                          aria-label={t('llmSetup.fastModelLabel')}
+                          className={fieldClassName}
+                          value={currentContextModel}
+                          placeholder={currentCoreModel || t('llmSetup.fastModelPlaceholder')}
+                          onChange={(event) => {
+                            const model = event.target.value;
+                            updateActiveProvider(
+                              () => undefined,
+                              { core: currentCoreModel, auxiliary: model || currentCoreModel }
+                            );
+                          }}
+                        />
+                      ) : (
+                        <SelectField
+                          className="w-full"
+                          triggerClassName={fieldClassName}
+                          value={currentContextModel}
+                          ariaLabel={t('llmSetup.fastModelLabel')}
+                          allowEmpty={false}
+                          placeholder={currentCoreModel || t('llmSetup.fastModelPlaceholder')}
+                          searchable
+                          searchThreshold={10}
+                          searchPlaceholder={t('llm.modelSelection.searchPlaceholder')}
+                          noResultsText={t('llm.modelSelection.noSearchResults')}
+                          options={activeChatModelOptions}
+                          onChange={(model) => {
+                            updateActiveProvider(
+                              () => undefined,
+                              { core: currentCoreModel, auxiliary: model }
+                            );
+                          }}
+                        />
+                      )}
                     </label>
                   </motion.div>
                 ) : null}
