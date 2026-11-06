@@ -1,6 +1,6 @@
 [package]
 name = "magi-server"
-version = "0.1.32"
+version = "0.1.33"
 description = "Standalone Magi service"
 edition = "2021"
 
