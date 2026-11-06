@@ -123,7 +123,7 @@ const getInitialExpandedServices = (provider?: LLMProviderConfig | null): Record
 
 const IMAGE_NATIVE_PROTOCOL_OPTIONS = [
   { label: 'OpenAI Images', value: 'openai_images' },
-  { label: 'Gemini Predict', value: 'gemini_predict' },
+  { label: 'Gemini Interactions', value: 'gemini_interactions' },
   { label: 'DashScope Multimodal Image', value: 'dashscope_multimodal_image' },
   { label: 'MiniMax Image', value: 'minimax_image' },
   { label: 'Z.ai Images', value: 'zai_images' },

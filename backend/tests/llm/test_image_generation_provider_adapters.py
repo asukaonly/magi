@@ -6,8 +6,9 @@ import pytest
 import httpx
 
 from magi.llm.image_generation import ImageGenerationCapability, ImageGenerationRequest
+from magi.llm.image_generation.errors import ImageGenInvalidParameterError
 from magi.llm.image_generation.providers.dashscope_image import DashScopeImageAdapter
-from magi.llm.image_generation.providers.gemini_predict import GeminiPredictImageAdapter
+from magi.llm.image_generation.providers.gemini_image import GeminiImageAdapter
 from magi.llm.image_generation.providers.http_common import parse_json_response
 from magi.llm.image_generation.providers.minimax_image import MiniMaxImageAdapter
 from magi.llm.image_generation.providers.zai_images import ZAIImagesAdapter
@@ -173,42 +174,37 @@ async def test_dashscope_image_adapter_normalizes_chat_base_url_and_parses_url()
 
 
 @pytest.mark.asyncio
-async def test_gemini_predict_adapter_uses_predict_endpoint_and_parses_base64() -> None:
-    adapter = GeminiPredictImageAdapter(
+async def test_gemini_interactions_adapter_uses_native_endpoint_and_parses_base64() -> None:
+    adapter = GeminiImageAdapter(
         provider_id="gemini",
         api_key="test-key",
-        model="imagen-4.0-generate-001",
+        model="gemini-nano-banana-2.1",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-        capability=_capability(sizes=["1024x1024", "1792x1024"], max_n=4),
+        capability=_capability(sizes=["1024x1024", "1792x1024"], max_n=1),
     )
     fake_client = _FakeHttpClient(
-        {"predictions": [{"bytesBase64Encoded": "ZmFrZQ==", "mimeType": "image/png"}]}
+        {"status": "completed", "steps": [{"type": "model_output", "content": [{"type": "image", "data": "ZmFrZQ==", "mime_type": "image/png"}]}]}
     )
     adapter._client = fake_client
 
     response = await adapter.generate(
         ImageGenerationRequest(
             prompt="draw a mountain",
-            model="imagen-4.0-generate-001",
+            model="gemini-nano-banana-2.1",
             size="1792x1024",
             quality="high",
-            n=3,
+            n=1,
         )
     )
 
     assert fake_client.url == (
         "https://generativelanguage.googleapis.com/v1beta/"
-        "models/imagen-4.0-generate-001:predict"
+        "interactions"
     )
-    assert fake_client.headers == {"x-goog-api-key": "test-key"}
+    assert fake_client.headers == {"x-goog-api-key": "test-key", "Api-Revision": "2026-05-20"}
     assert fake_client.payload == {
-        "instances": [{"prompt": "draw a mountain"}],
-        "parameters": {
-            "sampleCount": 3,
-            "aspectRatio": "16:9",
-            "personGeneration": "allow_adult",
-            "imageSize": "2K",
-        },
+        "model": "gemini-nano-banana-2.1", "input": "draw a mountain", "store": False,
+        "response_format": {"type": "image", "mime_type": "image/png", "aspect_ratio": "16:9", "image_size": "2K"},
     }
     assert response.images[0].b64 == "ZmFrZQ=="
 
@@ -224,3 +220,13 @@ async def test_parse_json_response_accepts_numeric_success_code() -> None:
     body = await parse_json_response(response, provider_id="example")
 
     assert body["data"] == {"ok": True}
+
+
+@pytest.mark.parametrize("body", [{"status": "failed", "steps": []}, {"status": "completed", "steps": [{"type": "model_output", "content": [{"type": "text", "text": "blocked"}]}]}, {"status": "completed", "steps": None}])
+@pytest.mark.asyncio
+async def test_gemini_rejects_missing_or_failed_image_output(body):
+    adapter = GeminiImageAdapter(provider_id="gemini", api_key="test", model="gemini-nano-banana-2.1")
+    await adapter._client.aclose()
+    adapter._client = _FakeHttpClient(body)
+    with pytest.raises(ImageGenInvalidParameterError):
+        await adapter.generate(ImageGenerationRequest(prompt="draw", model="gemini-nano-banana-2.1"))

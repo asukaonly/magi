@@ -6,14 +6,14 @@ from typing import Type
 
 from .base import ImageGenerationAdapter
 from .providers.dashscope_image import DashScopeImageAdapter
-from .providers.gemini_predict import GeminiPredictImageAdapter
+from .providers.gemini_image import GeminiImageAdapter
 from .providers.minimax_image import MiniMaxImageAdapter
 from .providers.openai_images import OpenAIImagesAdapter
 from .providers.zai_images import ZAIImagesAdapter
 
 _PROTOCOL_REGISTRY: dict[str, Type[ImageGenerationAdapter]] = {
     "dashscope_multimodal_image": DashScopeImageAdapter,
-    "gemini_predict": GeminiPredictImageAdapter,
+    "gemini_interactions": GeminiImageAdapter,
     "minimax_image": MiniMaxImageAdapter,
     "openai_images": OpenAIImagesAdapter,
     "zai_images": ZAIImagesAdapter,

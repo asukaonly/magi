@@ -602,45 +602,18 @@ providers:
           input_per_million_tokens: 0.2
           source: https://ai.google.dev/gemini-api/docs/pricing
     image_generation_models:
-      - id: imagen-4.0-generate-001
-        label: Imagen 4
+      - id: gemini-nano-banana-2.1
+        label: Nano Banana 2.1
         supported_sizes: [1024x1024, 1024x768, 768x1024, 1792x1024, 1024x1792]
         supported_qualities: [auto, high, medium, low]
-        supports_seed: false
-        supports_negative_prompt: false
-        supports_reference: false
-        max_n: 4
-        native_protocol: gemini_predict
-        cost:
-          currency: USD
-          per_image: 0.04
-          source: https://ai.google.dev/gemini-api/docs/pricing
-      - id: imagen-4.0-ultra-generate-001
-        label: Imagen 4 Ultra
-        supported_sizes: [1024x1024, 1024x768, 768x1024, 1792x1024, 1024x1792]
-        supported_qualities: [auto, high, medium, low]
-        supports_seed: false
-        supports_negative_prompt: false
-        supports_reference: false
         max_n: 1
-        native_protocol: gemini_predict
-        cost:
-          currency: USD
-          per_image: 0.06
-          source: https://ai.google.dev/gemini-api/docs/pricing
-      - id: imagen-4.0-fast-generate-001
-        label: Imagen 4 Fast
+        native_protocol: gemini_interactions
+      - id: gemini-3-pro-image
+        label: Nano Banana Pro
         supported_sizes: [1024x1024, 1024x768, 768x1024, 1792x1024, 1024x1792]
         supported_qualities: [auto, high, medium, low]
-        supports_seed: false
-        supports_negative_prompt: false
-        supports_reference: false
-        max_n: 4
-        native_protocol: gemini_predict
-        cost:
-          currency: USD
-          per_image: 0.02
-          source: https://ai.google.dev/gemini-api/docs/pricing
+        max_n: 1
+        native_protocol: gemini_interactions
     fields:
       model:
         visible: true
