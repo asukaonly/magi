@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { ChatRoleAvatar } from './ChatRoleAvatar';
+import { ChatProgressDots } from './ChatProgressDots';
 
 type PendingAssistantBubbleProps = {
   assistantName: string;
@@ -29,7 +30,6 @@ export const PendingAssistantBubble = ({
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: 'easeOut' }}
     className="group/message mb-5 flex justify-start"
-    aria-label="Assistant is preparing a response"
   >
     <div className="flex max-w-[75%] gap-3">
       <ChatRoleAvatar
@@ -47,26 +47,7 @@ export const PendingAssistantBubble = ({
             'w-fit max-w-full rounded-xl rounded-tl-sm border border-border/55 bg-card px-4 py-3 shadow-xs'
           }
         >
-          <span className="flex items-center gap-1.5" aria-hidden>
-            <span
-              className="block h-1.5 w-1.5 rounded-full bg-muted-foreground/70"
-              style={shouldReduceMotion ? undefined : {
-                animation: 'magiPendingDot 1.2s ease-in-out 0ms infinite',
-              }}
-            />
-            <span
-              className="block h-1.5 w-1.5 rounded-full bg-muted-foreground/70"
-              style={shouldReduceMotion ? undefined : {
-                animation: 'magiPendingDot 1.2s ease-in-out 180ms infinite',
-              }}
-            />
-            <span
-              className="block h-1.5 w-1.5 rounded-full bg-muted-foreground/70"
-              style={shouldReduceMotion ? undefined : {
-                animation: 'magiPendingDot 1.2s ease-in-out 360ms infinite',
-              }}
-            />
-          </span>
+          <ChatProgressDots shouldReduceMotion={shouldReduceMotion} />
         </div>
       </div>
     </div>

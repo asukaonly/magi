@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import i18n from '@/i18n';
+
 import { PendingAssistantBubble } from '@/components/chat/PendingAssistantBubble';
 
 vi.mock('@/runtime/config', async (importOriginal) => ({
@@ -20,7 +22,7 @@ describe('PendingAssistantBubble', () => {
 
     // The placeholder bubble announces itself for screen readers.
     expect(
-      screen.getByLabelText('Assistant is preparing a response'),
+      screen.getByRole('status', { name: i18n.t('app:chat.runtime.preparing') }),
     ).toBeInTheDocument();
 
     // Three dots, one per cycle slot. We rely on the inline `animation`

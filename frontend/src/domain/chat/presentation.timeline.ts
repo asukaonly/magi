@@ -83,7 +83,8 @@ export const projectChatTimelineMessage = (
     message,
     surface: 'transcript',
     transcript: {
-      showHeaderTraceEntry: message.role === 'assistant' && !isAskRequest && !isAssistantInterim && !isSecondaryRhythmSegment,
+      showHeaderTraceEntry: message.role === 'assistant' && !isAskRequest && !isAssistantInterim && !isSecondaryRhythmSegment
+        && !message.streaming && !message.runtimeStatuses?.length && !message.reasoning?.length && !message.toolCalls?.length,
       showExecutionBubbleFooter: isAssistantInterim,
       showRecalledMemories: hasRecalledMemories && !isNonTerminalRhythmSegment,
       bubbleTop: {
@@ -159,6 +160,11 @@ export const projectChatTimelineRow = (
       transcript: {
         ...projected.transcript,
         traceEntry: projectTraceEntryPresentation(message, summary),
+        executionProgress: message.role === 'assistant' ? projectExecutionProgressPresentation(message, {
+          ...execution,
+          summary,
+          variant: 'bubble',
+        }) : null,
       },
     };
   }

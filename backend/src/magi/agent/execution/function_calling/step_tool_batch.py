@@ -74,10 +74,10 @@ class FunctionCallingToolBatchExecutor:
         if isinstance(draft, str) and draft.strip():
             guidance = build_working_context_message(
                 "Presentation boundary: the assistant text emitted with the preceding tool calls "
-                "was an internal draft. It has NOT been shown to the user. The user sees only "
-                "your final answer. Include the actual requested draft or results in that final "
-                "answer; do not refer to them as 'above' or already shown. A persistent progress "
-                "record stores only the content passed to its tool, not this internal draft. "
+                "may appear as a temporary progress note and be collapsed when you finish. "
+                "Include the actual requested draft, important findings, completed actions, and results "
+                "in the final answer; do not refer to them as 'above' or assume they were read. A persistent progress "
+                "record stores only the content passed to its tool, not the accompanying assistant text. "
                 "If you saved only an announcement or summary instead of the requested draft, "
                 "save the usable draft before replying."
             )

@@ -1245,9 +1245,10 @@
       "preparing": "{{name}} is on the way…"
     },
     "runtime": {
-      "label": "Runtime activity",
-      "expand": "Expand runtime activity",
-      "collapse": "Collapse runtime activity",
+      "preparing": "Preparing a response",
+      "label": "View activity",
+      "expand": "Expand activity details",
+      "collapse": "Collapse activity details",
       "status": "Process updates"
     },
     "toolCalls": {

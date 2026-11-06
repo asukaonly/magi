@@ -556,6 +556,19 @@ describe('chat trace state helpers', () => {
     });
   });
 
+  it('does not present a finished reply as running when no trace state is available', () => {
+    const message: ChatTimelineMessage = {
+      id: 'reply', role: 'assistant', kind: 'assistant', content: 'Finished reply',
+      timestamp: 1000, turnId: 'turn-reply', messageKind: 'assistant_final',
+    };
+    const execution = { executionControlByTurnId: {}, cancellingTurnIds: [], detachingTurnIds: [] };
+    expect(getExecutionActionState(message, execution)).toMatchObject({
+      executionState: 'completed', showCancelButton: false, showDetachButton: false,
+    });
+    expect(getExecutionActionState({ ...message, streaming: true }, execution).executionState).toBe('running');
+    expect(getExecutionActionState({ ...message, messageKind: 'assistant_interim' }, execution).executionState).toBe('running');
+  });
+
   it('uses restored backend run state to suppress execution controls', () => {
     const cancelledMessage: ChatTimelineMessage = {
       id: 'msg-cancelled',

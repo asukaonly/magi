@@ -36,6 +36,9 @@ const executionPlaceholderPriority = (projectedMessage: RenderableTimelineMessag
 };
 
 const shouldPinExecutionPlaceholderToTail = (projectedMessage: RenderableTimelineMessage): boolean => {
+  if (projectedMessage.surface === 'transcript'
+    && !projectedMessage.message.streaming
+    && projectedMessage.message.messageKind !== 'assistant_interim') return false;
   const turnId = String(projectedMessage.message.turnId || '').trim();
   if (!turnId) {
     return false;
@@ -190,7 +193,17 @@ export const ChatTimelinePane = ({
     return ids;
   }, [messages]);
   const projectedMessages = useMemo(() => {
-    const projected = messages.map((message) => projectChatTimelineRow(message, {
+    const interimByTurnId = new Map<string, NonNullable<ChatTimelineMessage['runtimeStatuses']>>();
+    for (const message of messages) {
+      if (message.messageKind !== 'assistant_interim' || !message.turnId || !message.content.trim()) continue;
+      const statuses = interimByTurnId.get(message.turnId) ?? [];
+      statuses.push({ source: 'assistant_interim', content: message.content });
+      interimByTurnId.set(message.turnId, statuses);
+    }
+    const projected = messages.map((message) => projectChatTimelineRow(
+      message.role === 'assistant' && message.messageKind !== 'assistant_interim' && message.turnId && interimByTurnId.has(message.turnId)
+        ? { ...message, runtimeStatuses: [...(interimByTurnId.get(message.turnId) ?? []), ...(message.runtimeStatuses ?? [])] }
+        : message, {
       summaries,
       executionControlByTurnId,
       cancellingTurnIds,
@@ -219,7 +232,8 @@ export const ChatTimelinePane = ({
 
     projected.forEach((projectedMessage, index) => {
       const projectedTurnId = String(projectedMessage.message.turnId || '').trim();
-      if (projectedMessage.surface === 'runtime_status' && projectedTurnId && finalizedTurnIds.has(projectedTurnId)) {
+      if ((projectedMessage.surface === 'runtime_status' || projectedMessage.message.messageKind === 'assistant_interim')
+        && projectedTurnId && finalizedTurnIds.has(projectedTurnId)) {
         return;
       }
       const placeholderPriority = executionPlaceholderPriority(projectedMessage);

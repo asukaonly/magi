@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import type { ChatTimelineMessage } from '@/domain/chat/state';
+import { isPendingRunState } from '@/domain/chat/run-state';
 
 type RuntimeStatusCardProps = {
   message: ChatTimelineMessage;
@@ -16,6 +17,7 @@ export const RuntimeStatusCard = ({
   executionPanel,
 }: RuntimeStatusCardProps) => {
   const turnId = String(message.turnId || '').trim();
+  const active = isPendingRunState(message.runState?.state || message.traceSummary?.status || 'running');
 
   return (
     <motion.div
@@ -26,9 +28,9 @@ export const RuntimeStatusCard = ({
       className="mb-4 flex justify-start"
       data-testid={turnId ? `chat-trace-status-card-${turnId}` : undefined}
     >
-      <div className="flex max-w-[76%] gap-3">
+      <div className="flex max-w-full gap-3">
         {avatar}
-        <div className="rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5">
+        <div className={active ? 'min-w-0 py-1' : 'rounded-xl rounded-tl-sm border border-border/35 bg-muted/35 px-4 py-2.5'}>
           {executionPanel}
         </div>
       </div>

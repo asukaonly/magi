@@ -862,6 +862,29 @@ Current product expectations:
 - Magi does not run a separate long-task classifier or expose an automatic-routing threshold; the active agent may request typed detach during execution when the task, remaining budget, and available background runtime justify it
 - users can move an eligible active task to the background manually from the chat surface; both model-requested and user-requested detach pass through the same deterministic governance path
 
+### Chat progress and activity details
+
+An active assistant turn has one lightweight progress surface. Before reply text
+arrives it shows three dots, or the latest user-facing note supplied with the
+main model's tool calls. Reasoning output never becomes a progress note just
+because it contains text. Reasoning, prior progress notes, tool arguments,
+execution plans and trace statistics are collapsed behind **View activity**;
+new events do not reopen the details. No additional model request generates
+status copy. The chat prompt encourages occasional concise, evidence-based
+updates in the user's language, followed by continued execution.
+
+Once reply text starts, the progress summary disappears. Completing a turn
+collapses its details and removes interim announcements from the main transcript;
+those announcements remain available in the reply's activity details. The final
+answer must include important findings, completed actions, deliverables and
+unresolved problems. Questions, permissions, attachments and background results
+retain their own surfaces. Failed, cancelled, blocked and interrupted outcomes
+remain explicit; available stop and background actions stay reachable while a
+turn is active. Activity display is independent of the reasoning preference.
+Live reasoning/tool narration follows the existing in-session stream retention;
+reopening a conversation uses persisted interim messages and the retained trace,
+not a new promise to persist every streamed reasoning fragment.
+
 ## Code Agent Settings
 
 The code agent settings area controls whether Magi may hand larger code changes to installed external coding CLIs.

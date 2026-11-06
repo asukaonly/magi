@@ -301,6 +301,15 @@ export const TranscriptTimelineRow = ({
           userNameLabel={t('chat.you')}
           timestampLabel={formatChatClockTime(message.timestamp, i18n.language)}
           shouldReduceMotion={shouldReduceMotion}
+          runtimePanel={message.role === 'assistant' && transcript.executionProgress ? (
+            <TimelineExecutionPanel
+              message={message}
+              executionProgress={transcript.executionProgress}
+              variant="bubble"
+              execution={execution}
+              shouldReduceMotion={shouldReduceMotion}
+            />
+          ) : undefined}
           avatar={<ChatRoleAvatar role={message.role} assistantName={messageAssistant.name} assistantAvatar={messageAssistant.avatar} avatarState={avatarState} />}
           headerExtras={(
             <>
@@ -337,17 +346,6 @@ export const TranscriptTimelineRow = ({
               showAttachments={transcript.bubbleTop.showAttachments}
               onOpenImagePreview={interactions.onOpenImagePreview}
             />
-          )}
-          bubbleFooter={(
-            <>
-              {transcript.showExecutionBubbleFooter ? (
-                <TimelineExecutionPanel
-                  executionProgress={transcript.executionProgress}
-                  variant="bubble"
-                  execution={execution}
-                />
-              ) : null}
-            </>
           )}
           belowBubble={(
             <>

@@ -594,6 +594,14 @@ class PromptContextRenderer:
             "* Do not guess when a selected tool can check the answer.",
             "* If a tool fails, adjust the approach or use another available tool before answering.",
             "* If no tool is needed, answer directly.",
+            "* During longer tool-based work, occasionally include a brief user-facing progress note "
+            "with your next tool calls when you have a meaningful finding, change of approach, or blocker. "
+            "Use the user's language and your conversational voice. Ground it in observed results and "
+            "the next action; do not expose internal reasoning, tool arguments, or narrate every call. "
+            "Continue the work after the note instead of ending the turn with a promise.",
+            "* Progress notes are temporary and may be collapsed. Put all important findings, "
+            "completed actions, deliverables, and unresolved problems in the final answer; "
+            "do not rely on the user having read a progress note.",
             "",
         ]
 

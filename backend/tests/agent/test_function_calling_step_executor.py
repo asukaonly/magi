@@ -89,7 +89,7 @@ async def test_tool_call_draft_visibility_is_explained_after_results(monkeypatch
     if draft:
         assert state.messages[-2]["role"] == "tool"
         assert is_working_context_message(state.messages[-1])
-        assert "NOT been shown to the user" in state.messages[-1]["content"]
+        assert "temporary progress note" in state.messages[-1]["content"]
         assert "save the usable draft" in state.messages[-1]["content"]
         assert state.model_context_port.commit.call_args.kwargs["messages"][-1] == state.messages[-1]
     else:

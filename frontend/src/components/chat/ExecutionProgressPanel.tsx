@@ -17,6 +17,7 @@ type ExecutionProgressPanelProps = {
   traceEntry?: ReactNode;
   onCancel?: () => void;
   onDetach?: () => void;
+  showActions?: boolean;
 };
 
 const PLAN_STEP_STYLE_BY_STATUS = {
@@ -44,6 +45,7 @@ export const ExecutionProgressPanel = ({
   traceEntry,
   onCancel,
   onDetach,
+  showActions = true,
 }: ExecutionProgressPanelProps) => {
   const { t } = useTranslation('app');
   const turnId = presentation.turnId;
@@ -81,7 +83,7 @@ export const ExecutionProgressPanel = ({
     : 'mt-3 border-t border-border/35 pt-3';
 
   return (
-    <div className={shellClassName} data-testid={`chat-execution-panel-${turnId}`}>
+    <div className={shellClassName}>
       {presentation.showBubbleTitle && (
         <div className="flex items-center gap-2">
           {indicator}
@@ -157,43 +159,50 @@ export const ExecutionProgressPanel = ({
           {t(presentation.footer.key, presentation.footer.values)}
         </div>
       )}
-      {(traceEntry || presentation.showCancelButton || presentation.showDetachButton) ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {traceEntry}
-          {presentation.showCancelButton && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={presentation.isCancelling}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onCancel?.();
-              }}
-              className="h-7 rounded-full px-2.5 text-[11px]"
-            >
-              {t('chat.trace.cancelRun')}
-            </Button>
-          )}
-          {presentation.showDetachButton && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={presentation.isDetaching}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onDetach?.();
-              }}
-              className="h-7 rounded-full px-2.5 text-[11px]"
-            >
-              {t('chat.trace.detachRun')}
-            </Button>
-          )}
-        </div>
-      ) : null}
+      {showActions && <ExecutionRunActions presentation={presentation} traceEntry={traceEntry} onCancel={onCancel} onDetach={onDetach} />}
     </div>
   );
+};
+
+export const ExecutionRunActions = ({
+  presentation, traceEntry, onCancel, onDetach,
+}: Omit<ExecutionProgressPanelProps, 'variant' | 'showActions'>) => {
+  const { t } = useTranslation('app');
+  return (traceEntry || presentation.showCancelButton || presentation.showDetachButton) ? (
+    <div className="flex flex-wrap items-center gap-2">
+      {traceEntry}
+      {presentation.showCancelButton && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={presentation.isCancelling}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onCancel?.();
+          }}
+          className="h-7 rounded-full px-2.5 text-[11px]"
+        >
+          {t('chat.trace.cancelRun')}
+        </Button>
+      )}
+      {presentation.showDetachButton && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={presentation.isDetaching}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onDetach?.();
+          }}
+          className="h-7 rounded-full px-2.5 text-[11px]"
+        >
+          {t('chat.trace.detachRun')}
+        </Button>
+      )}
+    </div>
+  ) : null;
 };
