@@ -1320,7 +1320,7 @@ async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatSt
             segments=[
                 AssistantResponseSegment(
                     content="先接住问题。",
-                    intent="acknowledge",
+                    intent="👌",
                     delay_ms=0,
                     segment_index=0,
                     source_unit_ids=["u1"],
@@ -1377,7 +1377,7 @@ async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatSt
     assert first_payload["rhythm"] == {
         "segment_index": 0,
         "segment_count": 2,
-        "intent": "acknowledge",
+        "intent": "👌",
         "delay_ms": 0,
         "source_unit_ids": ["u1"],
     }
@@ -2820,7 +2820,7 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
                     "thinking_indicator": "hidden",
                     "trace_display_mode": "none",
                     "allow_trace_collapse": False,
-                    "reaction_style": "acknowledge",
+                    "reaction_emoji": "👌",
                 }
             )
         },
@@ -2835,7 +2835,7 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
             "thinking_indicator": "hidden",
             "trace_display_mode": "none",
             "allow_trace_collapse": False,
-            "reaction_style": "acknowledge",
+            "reaction_emoji": "👌",
         },
     )
 
@@ -2862,7 +2862,7 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
         "created_at_ms": 1710000000000,
     }
     assert await chat_store.count_assistant_memory_projections() == 0
-    payload = json.loads(notifications[-1].payload_json)
+    payload = next(json.loads(item.payload_json) for item in notifications if item.channel == "agent_response")
     assert payload["message_kind"] == "assistant_reaction"
     assert payload["content"] == "👌"
 
@@ -2929,12 +2929,11 @@ async def test_handle_completes_none_surface_turn_without_final_message(
 
     result = ExecutionResult(
         mode=None,
-        response_text="",
-        skip_emit=True,
+        response_text="[[SILENT]]",
         correlation_id="corr-none",
         turn_id="turn-none",
         ux_plan={
-            "assistant_surface_mode": "none",
+            "assistant_surface_mode": "final_only",
             "thinking_indicator": "hidden",
             "trace_display_mode": "none",
             "allow_trace_collapse": False,
@@ -3029,27 +3028,26 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
         {
             "to_dict": staticmethod(
                 lambda: {
-                    "assistant_surface_mode": "reaction_only",
+                    "assistant_surface_mode": "final_only",
                     "thinking_indicator": "hidden",
                     "trace_display_mode": "none",
                     "allow_trace_collapse": False,
-                    "reaction_style": "acknowledge",
+                    "reaction_emoji": "👌",
                 }
             )
         },
     )()
     result = ExecutionResult(
         mode=None,
-        response_text="",
-        skip_emit=True,
+        response_text="[[REACT:👩🏽‍💻]]",
         correlation_id="corr-react-empty",
         turn_id="turn-react-empty",
         ux_plan={
-            "assistant_surface_mode": "reaction_only",
+            "assistant_surface_mode": "final_only",
             "thinking_indicator": "hidden",
             "trace_display_mode": "none",
             "allow_trace_collapse": False,
-            "reaction_style": "acknowledge",
+            "reaction_emoji": "👌",
         },
     )
 
@@ -3065,11 +3063,13 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
     assert messages[-1].label is not None
     assert messages[-1].label.to_dict() == {
         "kind": "emoji",
-        "text": "👌",
+        "text": "👩🏽‍💻",
         "applied_by": "assistant",
         "source": "reaction_only",
         "created_at_ms": 1710000000000,
     }
+    ux = next(json.loads(item.payload_json) for item in notifications if item.channel == "turn_ux_plan")
+    assert ux["ux_plan"]["reaction_emoji"] == "👩🏽‍💻"
     controls = [item for item in notifications if item.channel == "execution_control"]
     assert len(controls) == 1
     assert json.loads(controls[0].payload_json)["state"] == "completed"

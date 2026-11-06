@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from typing import Any
+from dataclasses import replace
 
+from magi.core.chat_expression import ChatExpressionStreamBuffer
 from magi.agent.execution.task_budget import TaskBudgetExceeded
 from magi.llm.error_classifier import LLMErrorKind, classify_exception
 from magi.llm.streaming_events import LLMStreamEvent
@@ -77,8 +79,9 @@ class ChatStreamingMixin:
     ):
         agent = self
         seq = 0
+        expression_buffer = ChatExpressionStreamBuffer()
 
-        async def sink(event: LLMStreamEvent) -> None:
+        async def emit(event: LLMStreamEvent) -> None:
             nonlocal seq
             await agent._emit_stream_event(
                 event=event,
@@ -89,6 +92,20 @@ class ChatStreamingMixin:
                 seq=seq,
             )
             seq += 1
+
+        async def sink(event: LLMStreamEvent) -> None:
+            if event.kind == "text_delta":
+                text = expression_buffer.feed(event.text or "")
+                if not text:
+                    return
+                event = replace(event, text=text)
+            elif event.kind in {"text_flush", "done"}:
+                pending = expression_buffer.flush()
+                if pending:
+                    await emit(LLMStreamEvent(kind="text_delta", text=pending, source=event.source))
+            elif event.kind == "text_reset":
+                expression_buffer.flush()
+            await emit(event)
 
         return sink
 

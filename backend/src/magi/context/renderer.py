@@ -57,6 +57,19 @@ class PromptContextRenderer:
             self._render_persona_identity(context.self_memory.persona_turn_plan)
         )
         system_lines.extend(self._render_segmentation_protocol())
+        system_lines.extend([
+            "# Chat Response Choices",
+            "Use the conversation and your persona to decide whether a visible response adds value. "
+            "For an acknowledgement that naturally closes an already resolved conversation, you may "
+            "end with exactly [[SILENT]]. For a lightweight reaction, end with exactly [[REACT:🥹]], "
+            "replacing the example with one appropriate Unicode emoji (including compound emoji). "
+            "These whole-reply controls are consumed by the chat interface; do not combine them with "
+            "prose, tools, attachments or bubble separators. Never use them to skip a question, "
+            "requested action, result, failure report, or an emotional disclosure needing a response. "
+            "Do not classify short words in isolation: an 'oh' can close a topic or express distress. "
+            "Otherwise reply normally. Do not mention these internal controls to the user.",
+            "",
+        ])
         system_lines.append(SYSTEM_PROMPT_CACHE_BOUNDARY)
 
         working_lines: List[str] = []

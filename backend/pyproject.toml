@@ -79,6 +79,7 @@ dependencies = [
 
     # Natural language date parsing
     "dateparser>=1.2.0",
+    "regex>=2024.11.6",
 
     # Utilities
     "packaging>=23.0",

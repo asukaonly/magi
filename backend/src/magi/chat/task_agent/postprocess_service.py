@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, TYPE_CHECKING
 
 from magi.core.logger import get_logger
+from magi.core.chat_expression import parse_chat_expression
 from magi.agent.execution.task_budget import TaskBudgetExceeded
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.trace import (
@@ -471,6 +472,19 @@ class ChatPostProcessService:
         }:
             await self._finalize_session_run(context)
             return ChatParseOutcome(False, False, False, False)
+        execution_status = (getattr(result, "execution_outcome", None) or {}).get("status", "completed")
+        if execution_status == "completed":
+            expression = parse_chat_expression(result.response_text or "")
+            if expression is not None:
+                ux_plan = {**ux_plan, "assistant_surface_mode": expression.mode}
+                if expression.emoji is not None:
+                    ux_plan["reaction_emoji"] = expression.emoji
+                result.ux_plan = ux_plan
+            if ux_plan.get("assistant_surface_mode") in {"none", "reaction_only"}:
+                if result.attachments:
+                    raise ValueError("Silent or reaction-only replies cannot discard prepared attachments.")
+                result.response_text = ""
+                result.streamed = False
         if result.skip_emit:
             await self._complete_turn_without_visible_response(
                 context=context,
@@ -991,14 +1005,39 @@ class ChatPostProcessService:
             source_fact=latest_fact,
         )
         await self._finalize_session_run(context)
-        await self.emit_execution_control_notification(
-            user_id=context.user_id,
-            session_id=context.session_id,
-            turn_id=turn_id,
-            run_id=context.session_run_id,
-            state="completed",
-            can_cancel=False,
-        )
+        try:
+            await self._emit_turn_ux_plan_notification(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                turn_id=turn_id,
+                ux_plan=ux_plan,
+                message_id=None,
+                message_kind=None,
+                timestamp_ms=now_ms,
+            )
+            if response_mode == "reaction_only":
+                await self._deliver_agent_response(
+                    context=context,
+                    turn_id=turn_id,
+                    response_text=self._resolve_reaction_notification_text(ux_plan, fallback=""),
+                    attachments=[],
+                    message_payload={},
+                    trace_summary=None,
+                    trace_available=False,
+                    ux_plan=ux_plan,
+                    message_id=None,
+                    message_kind="assistant_reaction",
+                    persona_id=context.active_persona_id,
+                )
+        finally:
+            await self.emit_execution_control_notification(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                turn_id=turn_id,
+                run_id=context.session_run_id,
+                state="completed",
+                can_cancel=False,
+            )
         return True
 
     async def _mark_required_user_turn_delivery_terminal(

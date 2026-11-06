@@ -148,6 +148,27 @@ The prompt policy should distinguish sentence style from whole-answer length:
 This keeps the product's instant-message tone while giving the model clear
 semantic boundaries for where a bubble split is acceptable.
 
+## Natural endings and reactions
+
+The main chat model may end an already resolved exchange with exactly
+`[[SILENT]]`, or acknowledge it with `[[REACT:emoji]]`, where `emoji` is one
+Unicode emoji grapheme (including flags, skin tones and joined sequences).
+These are whole-reply controls. Quoted examples and controls mixed with prose
+remain ordinary text. Invalid standalone reactions fail validation rather than
+silently dropping the turn. No keyword classifier or extra model call selects
+these behaviors; questions, requests, deliverables and emotional disclosures
+that need a response must still receive one.
+
+Postprocessing consumes the control before transcript or assistant-memory writes,
+commits `none` or `reaction_only`, and completes the delivery and session run.
+Reactions persist on the user's message and are published through the normal
+channel delivery path. The UX payload carries `reaction_emoji` directly; there
+is no fixed emotion-to-emoji mapping. Silent turns create no assistant message.
+Prepared attachments cannot be discarded by a silent or reaction-only control.
+The streaming sink buffers a possible leading control until it can distinguish
+it from prose; ordinary answers continue streaming normally. These choices are
+available with either token streaming or natural reply rhythm.
+
 ## Persistence Contract
 
 `chat_turns` remains the owner of turn-level execution state and UX plan.

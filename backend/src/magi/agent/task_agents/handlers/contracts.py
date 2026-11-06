@@ -54,7 +54,7 @@ class TurnUXPlan:
     trace_display_mode: TraceDisplayMode = TraceDisplayMode.NONE
     allow_trace_collapse: bool = False
     interim_text: str | None = None
-    reaction_style: str | None = None
+    reaction_emoji: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the UX plan for notifications and transport payloads."""
@@ -66,8 +66,8 @@ class TurnUXPlan:
         }
         if self.interim_text is not None:
             payload["interim_text"] = self.interim_text
-        if self.reaction_style is not None:
-            payload["reaction_style"] = self.reaction_style
+        if self.reaction_emoji is not None:
+            payload["reaction_emoji"] = self.reaction_emoji
         return payload
 
 

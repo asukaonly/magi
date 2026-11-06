@@ -203,7 +203,7 @@ export interface NormalizedTurnUxPlan {
   traceDisplayMode?: string | null;
   allowTraceCollapse?: boolean;
   interimText?: string | null;
-  reactionStyle?: string | null;
+  reactionEmoji?: string | null;
 }
 
 type ApplyTurnUxPlanOptions = {
@@ -211,10 +211,6 @@ type ApplyTurnUxPlanOptions = {
   messageId?: string;
   messageKind?: string | null;
   timestamp?: number;
-};
-
-const REACTION_EMOJI_BY_STYLE: Record<string, string> = {
-  acknowledge: '👌',
 };
 
 const applyUxMetadata = (
@@ -237,7 +233,7 @@ export const normalizeTurnUxPlan = (raw: unknown): NormalizedTurnUxPlan | null =
   const interimTextRaw = plan.interim_text;
   const thinkingIndicatorRaw = plan.thinking_indicator;
   const traceDisplayModeRaw = plan.trace_display_mode;
-  const reactionStyleRaw = plan.reaction_style;
+  const reactionEmojiRaw = plan.reaction_emoji;
   const allowTraceCollapseRaw = plan.allow_trace_collapse;
 
   return {
@@ -246,7 +242,7 @@ export const normalizeTurnUxPlan = (raw: unknown): NormalizedTurnUxPlan | null =
     traceDisplayMode: traceDisplayModeRaw == null ? null : String(traceDisplayModeRaw),
     allowTraceCollapse: Boolean(allowTraceCollapseRaw),
     interimText: interimTextRaw == null ? null : String(interimTextRaw),
-    reactionStyle: reactionStyleRaw == null ? null : String(reactionStyleRaw),
+    reactionEmoji: reactionEmojiRaw == null ? null : String(reactionEmojiRaw),
   };
 };
 
@@ -322,7 +318,8 @@ export const applyTurnUxPlan = (
   });
 
   if (plan.assistantSurfaceMode === 'reaction_only') {
-    const reaction = REACTION_EMOJI_BY_STYLE[String(plan.reactionStyle || '').trim()] || '👌';
+    const reaction = plan.reactionEmoji?.trim();
+    if (!reaction) return messages;
     const nextMessages = messages
       .filter((message) => !(message.turnId === resolvedTurnId && message.role === 'assistant'))
       .map((message) => (

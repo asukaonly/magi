@@ -1187,12 +1187,12 @@ describe('chat trace state helpers', () => {
     const initial = createPendingTurn('嗯', 'turn_2', 1000, 'Thinking');
     const next = applyTurnUxPlan(initial, 'turn_2', {
       assistantSurfaceMode: 'reaction_only',
-      reactionStyle: 'acknowledge',
+      reactionEmoji: '👩🏽‍💻',
     });
 
     expect(next).toHaveLength(1);
     expect(next[0].kind).toBe('user');
-    expect(next[0].reaction).toBe('👌');
+    expect(next[0].reaction).toBe('👩🏽‍💻');
   });
 
   it('applies persisted assistant reaction payloads without creating an assistant bubble', () => {

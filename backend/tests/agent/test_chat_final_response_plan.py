@@ -38,7 +38,7 @@ def test_reaction_only_delivery_plan_uses_reaction_surface() -> None:
 
     plan = build_final_response_delivery_plan(
         response_text="收到啦",
-        ux_plan={"assistant_surface_mode": "reaction_only", "reaction_style": "acknowledge"},
+        ux_plan={"assistant_surface_mode": "reaction_only", "reaction_emoji": "👌"},
         notification_message=message,
         fallback_persona_id="persona-active",
         resolve_reaction_text=lambda ux_plan, fallback: "👌",

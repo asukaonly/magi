@@ -717,7 +717,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
           turn_id: 'turn-3',
           ux_plan: {
             assistant_surface_mode: 'reaction_only',
-            reaction_style: 'acknowledge',
+            reaction_emoji: '👌',
           },
         },
       });
@@ -739,7 +739,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
           turn_id: 'turn-3',
           ux_plan: {
             assistant_surface_mode: 'reaction_only',
-            reaction_style: 'acknowledge',
+            reaction_emoji: '👌',
           },
         },
       });

@@ -119,3 +119,18 @@ async def test_build_stream_sink_dispatches_each_event_with_monotonic_seq():
         c["turn_id"] == "t1" and c["persona_id"] == "p1"
         for c in coordinator.calls
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_sink_consumes_controls_and_preserves_quoted_text():
+    coordinator = _RecordingCoordinator()
+    sink = _Agent(coordinator)._build_stream_sink(user_id="u", session_id="s", turn_id="t")
+    for char in "[[REACT:👩🏽‍💻]]":
+        await sink(LLMStreamEvent(kind="text_delta", text=char))
+    await sink(LLMStreamEvent(kind="text_flush"))
+    assert not any(call["text"] for call in coordinator.calls)
+    for chunk in ["[", "[SILENT]] is a literal example"]:
+        await sink(LLMStreamEvent(kind="text_delta", text=chunk))
+    await sink(LLMStreamEvent(kind="done"))
+    assert "".join(call["text"] for call in coordinator.calls) == "[[SILENT]] is a literal example"
+    assert [call["seq"] for call in coordinator.calls] == list(range(len(coordinator.calls)))

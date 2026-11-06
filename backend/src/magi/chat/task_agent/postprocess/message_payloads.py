@@ -8,9 +8,7 @@ from magi.agent.task_agents.common import AssistantResponseSegment
 from magi.chat.attachment_payloads import public_attachment_payloads
 
 
-REACTION_EMOJI_BY_STYLE = {
-    "acknowledge": "👌",
-}
+from magi.core.chat_expression import is_single_emoji
 
 
 def build_message_payload_json(
@@ -48,12 +46,11 @@ def build_segment_payload_json(
 
 
 def resolve_reaction_text(ux_plan: dict[str, Any] | None) -> str:
-    style = str((ux_plan or {}).get("reaction_style") or "").strip()
-    return REACTION_EMOJI_BY_STYLE.get(style, "")
+    emoji = str((ux_plan or {}).get("reaction_emoji") or "").strip()
+    return emoji if is_single_emoji(emoji) else ""
 
 
 __all__ = [
-    "REACTION_EMOJI_BY_STYLE",
     "build_message_payload_json",
     "build_segment_payload_json",
     "resolve_reaction_text",
