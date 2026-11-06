@@ -107,9 +107,9 @@ if (-not (Test-Path $SourceBin)) {
 }
 
 Write-Host "Checking inference APIs in the packaged worker..."
-& $PythonExe -c 'import subprocess, sys; subprocess.run([sys.argv[1], "--check-inference-runtime"], check=True, timeout=60)' $SourceBin
+& $PythonExe -c "import subprocess, sys; subprocess.run([sys.argv[1], '--check-inference-runtime'], check=True, timeout=60)" $SourceBin
 if ($LASTEXITCODE -ne 0) { throw "Packaged inference runtime check failed." }
-& $PythonExe -c 'import subprocess, sys; from magi.utils.storage_runtime import installed_storage_backends; subprocess.run([sys.argv[1], "--check-storage-runtime", *installed_storage_backends()], check=True, timeout=60)' $SourceBin
+& $PythonExe -c "import subprocess, sys; from magi.utils.storage_runtime import installed_storage_backends; subprocess.run([sys.argv[1], '--check-storage-runtime', *installed_storage_backends()], check=True, timeout=60)" $SourceBin
 if ($LASTEXITCODE -ne 0) { throw "Packaged storage runtime check failed." }
 
 # Copy entire --onedir output to Tauri resource staging
