@@ -302,3 +302,8 @@ class L2ProjectionJobStoreMixin:
         """Return counts for durable L2 projection jobs by status."""
         await self.initialize()
         return await self._projection_queue.get_backlog_stats(source_filter=source_filter, event_ids=event_ids)
+
+    async def get_projection_failure_summary(self) -> dict[str, Any]:
+        """Return actionable failure groups without loading source records."""
+        await self.initialize()
+        return await self._projection_queue.get_failure_summary()

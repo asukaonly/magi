@@ -170,6 +170,7 @@ export const MemoryOverviewPage = () => {
             <p>{t('memory.overview.partialError')}</p>
             <Button variant="outline" disabled={loading} onClick={() => void load()}>{t('memory.portrait.loadFailed.retry')}</Button>
           </section> : null}
+          {dashboard ? <OverviewSummary dashboard={dashboard} sourceCount={sourceCoverageReady ? sourceRows.length : null} /> : null}
           {dashboard ? <MemoryProcessingStatus
             pending={dashboard.processing_backlog.l2.extract_pending + dashboard.processing_backlog.l2.reconcile_pending + dashboard.processing_backlog.l2.snapshot_pending}
             failed={dashboard?.processing_backlog.l2.projection_failed ?? 0}
@@ -177,7 +178,6 @@ export const MemoryOverviewPage = () => {
             onRetried={() => void load(true)}
             onRefresh={() => void load(true)}
           /> : null}
-          {dashboard ? <OverviewSummary dashboard={dashboard} sourceCount={sourceCoverageReady ? sourceRows.length : null} /> : null}
           <OverviewSourceCoverage
             rows={sourceRows}
             processingBacklog={dashboard?.processing_backlog?.total_pending ?? null}

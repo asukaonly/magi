@@ -5563,24 +5563,89 @@
     },
     "processing": {
       "pending": "Processing {{count}} memories",
-      "failed": "{{count}} memories could not be processed",
-      "help": "Resolve the cause of the failure, then retry up to 100 items at a time.",
-      "retry": "Retry failed memories",
+      "failed": "{{count}} records could not be processed",
+      "help": "Memory extraction is incomplete for these records, so related information may be out of date. Completed memories remain available.",
+      "retry": "Retry processing",
       "retrying": "Requeuing…",
-      "queued": "Requeued {{count}} items. They remain pending until processing completes.",
+      "queued": "{{count}} records queued for processing. Results will update when complete.",
       "remaining": "{{count}} items still need to be queued.",
       "retryFailed": "Could not requeue memories. Please try again.",
       "postTurn": {
         "pending": "{{count}} conversations are waiting to be processed.",
         "running": "Processing {{count}} conversations.",
         "failed": "Processing did not complete for {{count}} conversations.",
-        "help": "Memories or interaction state are not fully updated. Resolve the cause of the failure, then retry the unfinished work.",
+        "help": "Memory or interaction state is not fully updated for these conversations. Completed work will not be repeated.",
         "retry": "Retry conversation processing",
         "retrying": "Scheduling retries…",
         "queued": "{{count}} conversations were queued for another attempt.",
         "remaining": "{{count}} still need to be queued.",
         "retryFailed": "Conversation retries could not be scheduled. Please try again.",
-        "unavailable": "Conversation processing status is unavailable. Completion cannot be confirmed."
+        "unavailable": "Conversation processing status is unavailable. Completion cannot be confirmed.",
+        "batchHelp": "Retries run in batches and preserve completed work"
+      },
+      "batchHelp": "Retry up to 100 records at a time",
+      "details": {
+        "show": "View reasons",
+        "hide": "Hide details",
+        "loading": "Loading failure reasons…",
+        "loadFailed": "Could not load failure reasons.",
+        "empty": "No failed records currently await retry.",
+        "count": "{{count}} records",
+        "other": "{{count}} more failed records have other sources or causes.",
+        "technical": "Technical details",
+        "lastFailure": "Latest failure: {{time}}",
+        "noError": "No error details were saved for this failure.",
+        "modelSettings": "Check model settings"
+      },
+      "reasons": {
+        "auth": {
+          "title": "Model authorization failed",
+          "help": "Check the API key, account access and balance in model settings before retrying."
+        },
+        "rate_limit": {
+          "title": "Model service rate limit reached",
+          "help": "Try again later. If this continues, check the service usage limits."
+        },
+        "timeout": {
+          "title": "The model response timed out",
+          "help": "Check the network connection and try again later."
+        },
+        "service_unavailable": {
+          "title": "The model service is unavailable",
+          "help": "Check the service status and network connection, then retry when available."
+        },
+        "content_filter": {
+          "title": "The model service declined this content",
+          "help": "The service content policy blocked processing. Retrying may fail again."
+        },
+        "invalid_parameter": {
+          "title": "The model request was rejected",
+          "help": "Check that the selected model matches the service configuration before retrying."
+        },
+        "content_inspection_failed": {
+          "title": "The service content check failed",
+          "help": "Try again later. If it keeps failing, inspect the technical details."
+        },
+        "model_unavailable": {
+          "title": "No memory processing model is available",
+          "help": "Configure an available model in model settings, then retry."
+        },
+        "invalid_response": {
+          "title": "The model returned an unusable result",
+          "help": "Retry. If this continues, check whether the selected model supports this task."
+        },
+        "interrupted": {
+          "title": "Processing was interrupted",
+          "help": "Automatic recovery did not complete. You can retry processing."
+        },
+        "missing_source": {
+          "title": "The original record could not be found",
+          "help": "This content cannot be processed yet. Inspect the technical details."
+        },
+        "unknown": {
+          "title": "Processing encountered an error",
+          "help": "The cause could not be identified. Inspect the latest error; use it to investigate if retrying fails again."
+        }
       }
     },
     "evidence": {

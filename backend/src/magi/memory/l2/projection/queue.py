@@ -23,6 +23,7 @@ from ..batch_models import (
     projection_attempt_descriptor_json,
 )
 from .errors import ProjectionAttemptFencedError
+from .diagnostics import projection_failure_reason
 from .fencing import assert_bound_projection_attempt
 from .governance import active_projection_event_predicate, ready_projection_job_predicate
 
@@ -771,6 +772,33 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
             "failed": failed,
         }
 
+    async def get_failure_summary(self, *, limit: int = 12) -> dict[str, Any]:
+        """Group live terminal failures and retain the latest diagnostic per cause."""
+        groups: dict[tuple[str, str], dict[str, Any]] = {}
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                f"""SELECT source, last_error, COUNT(*), MAX(updated_at)
+                    FROM l2_projection_jobs AS jobs
+                    WHERE status = 'failed'
+                      AND {active_projection_event_predicate('jobs.event_id')}
+                    GROUP BY source, last_error"""
+            ) as cursor:
+                async for source, error, count, last_failed_at in cursor:
+                    reason = projection_failure_reason(error)
+                    key = (str(source), reason)
+                    group = groups.setdefault(key, {
+                        "source": str(source), "reason": reason, "count": 0,
+                        "last_failed_at": 0.0, "error": None,
+                    })
+                    group["count"] += int(count)
+                    if float(last_failed_at) >= group["last_failed_at"]:
+                        group["last_failed_at"] = float(last_failed_at)
+                        group["error"] = error
+        ordered = sorted(groups.values(), key=lambda group: (-group["count"], -group["last_failed_at"], group["source"], group["reason"]))
+        visible = ordered[:max(1, min(limit, 12))]
+        total = sum(group["count"] for group in ordered)
+        return {"total": total, "groups": visible, "other_count": total - sum(group["count"] for group in visible)}
+
     async def clear_all(self) -> None:
         """Delete all projection jobs."""
         async with sqlite_connection_async(self.db_path) as db:
@@ -934,7 +962,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
     ) -> int:
         query = "SELECT COUNT(*) FROM l2_projection_jobs AS jobs WHERE jobs.status = ?"
         params: tuple[str, ...] = (status,)
-        if status in {"pending", "queued", "running"}:
+        if status in {"pending", "queued", "running", "failed"}:
             query += f" AND {active_projection_event_predicate('jobs.event_id')}"
         if source_filter:
             query = f"{query} AND source = ?"

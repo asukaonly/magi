@@ -910,6 +910,20 @@ const postTurnProcessingBacklogSchema = z.object({
 
 export type MemoryPostTurnProcessingBacklog = z.infer<typeof postTurnProcessingBacklogSchema>;
 
+const memoryFailureSummarySchema = z.object({
+  total: z.number().int().nonnegative(),
+  other_count: z.number().int().nonnegative(),
+  groups: z.array(z.object({
+    source: z.string(),
+    reason: z.enum(['auth', 'rate_limit', 'timeout', 'service_unavailable', 'content_filter', 'invalid_parameter', 'content_inspection_failed', 'model_unavailable', 'invalid_response', 'interrupted', 'missing_source', 'unknown']),
+    count: z.number().int().positive(),
+    last_failed_at: z.number().finite().nonnegative(),
+    error: z.string().nullable(),
+  })).max(12),
+}).refine((value) => value.total === value.other_count + value.groups.reduce((sum, group) => sum + group.count, 0), { message: 'Failure counts do not match the total' });
+
+export type MemoryFailureSummary = z.infer<typeof memoryFailureSummarySchema>;
+
 export interface MemoryDashboardDeltaWindow {
   stored_records: number;
   l1_events: number;
@@ -1132,6 +1146,8 @@ export const memoryApi = {
     const response = unwrapMemoryResponse(await api.post<unknown>('/memory/l2/retry-failed', { limit: 100, ...selection }));
     return z.object({ queued_count: z.number().int().nonnegative(), remaining_count: z.number().int().nonnegative() }).parse(response);
   },
+  getL2Failures: async (): Promise<MemoryFailureSummary> =>
+    memoryFailureSummarySchema.parse(unwrapMemoryResponse(await api.get<unknown>('/memory/l2/failures'))),
   retryFailedPostTurn: async (): Promise<{ queued_count: number; remaining_count: number }> => {
     const response = unwrapMemoryResponse(await api.post<unknown>('/memory/post-turn/retry-failed', { limit: 100 }));
     return z.object({ queued_count: z.number().int().nonnegative(), remaining_count: z.number().int().nonnegative() }).parse(response);

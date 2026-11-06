@@ -5561,24 +5561,89 @@
     },
     "processing": {
       "pending": "{{count}} 条记忆正在处理",
-      "failed": "{{count}} 条记忆处理失败",
-      "help": "解决失败原因后可重试，每次最多 100 条。",
-      "retry": "重试失败记忆",
+      "failed": "{{count}} 条记录未能完成整理",
+      "help": "这些记录的记忆提取未完成，相关信息可能尚未更新。已完成的记忆仍可使用。",
+      "retry": "重新处理",
       "retrying": "正在重新排队…",
-      "queued": "已重新排队 {{count}} 条。处理完成前不会标记为成功。",
+      "queued": "已安排 {{count}} 条重新处理，完成后会自动更新。",
       "remaining": "还有 {{count}} 条未安排重试。",
       "retryFailed": "暂时无法重新排队，请稍后重试。",
       "postTurn": {
         "pending": "还有 {{count}} 段对话等待整理。",
         "running": "正在整理 {{count}} 段对话。",
         "failed": "有 {{count}} 段对话未能完成整理。",
-        "help": "相关记忆或互动状态尚未全部更新。解决失败原因后，可重试未完成的部分。",
+        "help": "这部分对话的记忆或互动状态尚未全部更新，已完成的部分不会重复处理。",
         "retry": "重试对话整理",
         "retrying": "正在安排重试…",
         "queued": "已安排 {{count}} 段对话重新整理。",
         "remaining": "还有 {{count}} 段未安排重试。",
         "retryFailed": "未能安排对话整理重试，请稍后再试。",
-        "unavailable": "暂时无法读取对话整理状态，不能确认是否已全部完成。"
+        "unavailable": "暂时无法读取对话整理状态，不能确认是否已全部完成。",
+        "batchHelp": "按批次重试，已完成的部分不会重复处理"
+      },
+      "batchHelp": "每次最多重新处理 100 条",
+      "details": {
+        "show": "查看原因",
+        "hide": "收起详情",
+        "loading": "正在读取失败原因…",
+        "loadFailed": "暂时无法读取失败原因。",
+        "empty": "当前没有等待重试的失败记录。",
+        "count": "{{count}} 条",
+        "other": "另有 {{count}} 条其他来源或原因的失败记录。",
+        "technical": "技术信息",
+        "lastFailure": "最近一次失败：{{time}}",
+        "noError": "这次失败没有保存具体错误信息。",
+        "modelSettings": "检查模型设置"
+      },
+      "reasons": {
+        "auth": {
+          "title": "模型服务验证失败",
+          "help": "请在模型设置中检查 API 密钥、账户权限与余额，再重试。"
+        },
+        "rate_limit": {
+          "title": "模型服务请求过于频繁",
+          "help": "稍后再试；如果持续出现，请检查服务的用量限制。"
+        },
+        "timeout": {
+          "title": "模型响应超时",
+          "help": "检查网络连接，稍后重试。"
+        },
+        "service_unavailable": {
+          "title": "模型服务暂时不可用",
+          "help": "检查服务状态与网络连接，恢复后重试。"
+        },
+        "content_filter": {
+          "title": "模型服务未接受这部分内容",
+          "help": "服务的内容限制阻止了处理，直接重试可能仍会失败。"
+        },
+        "invalid_parameter": {
+          "title": "模型请求配置不被接受",
+          "help": "请检查所选模型与服务配置是否匹配，再重试。"
+        },
+        "content_inspection_failed": {
+          "title": "模型服务的内容检查未通过",
+          "help": "服务未能完成内容检查，可稍后重试；持续失败时请查看技术信息。"
+        },
+        "model_unavailable": {
+          "title": "尚无可用的记忆处理模型",
+          "help": "请在模型设置中配置可用的模型，再重试。"
+        },
+        "invalid_response": {
+          "title": "模型返回的结果无法使用",
+          "help": "可以重试；如果持续出现，请检查所选模型是否支持当前任务。"
+        },
+        "interrupted": {
+          "title": "处理过程意外中断",
+          "help": "自动恢复未能完成，可以重新安排处理。"
+        },
+        "missing_source": {
+          "title": "未找到对应的原始记录",
+          "help": "这部分内容暂时无法继续整理，请查看技术信息排查。"
+        },
+        "unknown": {
+          "title": "处理时发生异常",
+          "help": "暂时无法确定具体原因，可查看最近一次错误。若重试后仍失败，请用这条错误信息排查。"
+        }
       }
     },
     "evidence": {

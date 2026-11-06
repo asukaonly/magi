@@ -3714,6 +3714,25 @@ including pending statements, and summaries remain separate. The API calls the
 cross-layer storage inventory `stored_records`; it is not a count of unique
 memories, understanding, or personal facts. Today deltas use the same units.
 
+### Processing failures in the overview
+
+The overview shows processing status beneath the memory inventory, in a compact
+row. Healthy idle queues render nothing; normal pending work stays neutral. Failure
+rows disclose their impact and cause on demand, keeping extraction and conversation
+processing separate. Retrying reports accepted work and remaining failures, never
+claims completion, and preserves the existing bounded queue recovery behavior.
+
+`GET /memory/l2/failures` reads persisted terminal projection failures without
+loading source records. It aggregates by source and recognized cause, reports a
+complete total and at most 12 groups, and accounts for omitted groups separately.
+Each group carries its latest diagnostic and failure time; the public response
+redacts credentials and caps diagnostic text. Only pipeline-owned diagnostic formats
+receive a specific cause; unrecognized failures remain unknown with inspectable
+technical detail. Forgotten or blocked records are excluded from both failure counts
+and diagnostic groups. Opening or refreshing diagnostics never replays work.
+Model configuration failures link to model settings. Detail reads have independent
+loading/retry state and discard responses after the disclosure is closed.
+
 ### Chinese journey regression and live evaluation
 
 `backend/tests/memory/journeys/test_chinese_memory_journey.py` runs a fresh-store

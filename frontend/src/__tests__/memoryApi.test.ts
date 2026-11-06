@@ -281,6 +281,18 @@ describe('memory fact display response boundaries', () => {
     await expect(memoryApi.retryFailedL2Extractions({ event_ids: ['event-1'] })).rejects.toThrow();
   });
 
+  it('validates failure reasons, group counts, and the complete total', async () => {
+    const group = { source: 'chat', reason: 'auth', count: 2, last_failed_at: 123, error: 'Access denied' };
+    const payload = { total: 2, other_count: 0, groups: [group] };
+    const get = vi.spyOn(api, 'get').mockResolvedValue(response(payload));
+    expect(await memoryApi.getL2Failures()).toEqual(payload);
+    expect(get).toHaveBeenCalledWith('/memory/l2/failures');
+    for (const invalid of [{ ...payload, total: 3 }, { ...payload, other_count: -1 }, { ...payload, groups: [{ ...group, reason: 'made_up' }] }, { ...payload, groups: [{ ...group, count: '2' }] }]) {
+      get.mockResolvedValue(response(invalid));
+      await expect(memoryApi.getL2Failures()).rejects.toThrow();
+    }
+  });
+
   it('validates post-turn status and bounded retry receipts', async () => {
     const get = vi.spyOn(api, 'get');
     const postTurn = { pending: 1, claimed: 2, failed: 3, error_kinds: ['RuntimeError'] };
