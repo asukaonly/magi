@@ -486,6 +486,18 @@ describe('chat trace state helpers', () => {
     });
   });
 
+  it.each(['queued', 'running', 'cancelling', 'detaching'])(
+    'keeps the execution indicator animated while %s', (state) => {
+      const presentation = projectExecutionProgressPresentation({
+        id: 'pending', role: 'assistant', kind: 'status', content: '',
+        timestamp: 1000, turnId: 'pending-turn', runState: { state },
+      }, {
+        variant: 'card', executionControlByTurnId: {}, cancellingTurnIds: [], detachingTurnIds: [],
+      });
+      expect(presentation).toMatchObject({ indicator: 'progress', showSpinningIndicator: true });
+    },
+  );
+
   it('projects execution action state for running, cancelling, and detaching turns', () => {
     const runningMessage: ChatTimelineMessage = {
       id: 'msg-running',

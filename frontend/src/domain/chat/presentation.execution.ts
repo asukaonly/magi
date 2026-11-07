@@ -8,6 +8,7 @@ import type {
   TurnExecutionControlState,
 } from './presentation.types';
 import {
+  isPendingRunState,
   isTerminalRunState,
   normalizeRunState,
   normalizeTerminalRunState,
@@ -346,7 +347,7 @@ export const projectExecutionProgressPresentation = (
     planStage,
     showBubbleTitle: variant === 'card' || (!runningBubbleUsesMessageText && statusTitle !== contentText),
     indicator: terminalState || 'progress',
-    showSpinningIndicator: executionState === 'running' || executionState === 'cancelling' || executionState === 'detaching',
+    showSpinningIndicator: isPendingRunState(executionState),
     traceStats: traceSummary
       ? {
         activeSteps,
