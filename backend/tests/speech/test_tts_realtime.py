@@ -3,9 +3,12 @@ import base64
 import json
 import threading
 from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from magi.events.domain_payloads import SpanCompleted
+from magi.events.events import EventTypes
 from magi.speech.tts.engines import EngineOptions, TTSEngine
 from magi.speech.tts.models import TTSModelStore
 from magi.speech.tts.realtime import synthesize_pcm
@@ -51,6 +54,50 @@ async def test_realtime_speech_returns_complete_wav_and_closes(tmp_path, monkeyp
     assert sent[0]["session"]["audio"]["output"]["voice"] == "marin"
     assert sent[1]["response"]["input"][0]["content"][0]["text"] == "Read me"
     assert closed == [True]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["completed", "incomplete"])
+async def test_realtime_usage_reaches_trace_bus_on_success_and_failure(tmp_path, monkeypatch, status):
+    bus = MagicMock(publish=AsyncMock(return_value=True))
+    monkeypatch.setattr("magi.runtime_trace.span_publisher.resolve_event_bus", lambda **_: bus)
+    connection(monkeypatch, [
+        {"type": "response.output_audio.delta", "delta": base64.b64encode(b"\x01\x00" * 100).decode()},
+        {"type": "response.done", "response": {"status": status, "usage": {
+            "input_tokens": 120, "output_tokens": 110,
+            "input_token_details": {"text_tokens": 100, "audio_tokens": 20, "cached_tokens": 55,
+                                    "cached_tokens_details": {"text_tokens": 50, "audio_tokens": 5}},
+            "output_token_details": {"text_tokens": 10, "audio_tokens": 100},
+        }}},
+    ])
+    engine = TTSEngine(TTSModelStore(tmp_path))
+    if status == "completed":
+        await engine.synthesize("Private speech", OPTIONS, threading.Event())
+    else:
+        with pytest.raises(ValueError, match="provider_rejected"):
+            await engine.synthesize("Private speech", OPTIONS, threading.Event())
+
+    bus.publish.assert_awaited_once()
+    event = bus.publish.await_args.args[0]
+    assert event.type == EventTypes.SPAN_COMPLETED
+    assert isinstance(event.data, SpanCompleted)
+    span = event.data
+    assert span.node_type == "llm_call"
+    assert span.status == ("ok" if status == "completed" else "error")
+    assert (span.error.message if span.error else None) == (None if status == "completed" else "provider_rejected")
+    assert span.attributes["provider"] == "openai"
+    assert span.attributes["model"] == OPTIONS.model
+    assert span.attributes["request_kind"] == "tts"
+    assert span.attributes["usage_available"] is True
+    assert span.attributes["prompt_tokens"] == 120
+    assert span.attributes["completion_tokens"] == 110
+    assert span.attributes["total_tokens"] == 230
+    usage = span.attributes["billing"]["media_usage"]
+    assert usage["cached_text_input_tokens"] == 50
+    assert usage["cached_audio_input_tokens"] == 5
+    assert usage["audio_output_tokens"] == 100
+    assert "Private speech" not in str(span)
+    assert OPTIONS.api_key not in str(span)
 
 
 @pytest.mark.asyncio

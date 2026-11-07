@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from magi.config.pricing_models import LLMModelCostModel
-from magi.llm.media_usage import openai_media_usage, gemini_image_usage
+from magi.runtime_trace.media_usage import openai_media_usage, gemini_image_usage
 from magi.llm.pricing import calculate_image_generation_cost, calculate_audio_cost
 from magi.llm.subscribers.llm_usage_subscriber import LLMUsageSubscriber
 

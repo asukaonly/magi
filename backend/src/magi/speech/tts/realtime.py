@@ -10,7 +10,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
-from magi.llm.media_usage import openai_media_usage
+from magi.runtime_trace.media_usage import openai_media_usage
 
 if TYPE_CHECKING:
     from .engines import EngineOptions

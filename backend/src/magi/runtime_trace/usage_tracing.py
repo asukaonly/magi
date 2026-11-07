@@ -1,4 +1,4 @@
-"""Helpers for publishing normalized LLM usage spans."""
+"""Publish shared model usage spans for generation, speech and embeddings."""
 
 from __future__ import annotations
 

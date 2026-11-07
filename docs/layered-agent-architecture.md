@@ -126,6 +126,9 @@ Notes:
 - bootstrap order and ownership layer are not the same thing
 - `runtime_trace/` stores durable execution facts and observability data; it is
   not semantic memory and does not participate in L7 recall
+- `runtime_trace/` also owns shared model-usage span publication and media-counter
+  normalization. Speech, image generation and embeddings call this lower-layer
+  boundary; pricing rules and usage aggregation remain owned by `llm/`.
 - workspace storage is an infrastructure facade: `core` owns workspace identity, path safety, generated directory creation, and state manifests; upper layers receive scoped paths instead of constructing `<workspace>/.magi` paths directly
 - code-delegation path validation and exact filesystem/git cleanup are shared
   infrastructure, but chat owns the durable artifact registry and decides when

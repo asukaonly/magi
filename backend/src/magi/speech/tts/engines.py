@@ -16,7 +16,7 @@ import httpx
 from magi_plugin_sdk.audio import AudioClip
 
 from magi.config.models import AppConfig
-from magi.llm.usage_tracing import publish_llm_usage_span
+from magi.runtime_trace.usage_tracing import publish_llm_usage_span
 from .catalog import endpoint, provider_models, local_capabilities
 from .models import MELO_ID, MLX_MODELS, VOICE_NAMES, TTSModelStore, local_voices, external_directories
 from .voices import TTSReferenceStore

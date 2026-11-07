@@ -310,7 +310,7 @@ class _HostImageGenPort:
         )
 
     async def publish_usage_span(self, **kwargs):
-        from magi.llm.usage_tracing import publish_llm_usage_span
+        from magi.runtime_trace.usage_tracing import publish_llm_usage_span
         await publish_llm_usage_span(**kwargs)
 
 

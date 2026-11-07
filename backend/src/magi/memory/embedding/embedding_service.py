@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable, Optional, TypeVar
 from ...config import get_config
 from ...config.models import EmbeddingMode
 from ...llm import LLMScenario, ScenarioLLMPool, get_llm_concurrency_limiter
-from ...llm.usage_tracing import publish_llm_usage_span
+from ...runtime_trace.usage_tracing import publish_llm_usage_span
 
 T = TypeVar("T")
 

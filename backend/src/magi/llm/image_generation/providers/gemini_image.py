@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
-from ...media_usage import gemini_image_usage
+from magi.runtime_trace.media_usage import gemini_image_usage
 
 from ..base import ImageGenerationAdapter
 from ..errors import ImageGenInvalidParameterError

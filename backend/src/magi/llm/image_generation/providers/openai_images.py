@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 from openai import AsyncOpenAI
-from ...media_usage import openai_media_usage
+from magi.runtime_trace.media_usage import openai_media_usage
 
 from ..base import ImageGenerationAdapter
 from ..errors import (

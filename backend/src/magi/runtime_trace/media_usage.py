@@ -1,4 +1,4 @@
-"""Normalize provider-reported media counters without retaining media or text."""
+"""Normalize image and speech usage counters without retaining media or text."""
 
 from typing import Any
 

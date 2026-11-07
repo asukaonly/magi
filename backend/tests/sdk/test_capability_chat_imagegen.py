@@ -128,7 +128,7 @@ async def test_image_capability_forwards_adapter_selection_and_awaits_usage(
     monkeypatch.setattr(
         "magi.llm.image_generation.factory.create_image_generation_adapter", factory
     )
-    monkeypatch.setattr("magi.llm.usage_tracing.publish_llm_usage_span", publisher)
+    monkeypatch.setattr("magi.runtime_trace.usage_tracing.publish_llm_usage_span", publisher)
     selection = {
         "provider_id": "image-account",
         "provider_settings": object(),
