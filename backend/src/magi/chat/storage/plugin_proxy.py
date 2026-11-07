@@ -7,7 +7,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from contextvars import copy_context
-from typing import Any, Callable, Protocol, get_type_hints
+from typing import Any, Callable, Protocol, cast, get_type_hints
 
 from pydantic import ConfigDict, TypeAdapter, create_model
 from magi_plugin_sdk.storage import StorageCall, StorageResult
@@ -58,7 +58,7 @@ class ScopedChatHost:
             reply = StorageResult(value=result_type.dump_python(result_type.validate_python(result), mode="json"))
         except tuple(DOMAIN_ERRORS.values()) as exc:
             reply = domain_failure(exc)
-        return reply.model_dump(mode="json")
+        return cast(dict[str, Any], reply.model_dump(mode="json"))
 
     def _authorize(self, name: str, values: dict[str, Any]) -> None:
         args, operation = self.request.arguments, self.request.operation
@@ -166,10 +166,10 @@ class ChatStorageProxy:
                         logger.exception("Assistant-memory outbox wake failed")
                 return result
             return invoke
-        def invoke(*args: Any, **kwargs: Any) -> Any:
+        def invoke_sync(*args: Any, **kwargs: Any) -> Any:
             call = request(args, kwargs)
             return decode(self.transport.invoke_sync_with_host(call, ScopedChatHost(self.host, call)))
-        return invoke
+        return invoke_sync
 
     @staticmethod
     @asynccontextmanager

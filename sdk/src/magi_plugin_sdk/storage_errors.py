@@ -9,7 +9,7 @@ from .storage_models.chat_reads import InvalidPageCursor, StalePageCursor
 from .storage_models.chat_asset_errors import ChatAssetDeletionError, ChatAssetOwnershipError
 from .storage_models.post_turn import PostTurnLeaseLost
 
-DOMAIN_ERRORS = {error.__name__: error for error in (
+DOMAIN_ERRORS: dict[str, type[Exception]] = {error.__name__: error for error in (
     OutreachIntentConflictError, ChatMessageConflictError, ChatTurnConflictError,
     ChatSessionCreationConflict, ChatSessionNotFound, ModelContextRevisionConflictError,
     ModelContextRunClosedError, InvalidPageCursor, StalePageCursor, ChatAssetDeletionError,

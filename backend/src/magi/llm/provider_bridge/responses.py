@@ -114,6 +114,9 @@ class ProviderBridgeResponseMixin:
     def _provider_name(self) -> str:
         raise NotImplementedError
 
+    def resolve_effective_reasoning_depth(self, requested: ThinkingDepth) -> ThinkingDepth:
+        raise NotImplementedError
+
     @staticmethod
     def _openai_usage_to_wire(usage_data: Any) -> dict[str, int] | None:
         if usage_data is None:

@@ -6,7 +6,7 @@ import json
 import re
 import time
 import unicodedata
-from typing import Any, Iterable, Protocol, cast
+from typing import Any, Iterable
 from urllib.parse import urlparse
 from .activity_snapshot import activity_snapshot_from_metadata
 from .events import MemoryEvent
@@ -58,16 +58,6 @@ class _FacetContext:
     event_id: str
     source: str
     created_at: float
-
-
-class _L1SourceFacetHostProtocol(Protocol):
-    event_repository: MemoryEventRepository
-
-    async def initialize(self) -> None: ...
-
-    def _record_to_dict(self, record: MemoryEventRecord, **kwargs: Any) -> dict[str, Any]: ...
-
-    def _resolve_active_embedding_profile_id(self) -> tuple[str | None, dict[str, Any]]: ...
 
 
 def normalize_facet_text(value: str | None) -> str:

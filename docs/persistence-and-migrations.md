@@ -132,6 +132,8 @@ and database drivers live in the companion `magi-plugins/plugins/storage-mysql`
 package. The host has no MySQL driver dependency or database-kind factory.
 `runtime_storage_plugins` loads selected packages before recovery and domain
 startup; `StructuredStorageModule` injects their typed repository ports.
+The backend type gate checks the SDK storage models and ports together with
+their host consumers so extracting a contract cannot erase its static types.
 
 The current selectable domains are `chat`, `memory_events` (L1), and `channels`
 (including outreach). Other memory projections, vectors, runtime traces, identity,

@@ -1,7 +1,7 @@
 """Host-owned files and trace reads used by storage implementations."""
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol, cast
 from magi_plugin_sdk.storage_chat.host import PreparedChatAssets
 from ...core.chat_assets.mutations import require_chat_asset_mutation
 from ...utils.runtime import RuntimePaths
@@ -12,8 +12,16 @@ from ..workspace_identity import claim_workspace_identity
 from .serialization import message_asset_references, message_attachment_storage_reference
 
 
+class ChatStorageTraceReader(Protocol):
+    def get_read_revision(self, *, user_id: str, session_id: str) -> str: ...
+
+    def get_trace_summary(self, *, user_id: str, session_id: str, turn_id: str) -> dict[str, Any] | None: ...
+
+    def get_turn_activity_map(self, *, user_id: str, session_id: str) -> dict[str, Any]: ...
+
+
 class LocalChatStorageHost:
-    def __init__(self, paths: RuntimePaths, *, assets: Any = None, trace: Callable[[], Any] | None = None) -> None:
+    def __init__(self, paths: RuntimePaths, *, assets: Any = None, trace: Callable[[], ChatStorageTraceReader] | None = None) -> None:
         self.paths = paths
         self.assets = assets or ChatAssetGC(runtime_paths=paths)
         self._trace = trace
@@ -40,11 +48,11 @@ class LocalChatStorageHost:
     def list_snapshot_asset_references(self, *, session_id: str, turn_ids: list[str], delete_entire_session: bool) -> list[tuple[str, str]]:
         return self.assets.list_snapshot_asset_references(session_id=session_id, turn_ids=turn_ids, delete_entire_session=delete_entire_session)
 
-    def _trace_service(self) -> Any:
+    def _trace_service(self) -> ChatStorageTraceReader:
         if self._trace is not None:
             return self._trace()
         from ...runtime_trace.chat_trace.read_service import get_chat_trace_read_service
-        return get_chat_trace_read_service()
+        return cast(ChatStorageTraceReader, get_chat_trace_read_service())
 
     def get_read_revision(self, *, user_id: str, session_id: str) -> str:
         return self._trace_service().get_read_revision(user_id=user_id, session_id=session_id)

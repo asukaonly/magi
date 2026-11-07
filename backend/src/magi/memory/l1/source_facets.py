@@ -23,7 +23,6 @@ from magi_plugin_sdk.storage_models.source_facets import (
     _GENERIC_PHOTO_TERMS,
     SourceFacet,
     _FacetContext,
-    _L1SourceFacetHostProtocol,
     normalize_facet_text,
     extract_source_facets,
     _extract_contract_source_facets,
@@ -59,6 +58,16 @@ from magi_plugin_sdk.storage_models.source_facets import (
     _coerce_float,
     _dedupe_facets,
 )
+
+
+class _L1SourceFacetHostProtocol(Protocol):
+    event_repository: MemoryEventRepository
+
+    async def initialize(self) -> None: ...
+
+    def _record_to_dict(self, record: MemoryEventRecord, **kwargs: Any) -> dict[str, Any]: ...
+
+    def _resolve_active_embedding_profile_id(self) -> tuple[str | None, dict[str, Any]]: ...
 
 
 class L1SourceFacetMixin:
