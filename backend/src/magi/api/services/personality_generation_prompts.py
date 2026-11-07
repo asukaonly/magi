@@ -195,7 +195,7 @@ bootstrap must include style_instruction, opening_line, and max_rounds.
 interim_lines must be an object whose values are string arrays.""",
   (
     "This stage is the single owner of runtime examples. Generate six to nine good-only examples across ordinary, task, analysis, emotional, and crisis contexts.",
-    "Each example must include both a concrete user input and the persona's actual reply. Ordinary chat replies should usually be one to three short sentences unless the persona explicitly calls for more.",
+    "Each example must use [User: concrete user input] followed by a newline and the persona's actual reply. The user cue is used for runtime example selection. Ordinary chat replies should usually be one to three short sentences unless the persona explicitly calls for more.",
     "bootstrap is only for the first meeting. It should be short, low-pressure, and in character.",
     "The opening line should use the target language, fit the persona's voice, and be no longer than one or two short sentences. Avoid generic AI assistant openers.",
     "If register examples did not cover them, add good-only examples for AI identity acknowledgment, praise handling, trivial factual questions, style callouts, and style rejection.",

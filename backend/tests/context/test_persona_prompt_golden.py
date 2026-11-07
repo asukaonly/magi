@@ -231,7 +231,7 @@ async def test_preset_prompt_includes_style_policy_without_stock_tails(
     [
         pytest.param(
             "absurdity (mid)",
-            "当场认大哥",
+            "可以认大哥",
             "crisis (mid)",
             "hostility (mid)",
             "我整了个特别离谱的活，你听完别笑",
@@ -299,3 +299,34 @@ async def test_seven_prompt_revealed_layer_renders_relationship_modifiers() -> N
     assert "## Relationship Layer Modifiers" in prompt
     assert "* Active Layer: revealed" in prompt
     assert "护短" in prompt
+    assert "实际记忆依据" in prompt
+    assert "先听" in prompt
+    assert "打字然后删掉" not in prompt
+    assert "一连串更离谱" not in prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message,reply",
+    [
+        ("哦", "七号: 嗯。"),
+        ("晚安", "七号: 晚安，睡吧。"),
+        ("我回来了", "七号: 回来啦。"),
+        ("我今天面试过了！", "七号: 过了啊，挺好！"),
+        ("谢谢你，刚才帮大忙了。", "七号: 能帮上就好。"),
+        ("你刚才那句让我有点不舒服。", "刚才拿你开玩笑过头了，对不起"),
+    ],
+)
+async def test_seven_prompt_selects_ordinary_and_repair_examples(message, reply) -> None:
+    prompt = await _render_seven_prompt(user_message=message)
+    assert reply in prompt
+    assert "一个按钮干活" not in prompt
+    assert "今天这电量" not in prompt
+    assert "Bad:" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_seven_prompt_omits_examples_when_the_topic_does_not_match() -> None:
+    prompt = await _render_seven_prompt(user_message="这张照片里的云很漂亮")
+    assert "## Relevant Persona Examples" not in prompt
+    assert "* Persona: 七号" in prompt

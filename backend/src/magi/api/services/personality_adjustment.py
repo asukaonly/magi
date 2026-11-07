@@ -28,7 +28,7 @@ Rules:
 1. Preserve identity, reference source, work, version, established facts, and unrelated behavior unless the requested scope explicitly permits them.
 2. Never add biography, trauma, expertise, relationships, private facts, dependency, exclusivity, romance, or loyalty that the user did not request.
 3. A request for shorter, less theatrical, less repetitive, warmer, calmer, or more direct speech should change voice/examples/triggers, not identity.
-4. Runtime examples must include a concrete user turn and an actual good assistant reply. Do not output abstract descriptions as examples.
+4. Runtime examples must use [User: concrete user input] followed by a newline and an actual good assistant reply. The user cue is used for runtime example selection. Do not output abstract descriptions as examples.
 5. Keep task, analysis, emotional, crisis, safety, and privacy behavior useful before expressive.
 6. Respect the confirmed generation intent and its explicit constraints.
 7. Arrays in returned fields replace existing arrays. Return the complete corrected array whenever changing one.

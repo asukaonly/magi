@@ -1,11 +1,4 @@
-"""P3.3: per-turn few-shot example selection by token overlap.
-
-Previously ``PersonaTurnPlanner`` rendered the first 2 examples of the
-chosen register regardless of what the user said. Personas authored with
-5-7 examples per register saw the same two every turn, wasting the
-remaining alignment material. This is a regression test for the lookup
-that now ranks examples by token overlap against the user message.
-"""
+"""Regression coverage for conservative user-cue example selection."""
 
 from __future__ import annotations
 
@@ -15,99 +8,72 @@ from magi.personality.loader import PersonalityConfig, Register
 from magi.personality.turn_planner import PersonaTurnPlanner
 
 
-def _config_with_examples(examples: list[str]) -> PersonalityConfig:
-    return PersonalityConfig(
-        name="七号",
-        registers={
-            "chat": Register(
-                description="chat",
-                behavior="chat",
-                examples=examples,
-            ),
-        },
+def _example(user: str, reply: str = "A suitable reply.") -> str:
+    return f"[User: {user}]\nSeven: {reply}"
+
+
+def _select(examples: list[str], message: str) -> list[str]:
+    config = PersonalityConfig(
+        name="七号", registers={"chat": Register(behavior="chat", examples=examples)}
     )
+    return PersonaTurnPlanner().build_plan(
+        config=config, user_message=message, scenario="chat", task_category="chat"
+    ).selected_examples
 
 
 @pytest.mark.parametrize(
-    "examples,message,expected",
+    "cues,message,expected_indices",
     [
-        (
-            ["dinner noodles", "weather sunny", "memory leak detector", "code refactor"],
-            "memory leak code",
-            ["memory leak detector", "code refactor"],
-        ),
-        (
-            ["今天晚饭吃面", "下雨记得带伞", "内存泄漏排查", "重构代码"],
-            "内存泄漏代码",
-            ["内存泄漏排查", "重构代码"],
-        ),
+        (["dinner noodles", "weather sunny", "memory leak detector"], "memory leak", [2]),
+        (["今天晚饭吃面", "下雨记得带伞", "内存泄漏排查"], "内存泄漏", [2]),
+        (["摸鱼", "我回来了"], "回来了", [1]),
+        (["哦", "晚安"], "哦。", [0]),
+        (["哦", "晚安"], "晚安啦", [1]),
+        (["hi", "bye"], "HI!", [0]),
     ],
 )
-def test_relevant_examples_outrank_initial_distractors(examples, message, expected):
-    plan = PersonaTurnPlanner().build_plan(
-        config=_config_with_examples(examples),
-        user_message=message,
-        scenario="chat",
-        task_category="chat",
-    )
-    assert plan.selected_examples == expected
+def test_selects_similar_user_cues(cues, message, expected_indices):
+    examples = [_example(cue) for cue in cues]
+    assert _select(examples, message) == [examples[index] for index in expected_indices]
+
+
+@pytest.mark.parametrize("message", ["", "...", "晚安", "哦", "我今天面试过了"])
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_no_match_stays_empty_even_with_fewer_examples_than_limit(message, count):
+    examples = [
+        _example("今天只想摸鱼，完全不想动。"),
+        _example("这个 APP 弹窗也太多了。"),
+        _example("你说话好人机啊"),
+    ]
+    assert _select(examples[:count], message) == []
+
+
+def test_does_not_match_assistant_reply_or_bad_example_text():
+    distractor = "[User: Lunch?]\nBad: memory leak\nGood: memory leak detector"
+    relevant = _example("memory leak", "Let's inspect allocations.")
+    assert _select([distractor, relevant], "memory leak") == [relevant]
+
+
+def test_does_not_fill_remaining_slots_with_unrelated_examples():
+    relevant = _example("我回来了", "回来啦。")
+    assert _select([_example("dinner"), relevant], "我回来了") == [relevant]
+
+
+def test_exact_cue_outranks_partial_match_and_ties_keep_declaration_order():
+    partial = _example("memory leak detector")
+    first = _example("memory leak", "First reply.")
+    second = _example("memory leak", "Second reply.")
+    assert _select([partial, first, second], "memory leak") == [first, second]
 
 
 @pytest.mark.parametrize(
-    "case_example_a,case_example_b,case_example_c,case_user_message",
-    [
-        pytest.param(
-            "User: x\nAssistant: y",
-            "User: a\nAssistant: b",
-            "User: c\nAssistant: d",
-            "something totally unrelated 中文也是 unrelated",
-            id="no_overlap_falls_back_to_declaration_order",
-        ),
-        pytest.param("alpha", "beta", "gamma", "", id="empty_user_message_keeps_declaration_order"),
-    ],
+    "example", ["", "  ", "memory leak", "[User: memory leak]", "[User: memory leak]\n  "]
 )
-def test_unmatched_persona_examples_keep_declaration_order(
-    case_example_a, case_example_b, case_example_c, case_user_message
-) -> None:
-    examples = [case_example_a, case_example_b, case_example_c]
-    config = _config_with_examples(examples)
-    plan = PersonaTurnPlanner().build_plan(
-        config=config, user_message=case_user_message, scenario="chat", task_category="chat"
-    )
-    assert plan.selected_examples == examples[:2]
+def test_skips_examples_without_a_complete_user_reply_block(example):
+    assert _select([example], "memory leak") == []
 
 
-@pytest.mark.parametrize(
-    "tied", [["code beta", "code alpha", "code gamma"], ["code gamma", "code beta", "code alpha"]]
-)
-def test_equal_relevance_preserves_declaration_order_after_ranking(tied):
-    plan = PersonaTurnPlanner().build_plan(
-        config=_config_with_examples(["dinner noodles", *tied]),
-        user_message="code",
-        scenario="chat",
-        task_category="chat",
-    )
-    assert plan.selected_examples == tied[:2]
-
-
-@pytest.mark.parametrize(
-    "examples,expected",
-    [
-        ([], []),
-        (["", "  "], []),
-        (["one"], ["one"]),
-        (["one", "two"], ["one", "two"]),
-        (
-            ["real example", "", "  ", "another real one", "third"],
-            ["real example", "another real one"],
-        ),
-    ],
-)
-def test_example_filtering_and_cap(examples, expected):
-    plan = PersonaTurnPlanner().build_plan(
-        config=_config_with_examples(examples),
-        user_message="unrelated",
-        scenario="chat",
-        task_category="chat",
-    )
-    assert plan.selected_examples == expected
+@pytest.mark.parametrize("limit", [0, -1])
+def test_nonpositive_limit_selects_nothing(limit):
+    register = Register(examples=[_example("hi")])
+    assert PersonaTurnPlanner._select_examples(register=register, user_message="hi", limit=limit) == []

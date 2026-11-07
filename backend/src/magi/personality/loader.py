@@ -65,7 +65,7 @@ class Register:
     """How the persona responds when this register is active."""
 
     examples: List[str] = field(default_factory=list)
-    """Few-shot alignment examples as raw strings."""
+    """Few-shot blocks formatted as ``[User: ...]`` followed by a newline and reply."""
 
 
 @dataclass

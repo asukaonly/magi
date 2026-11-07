@@ -647,37 +647,29 @@ class PersonaTurnPlanner:
 
     @staticmethod
     def _select_examples(*, register: Register, user_message: str, limit: int = 2) -> list[str]:
-        """Pick the most relevant few-shot examples for the current turn.
-
-        Previously this was a flat ``register.examples[:2]`` — first-N
-        regardless of what the user said, so personas authored with 5-7
-        examples per register saw the same 2 every time. Now examples are
-        scored by token overlap against the user message (reusing the same
-        Chinese/English tokenizer the trigger condition matcher uses), and
-        the top ``limit`` win. Falls back to declaration order when no
-        examples overlap (or no user message) so the behaviour is stable
-        and deterministic.
-        """
-        examples = [
-            example for example in register.examples if isinstance(example, str) and example.strip()
-        ]
-        if len(examples) <= limit:
-            return list(examples)
+        """Select similar user cues, leaving unrelated examples out of the prompt."""
+        message = re.sub(r"[^\w]+", "", user_message.casefold())
+        if not message or limit <= 0:
+            return []
         message_terms = set(_tokenize_for_overlap(user_message))
-        if not message_terms:
-            return list(examples[:limit])
-        scored: list[tuple[int, int, str]] = []
-        for index, example in enumerate(examples):
-            example_terms = set(_tokenize_for_overlap(example))
-            overlap = len(message_terms & example_terms)
-            # Sort key: higher overlap wins, earlier declaration breaks ties.
-            scored.append((-overlap, index, example))
+        scored: list[tuple[float, int, str]] = []
+        for index, example in enumerate(register.examples):
+            cue = re.match(r"\s*\[User:\s*(.*?)\]\s*\n", example, flags=re.DOTALL)
+            if cue is None or not example[cue.end():].strip():
+                continue
+            user_cue = cue.group(1)
+            if re.sub(r"[^\w]+", "", user_cue.casefold()) == message:
+                score = 1.0
+            else:
+                cue_terms = set(_tokenize_for_overlap(user_cue))
+                overlap = len(message_terms & cue_terms)
+                if not overlap:
+                    continue
+                score = 2 * overlap / (len(message_terms) + len(cue_terms))
+            # shortcut: lexical similarity omits some paraphrases; add semantic ranking only if needed.
+            if score >= 0.5:
+                scored.append((-score, index, example))
         scored.sort()
-        if scored[0][0] == 0:
-            # No example overlapped at all — keep declaration order so we
-            # do not arbitrarily re-rank examples that have nothing to say
-            # about this turn.
-            return list(examples[:limit])
         return [example for _, _, example in scored[:limit]]
 
     @staticmethod
