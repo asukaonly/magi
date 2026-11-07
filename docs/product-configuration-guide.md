@@ -864,6 +864,11 @@ Current product expectations:
 
 ### Chat progress and activity details
 
+Sending a message returns the chat to the bottom. While the reader stays there,
+the viewport follows the waiting indicator, growing replies and composer size
+changes. Scrolling up pauses this following until the reader returns to the
+bottom or sends another message; loading older history preserves its visible row.
+
 An active assistant turn has one lightweight progress surface. Before reply text
 arrives it shows three dots, or the latest user-facing note supplied with the
 main model's tool calls. Reasoning output never becomes a progress note just

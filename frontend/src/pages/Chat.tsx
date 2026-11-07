@@ -268,7 +268,7 @@ export const ChatPage: React.FC = () => {
     currentSessionId,
     firstContextSelection,
   ]);
-  const appendPendingTurn = useConversationStore((state) => state.appendPendingTurn);
+  const appendPendingTurnToStore = useConversationStore((state) => state.appendPendingTurn);
   const upsertMessage = useConversationStore((state) => state.upsertMessage);
   const applyMessageLabel = useConversationStore((state) => state.applyMessageLabel);
   const removeMessage = useConversationStore((state) => state.removeMessage);
@@ -277,7 +277,17 @@ export const ChatPage: React.FC = () => {
 
   const [historyImagePreview, setHistoryImagePreview] = useState<HistoryImagePreview | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
+  const timelineContentRef = useRef<HTMLDivElement>(null);
   const lastTimelineScrollKeyRef = useRef<string | null>(null);
+  const wasAtTimelineBottomRef = useRef(true);
+  const historyScrollAnchorRef = useRef<{ sessionId: string | null; row: HTMLElement; offset: number } | null>(null);
+  const appendPendingTurn = React.useCallback<typeof appendPendingTurnToStore>((payload) => {
+    if (payload.sessionId === useConversationStore.getState().currentSessionId) {
+      wasAtTimelineBottomRef.current = true;
+      historyScrollAnchorRef.current = null;
+    }
+    appendPendingTurnToStore(payload);
+  }, [appendPendingTurnToStore]);
 
   useEffect(() => {
     setPresentationNowMs(Date.now());
@@ -1100,13 +1110,12 @@ export const ChatPage: React.FC = () => {
     lastMessage?.kind || '',
     lastMessage?.content?.length || 0,
     lastMessage?.streaming ? 'streaming' : 'settled',
+    waitingForReply ? 'waiting' : 'ready',
     lastReasoningFootprint,
     lastToolFootprint,
   ].join('::');
 
-  const wasAtTimelineBottomRef = useRef(true);
   const previousScrollSessionRef = useRef(currentSessionId);
-  const historyScrollAnchorRef = useRef<{ sessionId: string | null; row: HTMLElement; offset: number } | null>(null);
   const handleLoadOlderHistory = React.useCallback(async () => {
     if (loadingOlderHistory) return;
     const timeline = timelineScrollRef.current;
@@ -1157,7 +1166,7 @@ export const ChatPage: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (lastTimelineScrollKeyRef.current === timelineScrollKey) {
       return;
     }
@@ -1169,30 +1178,20 @@ export const ChatPage: React.FC = () => {
     if (!timeline) {
       return;
     }
-    if (typeof timeline.scrollTo === 'function') {
-      timeline.scrollTo({
-        top: timeline.scrollHeight,
-        behavior: reduceTimelineMotion ? 'auto' : 'smooth',
-      });
-    } else {
-      timeline.scrollTop = timeline.scrollHeight;
-    }
+    // Smooth scrolling emits intermediate positions that look like the reader scrolled away.
+    timeline.scrollTop = timeline.scrollHeight;
     wasAtTimelineBottomRef.current = true;
-  }, [currentSessionId, reduceTimelineMotion, timelineScrollKey]);
+  }, [currentSessionId, timelineScrollKey]);
 
   useEffect(() => {
     const timeline = timelineScrollRef.current;
     if (!timeline || typeof ResizeObserver === 'undefined') return;
-    let lastClientHeight = timeline.clientHeight;
     const observer = new ResizeObserver(() => {
-      const nextClientHeight = timeline.clientHeight;
-      const heightShrank = nextClientHeight < lastClientHeight;
-      lastClientHeight = nextClientHeight;
-      if (!heightShrank) return;
       if (!wasAtTimelineBottomRef.current) return;
       timeline.scrollTop = timeline.scrollHeight;
     });
     observer.observe(timeline);
+    if (timelineContentRef.current) observer.observe(timelineContentRef.current);
     return () => {
       observer.disconnect();
     };
@@ -1293,6 +1292,7 @@ export const ChatPage: React.FC = () => {
         messageContextMenu={messageContextMenu}
         messageContextMenuRef={messageContextMenuRef}
         timelineRef={timelineScrollRef}
+        timelineContentRef={timelineContentRef}
         waitingForReply={waitingForReply}
         historyReadState={historyReadState}
         loadingOlderHistory={loadingOlderHistory}

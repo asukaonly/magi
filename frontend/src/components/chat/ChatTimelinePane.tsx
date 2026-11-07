@@ -72,6 +72,7 @@ type ChatTimelinePaneProps = {
   messageContextMenuRef: RefObject<HTMLDivElement>;
   messagesEndRef?: RefObject<HTMLDivElement>;
   timelineRef: RefObject<HTMLDivElement>;
+  timelineContentRef: RefObject<HTMLDivElement>;
   /**
    * True while a turn is in flight — set after the user sends and cleared when
    * the assistant turn completes. Used to decide whether to render the
@@ -119,6 +120,7 @@ export const ChatTimelinePane = ({
   messageContextMenuRef,
   messagesEndRef,
   timelineRef,
+  timelineContentRef,
   waitingForReply,
   historyReadState,
   loadingOlderHistory,
@@ -312,7 +314,7 @@ export const ChatTimelinePane = ({
         onCopyMessage={onCopyMessage}
         onDeleteMessage={onDeleteMessage}
       />
-      <div className="mx-auto flex w-full max-w-[1080px] flex-col px-1">
+      <div ref={timelineContentRef} className="mx-auto flex w-full max-w-[1080px] flex-col px-1">
         {historyReadState?.stale ? (
           <p role="status" className="mb-3 text-center text-xs text-muted-foreground">
             {t('chat.cachedHistory', { time: new Date(historyReadState.checkedAt).toLocaleString() })}
