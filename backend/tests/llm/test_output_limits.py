@@ -97,3 +97,40 @@ async def test_required_and_explicit_limits_never_exceed_model_capacity(requeste
     bridge.llm.model_context = ModelContextProfile("anthropic", "small", 200_000, 8_000)
     await invoke(bridge, False, False, max_tokens=requested)
     assert create.await_args.kwargs["max_tokens"] == 8_000
+
+
+@pytest.mark.parametrize("model,capacity,expected", [
+    ("gpt-6.1-sol", 384_000, 16_384),
+    ("gpt-6.1-sol", 8_000, 8_000),
+    ("deepseek-flash", 384_000, 256),
+])
+def test_short_auxiliary_calls_allow_required_reasoning(model, capacity, expected):
+    bridge, _ = bridge_for("openai", None)
+    bridge.llm._model = model
+    bridge.llm.model_context = ModelContextProfile("openai", model, 1_000_000, capacity)
+    options = bridge._operations._apply_provider_options({"max_tokens": 256}, ThinkingDepth.NONE)
+    assert options["max_tokens"] == expected
+    automatic = bridge._operations._apply_provider_options({"max_tokens": None}, ThinkingDepth.NONE)
+    assert "max_tokens" not in automatic
+
+
+@pytest.mark.parametrize("capacity", [1_000, 8_192])
+def test_manual_thinking_leaves_answer_space_within_model_capacity(capacity):
+    bridge, _ = bridge_for("anthropic", None)
+    bridge.llm._model = "claude-3-7-sonnet-20250219"
+    bridge.llm.model_context = ModelContextProfile("anthropic", bridge.llm._model, 200_000, capacity)
+    if capacity == 1_000:
+        with pytest.raises(ValueError, match="minimum thinking budget"):
+            bridge._operations._apply_provider_options({"max_tokens": 4_096}, ThinkingDepth.HIGH)
+    else:
+        options = bridge._operations._apply_provider_options({"max_tokens": 4_096}, ThinkingDepth.HIGH)
+        assert options["max_tokens"] == capacity
+        assert options["thinking"]["budget_tokens"] == 4_096
+
+
+def test_reasoning_floor_keeps_small_context_headroom():
+    bridge, _ = bridge_for("openai", None)
+    bridge.llm._model = "gpt-6.1-sol"
+    bridge.llm.model_context = ModelContextProfile("openai", "gpt-6.1-sol", 8_000, None)
+    options = bridge._operations._apply_provider_options({"max_tokens": 256}, ThinkingDepth.NONE)
+    assert options["max_tokens"] == 2_000

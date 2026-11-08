@@ -119,7 +119,7 @@ async def analyze_interaction_batch(
         raw = await bridge.chat(
             system_prompt=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=2200,
+            max_tokens=8_192,
             temperature=0.1,
             json_mode=True,
             disable_thinking=True,

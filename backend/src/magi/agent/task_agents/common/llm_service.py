@@ -9,9 +9,8 @@ from types import SimpleNamespace
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from magi.control.run_control import RunControl
-from ....config import get_config
 from ....config.models import LLMScenario, ThinkingDepth
-from ....config.constants import DEFAULT_MAX_TOKENS, SYSTEM_PROMPT_CACHE_BOUNDARY
+from ....config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from ....core.logger import get_logger
 from ....llm.cancellable_client import CancellableLLMClient, CancellationRaised, RetractRaised
 from ....llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
@@ -221,7 +220,6 @@ class TaskAgentLLMService:
                 system_prompt=system_prompt,
                 messages=messages,
                 control=control,
-                max_tokens=self._llm_max_tokens(),
                 temperature=temperature,
                 thinking_depth=request_context.thinking_depth,
                 json_mode=json_mode,
@@ -232,7 +230,6 @@ class TaskAgentLLMService:
         return await self._provider_bridge.chat_response(
             system_prompt=system_prompt,
             messages=messages,
-            max_tokens=self._llm_max_tokens(),
             temperature=temperature,
             thinking_depth=request_context.thinking_depth,
             json_mode=json_mode,
@@ -256,7 +253,6 @@ class TaskAgentLLMService:
                 system_prompt=system_prompt,
                 messages=messages,
                 control=control,
-                max_tokens=self._llm_max_tokens(),
                 temperature=temperature,
                 thinking_depth=request_context.thinking_depth,
                 json_mode=json_mode,
@@ -266,7 +262,6 @@ class TaskAgentLLMService:
         return self._provider_bridge.chat_response_stream(
             system_prompt=system_prompt,
             messages=messages,
-            max_tokens=self._llm_max_tokens(),
             temperature=temperature,
             thinking_depth=request_context.thinking_depth,
             json_mode=json_mode,
@@ -324,11 +319,6 @@ class TaskAgentLLMService:
             duration_ms=int((time.time() - request_context.start_time) * 1000),
         )
 
-    def _llm_max_tokens(self) -> int:
-        try:
-            return int(get_config().llm.max_tokens)
-        except Exception:
-            return DEFAULT_MAX_TOKENS
 
 
 async def _emit_trace_metrics(

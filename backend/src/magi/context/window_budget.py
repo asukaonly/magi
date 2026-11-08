@@ -63,13 +63,13 @@ class SummaryOutputProfile:
 
 GENERAL_SUMMARY_OUTPUT_PROFILE = SummaryOutputProfile(
     input_capacity_ratio=GENERAL_SUMMARY_OUTPUT_RATIO,
-    min_tokens=1_024,
-    max_tokens=16_384,
+    min_tokens=4_096,
+    max_tokens=32_768,
 )
 PERSONA_SUMMARY_OUTPUT_PROFILE = SummaryOutputProfile(
     input_capacity_ratio=PERSONA_SUMMARY_OUTPUT_RATIO,
-    min_tokens=512,
-    max_tokens=4_096,
+    min_tokens=1_024,
+    max_tokens=8_192,
 )
 
 

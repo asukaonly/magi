@@ -228,7 +228,9 @@ class ProviderBridgeOptionsMixin:
         profile = getattr(self.llm, "model_context", None)
         if profile is not None and profile.max_output_tokens:
             kwargs["max_tokens"] = min(kwargs["max_tokens"], profile.max_output_tokens)
-            budget = min(budget, kwargs["max_tokens"] - 1)
+            if kwargs["max_tokens"] <= 1_024:
+                raise ValueError("Model output capacity cannot fit the minimum thinking budget")
+            budget = min(budget, max(1_024, kwargs["max_tokens"] - DEFAULT_MAX_TOKENS))
         kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
         return kwargs
 
@@ -240,6 +242,11 @@ class ProviderBridgeOptionsMixin:
         """Inject vendor-specific reasoning parameters into LLM request kwargs."""
         profile = getattr(self.llm, "model_context", None) or unknown_model_context(self.llm)
         tokens = kwargs.get("max_tokens")
+        if (tokens is not None and thinking_depth is ThinkingDepth.NONE
+                and self.resolve_effective_reasoning_depth(thinking_depth) is not ThinkingDepth.NONE):
+            # Mandatory reasoning shares the output allowance even for short classifications.
+            tokens = max(tokens, min(16_384, automatic_output_reserve(profile)))
+            kwargs["max_tokens"] = tokens
         if tokens is None:
             if self.is_anthropic():
                 kwargs["max_tokens"] = automatic_output_reserve(profile)

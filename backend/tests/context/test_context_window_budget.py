@@ -165,7 +165,7 @@ def test_summary_output_budget_uses_destination_capacity_and_purpose() -> None:
             summary_model_budget,
             profile=GENERAL_SUMMARY_OUTPUT_PROFILE,
         )
-        == 1_200
+        == 4_096
     )
     assert (
         resolve_summary_output_tokens(
@@ -173,7 +173,7 @@ def test_summary_output_budget_uses_destination_capacity_and_purpose() -> None:
             summary_model_budget,
             profile=PERSONA_SUMMARY_OUTPUT_PROFILE,
         )
-        == 512
+        == 1_024
     )
 
 
@@ -209,3 +209,10 @@ def test_large_output_capability_does_not_reserve_entire_model_capacity():
 def test_output_reserve_keeps_small_windows_usable():
     budget = build_context_window_budget(ModelContextProfile("test", "test", 8_000, 8_000))
     assert budget.input_capacity == 6_000
+
+
+def test_invalid_capacity_metadata_uses_conservative_fallback():
+    budget = build_context_window_budget(ModelContextProfile("test", "test", -1, -1))
+    assert budget.uses_fallback
+    assert budget.context_window == 128_000
+    assert budget.output_reserve == 8_192

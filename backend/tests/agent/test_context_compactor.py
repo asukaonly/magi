@@ -798,8 +798,8 @@ class TestLLMCompact:
             summary = await compactor._call_summariser("conversation")
 
         assert summary == "summary"
-        assert mock_bridge.chat.await_args.kwargs["max_tokens"] == 1_200
-        assert "within 1200 tokens" in mock_bridge.chat.await_args.kwargs["system_prompt"]
+        assert mock_bridge.chat.await_args.kwargs["max_tokens"] == 4_096
+        assert "within 4096 tokens" in mock_bridge.chat.await_args.kwargs["system_prompt"]
 
     @pytest.mark.asyncio
     async def test_empty_summary_never_replaces_history(self) -> None:

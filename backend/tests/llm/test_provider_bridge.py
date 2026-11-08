@@ -846,7 +846,7 @@ def test_current_mandatory_thinking_models_preserve_effort(model, depth):
     assert result["thinking"] == {"type": "adaptive"}
     assert result["output_config"]["effort"] == ("low" if depth is ThinkingDepth.NONE else depth.value)
     assert not {"temperature", "top_p", "top_k"} & result.keys()
-    assert result["max_tokens"] == 4096
+    assert result["max_tokens"] == (8_192 if depth is ThinkingDepth.NONE else 4_096)
 
 
 def test_current_optional_thinking_model_explicitly_disables_thinking():
