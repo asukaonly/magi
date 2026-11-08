@@ -1269,8 +1269,10 @@ returned. The main loop retries only that model generation at most twice with
 an expanded explicit cap, clamped by model capacity and remaining prompt space
 with a 1,024-token estimation margin. Each retry checks cancellation, consumes
 another task LLM call and gets a fresh trace request ID. Streaming preview text
-is reset before regeneration; previous tool results stay in the unchanged
-request history. Truncated attempts retain usage in failed trace spans. Other
+and pending tool previews are reset before regeneration. A streamed tool call
+is announced as complete only after the provider finishes successfully; this
+prevents an incomplete question tool from opening a dialog. Previous tool results
+stay in the unchanged request history. Truncated attempts retain usage in failed trace spans. Other
 provider errors are not treated as output exhaustion, and exhausted recovery
 must not be accepted as a completed answer.
 

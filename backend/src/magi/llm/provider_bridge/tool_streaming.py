@@ -328,14 +328,6 @@ class ProviderBridgeToolStreamingMixin:
                 "input": arguments,
             }
         )
-        await emit_stream_event(
-            LLMStreamEvent(
-                kind="tool_call_end",
-                tool_call_id=state.current_tool_id,
-                tool_name=state.current_tool_name,
-                tool_arguments=arguments,
-            )
-        )
         state.current_tool_id = None
         state.current_tool_name = None
         state.current_tool_json_parts = []
@@ -375,6 +367,11 @@ class ProviderBridgeToolStreamingMixin:
         usage = host._extract_anthropic_stream_usage(stream, state.usage_data)
         if state.stop_reason == "max_tokens":
             raise OutputLimitReached(usage)
+        for call in state.tool_calls:
+            await emit_stream_event(LLMStreamEvent(
+                kind="tool_call_end", tool_call_id=call.id,
+                tool_name=call.name, tool_arguments=call.arguments,
+            ))
         usage_payload = host._anthropic_usage_to_wire(state.usage_data)
         if usage_payload is not None:
             await emit_stream_event(LLMStreamEvent(kind="usage", usage=usage_payload))

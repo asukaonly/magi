@@ -170,16 +170,13 @@ class PluginModelAdapter(LLMAdapter):
                     kind="text_delta" if event.kind == "text" else "reasoning_delta",
                     text=event.delta,
                 )
-            elif event.kind == "tool_call" and event.tool_call is not None:
-                call = event.tool_call
-                yield LLMStreamEvent(
-                    kind="tool_call_end",
-                    tool_call_id=call.id,
-                    tool_name=call.name,
-                    tool_arguments=dict(call.arguments),
-                )
             elif event.kind == "completed":
                 result = event.result
+                for call in result.tool_calls:
+                    yield LLMStreamEvent(
+                        kind="tool_call_end", tool_call_id=call.id,
+                        tool_name=call.name, tool_arguments=dict(call.arguments),
+                    )
                 yield LLMStreamEvent(
                     kind="usage",
                     usage={
