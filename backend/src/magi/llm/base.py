@@ -3,6 +3,7 @@ LLM Adapter - Abstract base class
 """
 
 from abc import ABC, abstractmethod
+from .model_context import ModelContextProfile
 from typing import Optional, Dict, Any, AsyncIterator, List
 
 
@@ -15,6 +16,8 @@ class LLMAdapter(ABC):
     - Anthropic (Claude)
     - Local models (Llama.cpp)
     """
+
+    model_context: ModelContextProfile | None = None
 
     @abstractmethod
     async def generate(

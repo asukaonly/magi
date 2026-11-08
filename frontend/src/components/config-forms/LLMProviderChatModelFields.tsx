@@ -131,6 +131,7 @@ export function LLMProviderChatModelFields({
 
         <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">{t('llm.modelFields.maxOutputTokens')}</span>
+          <span className="text-xs text-muted-foreground">{t('llm.modelFields.maxOutputTokensHelp')}</span>
           <div className="relative">
             <input
               aria-label={t('llm.modelFields.maxOutputTokens')}

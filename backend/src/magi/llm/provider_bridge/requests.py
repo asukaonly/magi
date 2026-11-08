@@ -70,7 +70,7 @@ class _ProviderBridgeRequestHostProtocol(Protocol):
 class _ChatResponseRequest:
     system_prompt: str
     messages: List[Dict[str, Any]]
-    max_tokens: int
+    max_tokens: int | None
     temperature: float
     thinking_depth: ThinkingDepth
     json_mode: bool
@@ -168,7 +168,7 @@ class ProviderBridgeRequestMixin:
         *,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         json_mode: bool,
@@ -347,7 +347,7 @@ class ProviderBridgeRequestMixin:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],

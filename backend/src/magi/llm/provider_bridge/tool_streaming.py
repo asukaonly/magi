@@ -6,6 +6,8 @@ import json
 from contextlib import aclosing
 
 from ..openai_transport import create_completion
+from ..output_limit import OutputLimitReached
+from types import SimpleNamespace
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol, cast
@@ -43,6 +45,7 @@ class _AnthropicToolStreamState:
     current_tool_id: str | None = None
     current_tool_name: str | None = None
     current_tool_json_parts: List[str] = field(default_factory=list)
+    stop_reason: str | None = None
     usage_data: Any = None
 
 
@@ -67,7 +70,7 @@ class ProviderBridgeToolStreamingMixin:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
@@ -114,7 +117,7 @@ class ProviderBridgeToolStreamingMixin:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
@@ -149,7 +152,7 @@ class ProviderBridgeToolStreamingMixin:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
@@ -181,7 +184,11 @@ class ProviderBridgeToolStreamingMixin:
         elif event_type == "content_block_stop":
             await self._handle_anthropic_tool_block_stop(state)
         elif event_type == "message_delta":
-            state.usage_data = getattr(event, "usage", state.usage_data)
+            state.stop_reason = getattr(getattr(event, "delta", None), "stop_reason", None) or state.stop_reason
+            delta_usage = getattr(event, "usage", None)
+            if delta_usage is not None:
+                previous = vars(state.usage_data) if state.usage_data is not None else {}
+                state.usage_data = SimpleNamespace(**{**previous, **{key: value for key, value in vars(delta_usage).items() if value is not None}})
         elif event_type == "message_start":
             message = getattr(event, "message", None)
             if message is not None:
@@ -366,6 +373,8 @@ class ProviderBridgeToolStreamingMixin:
             state.assistant_blocks.insert(0, thinking_block)
 
         usage = host._extract_anthropic_stream_usage(stream, state.usage_data)
+        if state.stop_reason == "max_tokens":
+            raise OutputLimitReached(usage)
         usage_payload = host._anthropic_usage_to_wire(state.usage_data)
         if usage_payload is not None:
             await emit_stream_event(LLMStreamEvent(kind="usage", usage=usage_payload))
@@ -395,7 +404,7 @@ class ProviderBridgeToolStreamingMixin:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
@@ -433,7 +442,7 @@ class ProviderBridgeToolStreamingMixin:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],

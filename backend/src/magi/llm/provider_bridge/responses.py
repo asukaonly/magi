@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..output_limit import OutputLimitReached
+
 import json
 import logging
 import time
@@ -286,6 +288,8 @@ class ProviderBridgeResponseMixin:
         return converted
 
     def _parse_anthropic_response(self, response: Any) -> ProviderResponse:
+        if getattr(response, "stop_reason", None) == "max_tokens":
+            raise OutputLimitReached(self._extract_anthropic_usage(response))
         tool_calls: list[ProviderToolCall] = []
         content_text_parts: list[str] = []
         assistant_blocks: list[dict[str, Any]] = []

@@ -11,6 +11,7 @@ from magi_plugin_sdk.providers import ModelEvent, ModelRequest, ModelResult
 from magi_plugin_sdk.runtime import PluginConnection
 
 from .base import LLMAdapter
+from .output_limit import OutputLimitReached
 from .provider_bridge.models import (
     ProviderResponse,
     ProviderToolCall,
@@ -151,6 +152,8 @@ class PluginModelAdapter(LLMAdapter):
                     if event.result is None:
                         raise ValueError("Model completion requires a result")
                     completed = True
+                    if event.result.finish_reason in {"length", "max_tokens"}:
+                        raise OutputLimitReached(self.to_response(event.result).usage)
                 yield event
             if not completed:
                 raise ValueError("Model provider stream ended without a result")

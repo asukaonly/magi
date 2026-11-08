@@ -5,11 +5,17 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from typing import Any, Dict, List, NamedTuple, Optional, Protocol, cast
+from dataclasses import dataclass, replace
+from typing import Any, Dict, List, NamedTuple, Optional, Protocol, TypeVar, cast
 
 from ....config.models import ThinkingDepth
 from ....llm.base import LLMAdapter
+from ....llm.model_context import automatic_output_reserve, unknown_model_context
+from ....llm.output_limit import OutputLimitReached
+from ....llm.streaming_events import LLMStreamEvent, emit_stream_event
+from ....context.window_budget import build_context_window_budget, measure_provider_prompt_usage
+from ....core.logger import get_logger
+
 from ....llm.cancellable_client import (
     CancellationRaised,
     RetractRaised,
@@ -38,6 +44,9 @@ from .llm_logging import (
     log_tools_llm_success,
 )
 from .llm_payloads import build_llm_response_payload, build_llm_trace
+
+_Result = TypeVar("_Result")
+logger = get_logger(__name__)
 
 
 class _LlmHostProtocol(Protocol):
@@ -213,10 +222,11 @@ async def _call_llm_with_tools_params(
     )
 
     try:
-        call_result = await call_provider_with_tools(
-            cast(LlmInvocationHostProtocol, prepared.host),
-            request,
-            tools=params.tools,
+        call_result = await _call_with_output_recovery(
+            prepared, request, control=params.control, tools=params.tools,
+            invoke=lambda attempt: call_provider_with_tools(
+                cast(LlmInvocationHostProtocol, prepared.host), attempt, tools=params.tools,
+            ),
         )
         duration_ms = _elapsed_ms(prepared.start_time)
         result = _build_tools_result(
@@ -259,11 +269,12 @@ async def _call_llm_without_tools_params(
     )
 
     try:
-        call_result = await call_provider_without_tools(
-            cast(LlmInvocationHostProtocol, prepared.host),
-            request,
-            json_mode=params.json_mode,
-            control=params.control,
+        call_result = await _call_with_output_recovery(
+            prepared, request, control=params.control, tools=[],
+            invoke=lambda attempt: call_provider_without_tools(
+                cast(LlmInvocationHostProtocol, prepared.host), attempt,
+                json_mode=params.json_mode, control=params.control,
+            ),
         )
         duration_ms = _elapsed_ms(prepared.start_time)
         log_final_llm_success(
@@ -288,6 +299,48 @@ async def _call_llm_without_tools_params(
             duration_ms=duration_ms,
         )
         raise
+
+
+async def _call_with_output_recovery(
+    prepared: _PreparedLlmCall,
+    request: FunctionCallingLlmRequest,
+    *,
+    control: RunControl | None,
+    tools: list[dict[str, Any]],
+    invoke: Callable[[FunctionCallingLlmRequest], Awaitable[_Result]],
+) -> _Result:
+    profile = getattr(prepared.host, "_active_model_context", None) or unknown_model_context(prepared.llm)
+    budget = build_context_window_budget(profile)
+    for attempt in range(3):
+        try:
+            return await invoke(request)
+        except OutputLimitReached as exc:
+            if attempt == 2:
+                raise
+            used = max(request.max_tokens or 0, exc.token_count("completion_tokens"))
+            reserve = automatic_output_reserve(profile)
+            next_limit = max(reserve, used * 2) if used else (profile.max_output_tokens or reserve * 2)
+            usage = measure_provider_prompt_usage(
+                budget, request.messages,
+                prompt_overhead={"system_prompt": request.system_prompt, "tools": tools},
+                observed_input_tokens=exc.token_count("prompt_tokens"),
+            )
+            next_limit = min(
+                next_limit, profile.max_output_tokens or next_limit,
+                budget.context_window - usage.estimated_tokens - 1_024,
+            )
+            if next_limit <= (used or reserve):
+                raise
+            await pre_poll_run_control(control)
+            await consume_task_llm_calls()
+            logger.warning(
+                "Retrying truncated model generation",
+                request_id=request.request_id, attempt=attempt + 1, max_tokens=next_limit,
+            )
+            # Regenerate only this model step; no partial tool call enters execution/history.
+            await emit_stream_event(LLMStreamEvent(kind="text_reset", step_label="output_limit_retry"))
+            request = replace(request, request_id=str(uuid.uuid4())[:8], max_tokens=next_limit)
+    raise AssertionError("Output recovery loop exited without a result")
 
 
 def _build_tools_request(

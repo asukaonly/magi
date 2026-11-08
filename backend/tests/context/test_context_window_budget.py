@@ -196,3 +196,16 @@ def test_summary_output_budget_never_exceeds_writer_model() -> None:
     )
 
     assert resolve_summary_output_tokens(source_budget, summary_model_budget) == 300
+
+
+def test_large_output_capability_does_not_reserve_entire_model_capacity():
+    budget = build_context_window_budget(ModelContextProfile(
+        "deepseek", "deepseek-flash", 1_000_000, 384_000,
+    ))
+    assert budget.output_reserve == 65_536
+    assert budget.input_capacity == 934_464
+
+
+def test_output_reserve_keeps_small_windows_usable():
+    budget = build_context_window_budget(ModelContextProfile("test", "test", 8_000, 8_000))
+    assert budget.input_capacity == 6_000

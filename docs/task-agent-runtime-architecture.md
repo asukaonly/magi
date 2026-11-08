@@ -1255,6 +1255,25 @@ identity are the only execution ownership seams.
 
 ## Prompt History And Context Capacity
 
+Model capacity metadata travels with the scenario-resolved adapter. Main-loop
+calls leave `max_tokens` unset; required fields belong to the provider adapter.
+Context planning reserves up to 65,536 generation tokens, bounded by the model's
+output capability and one quarter of its context window (8,192 when output
+capability is unknown). This is planning headroom, not an output request or a
+claim about the provider's default. Input compaction still measures the complete
+provider prompt, including system instructions, tools and images.
+
+A provider output-limit stop (`length`, `max_tokens`, or Responses
+`max_output_tokens`) raises a typed failure before any partial tool call is
+returned. The main loop retries only that model generation at most twice with
+an expanded explicit cap, clamped by model capacity and remaining prompt space
+with a 1,024-token estimation margin. Each retry checks cancellation, consumes
+another task LLM call and gets a fresh trace request ID. Streaming preview text
+is reset before regeneration; previous tool results stay in the unchanged
+request history. Truncated attempts retain usage in failed trace spans. Other
+provider errors are not treated as output exhaustion, and exhausted recovery
+must not be accepted as a completed answer.
+
 Chat prompt assembly combines:
 
 - the active run's ordered Working Surface when it exists, otherwise the

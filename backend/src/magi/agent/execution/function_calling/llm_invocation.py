@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Protocol, cast
 
-from ....config.constants import DEFAULT_MAX_TOKENS
 from ....config.models import ThinkingDepth
 from ....llm.cancellable_client import (
     CancellableLLMClient,
@@ -46,6 +45,7 @@ class FunctionCallingLlmRequest:
     execution_agent_id: str
     execution_preset: str
     iteration: int | None
+    max_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,7 +118,7 @@ async def call_provider_with_tools(
                 system_prompt=request.system_prompt,
                 messages=request.messages,
                 tools=tools,
-                max_tokens=DEFAULT_MAX_TOKENS,
+                max_tokens=request.max_tokens,
                 temperature=0.7,
                 thinking_depth=request.thinking_depth,
                 timeout_seconds=resolve_llm_timeout(
@@ -142,7 +142,7 @@ async def call_provider_with_tools(
             system_prompt=request.system_prompt,
             messages=request.messages,
             tools=tools,
-            max_tokens=DEFAULT_MAX_TOKENS,
+            max_tokens=request.max_tokens,
             temperature=0.7,
             thinking_depth=request.thinking_depth,
             timeout_seconds=resolve_llm_timeout(
@@ -196,7 +196,7 @@ async def _stream_final_response(
             system_prompt=request.system_prompt,
             messages=request.messages,
             control=control,
-            max_tokens=DEFAULT_MAX_TOKENS,
+            max_tokens=request.max_tokens,
             temperature=0.7,
             thinking_depth=request.thinking_depth,
             timeout_seconds=resolve_llm_timeout(
@@ -212,7 +212,7 @@ async def _stream_final_response(
     async for event in host.provider_bridge.chat_response_stream(
         system_prompt=request.system_prompt,
         messages=request.messages,
-        max_tokens=DEFAULT_MAX_TOKENS,
+        max_tokens=request.max_tokens,
         temperature=0.7,
         thinking_depth=request.thinking_depth,
         timeout_seconds=resolve_llm_timeout(
@@ -238,7 +238,7 @@ async def _call_final_response_with_control(
         system_prompt=request.system_prompt,
         messages=request.messages,
         control=control,
-        max_tokens=DEFAULT_MAX_TOKENS,
+        max_tokens=request.max_tokens,
         temperature=0.7,
         thinking_depth=request.thinking_depth,
         json_mode=json_mode,
@@ -266,7 +266,7 @@ async def _call_final_response(
         lambda: host.provider_bridge.chat_response(
             system_prompt=request.system_prompt,
             messages=request.messages,
-            max_tokens=DEFAULT_MAX_TOKENS,
+            max_tokens=request.max_tokens,
             temperature=0.7,
             thinking_depth=request.thinking_depth,
             json_mode=json_mode,

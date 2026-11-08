@@ -30,6 +30,12 @@ class ResolvedModel:
     context: ModelContextProfile
 
 
+def automatic_output_reserve(profile: ModelContextProfile) -> int:
+    """Reserve practical generation headroom without reserving the model's full capacity."""
+    window = profile.context_window or 128_000
+    return max(1, min(65_536, profile.max_output_tokens or 8_192, window // 4))
+
+
 def unknown_model_context(adapter: Any | None) -> ModelContextProfile:
     """Describe an injected adapter whose provider limits are unavailable."""
     provider_id = str(

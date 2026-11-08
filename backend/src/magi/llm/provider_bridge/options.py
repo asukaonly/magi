@@ -9,6 +9,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Dict, TypeVar, cast
 from ..anthropic import AnthropicAdapter
 from ..openai_transport import uses_responses_api, responses_effort
 from ..base import LLMAdapter
+from ..model_context import automatic_output_reserve, unknown_model_context
 from ..cache_observability import build_cache_observation
 from .cache_routing import (
     cache_routing_request_kwargs,
@@ -224,6 +225,10 @@ class ProviderBridgeOptionsMixin:
         max_tokens = kwargs.get("max_tokens")
         if isinstance(max_tokens, int) and budget >= max_tokens:
             kwargs["max_tokens"] = budget + DEFAULT_MAX_TOKENS
+        profile = getattr(self.llm, "model_context", None)
+        if profile is not None and profile.max_output_tokens:
+            kwargs["max_tokens"] = min(kwargs["max_tokens"], profile.max_output_tokens)
+            budget = min(budget, kwargs["max_tokens"] - 1)
         kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
         return kwargs
 
@@ -233,6 +238,15 @@ class ProviderBridgeOptionsMixin:
         thinking_depth: ThinkingDepth,
     ) -> Dict[str, Any]:
         """Inject vendor-specific reasoning parameters into LLM request kwargs."""
+        profile = getattr(self.llm, "model_context", None) or unknown_model_context(self.llm)
+        tokens = kwargs.get("max_tokens")
+        if tokens is None:
+            if self.is_anthropic():
+                kwargs["max_tokens"] = automatic_output_reserve(profile)
+            else:
+                kwargs.pop("max_tokens", None)
+        elif profile.max_output_tokens:
+            kwargs["max_tokens"] = min(tokens, profile.max_output_tokens)
         dialect = self._resolve_reasoning_dialect()
 
         # Anthropic budget is special-cased ahead of the generic builder:

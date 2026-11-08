@@ -157,3 +157,26 @@ async def test_responses_preserves_cache_write_ttls_and_reported_service_tier(st
     assert usage.cache_write_tokens == 700
     assert usage.cache_write_12h_tokens == 400
     assert usage.service_tier == 'priority'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_output_limit_is_distinct_from_transport_failure(streaming):
+    from magi.llm.output_limit import OutputLimitReached
+
+    payload = response(tools=True, status="incomplete")
+    payload["incomplete_details"] = {"reason": "max_output_tokens"}
+    payload["output"][-1]["arguments"] = '{"q":'
+    if streaming:
+        payload = [{"type": "response.incomplete", "response": payload}]
+    requests = []
+    async with client_for([payload], requests) as client:
+        bridge = bridge_for(client)
+        with pytest.raises(OutputLimitReached) as caught:
+            if streaming:
+                await bridge.chat_with_tools_stream("sys", [], [])
+            else:
+                await bridge.chat_response("sys", [])
+        assert caught.value.token_count("completion_tokens") == 7
+        assert caught.value.token_count("prompt_tokens") == 10
+    assert "max_output_tokens" not in requests[0][1]
