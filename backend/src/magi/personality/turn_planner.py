@@ -85,13 +85,13 @@ _VALUE_TERMS = (
     "该不该",
     "值不值",
 )
-_SERIOUS_TERMS = (
-    "serious",
-    "no joke",
-    "stop joking",
-    "认真",
-    "别开玩笑",
-    "严肃",
+_SERIOUS_REQUEST = re.compile(
+    r"(?:^|[。！？!?，,;；\n])\s*(?:(?:请|麻烦|先|这次|现在)\s*)?"
+    r"(?:别开玩笑了?|不要开玩笑了?|别闹了?|认真(?:点|回答|说)|严肃(?:点|回答)|说正经的)"
+    r"(?:[\s。！？!?，,;；：:]|$)"
+    r"|(?:^|[.!?,;\n])\s*(?:please\s+)?(?:be serious|stop joking|no jokes?|don't joke)"
+    r"(?:[\s.!?,;:]|$)",
+    re.IGNORECASE,
 )
 
 
@@ -231,6 +231,7 @@ def _built_in_quiet_hours(*, register: str, tools: list[str]) -> list[dict[str, 
                     "sarcasm": "none_to_light",
                     "answer_utility": "highest",
                 },
+                conditional=True,
             )
         )
     if register == "crisis":
@@ -259,10 +260,13 @@ def _quiet_hours_from_hints(
     ]
 
 
-def _quiet_hour_record(condition: str, clamps: dict[str, Any]) -> dict[str, Any]:
+def _quiet_hour_record(
+    condition: str, clamps: dict[str, Any], *, conditional: bool = False,
+) -> dict[str, Any]:
     return {
         "condition": condition,
         "clamps": dict(clamps),
+        **({"conditional": True} if conditional else {}),
     }
 
 
@@ -517,15 +521,8 @@ class PersonaTurnPlanner:
 
         if self._contains_any(user_message, _CRISIS_TERMS):
             return [fallback_register], True
-        if self._contains_any(user_message, _SERIOUS_TERMS):
-            return (
-                self._available_registers(
-                    config,
-                    ("analysis", "task", fallback_register),
-                    limit=2,
-                ),
-                True,
-            )
+        if _SERIOUS_REQUEST.search(user_message):
+            return [fallback_register], True
 
         candidates = [fallback_register]
         if self._contains_any(user_message, _EMOTIONAL_TERMS):
@@ -576,8 +573,6 @@ class PersonaTurnPlanner:
     ) -> str:
         if self._contains_any(user_message, _CRISIS_TERMS):
             return self._first_available(config, ("crisis", "task", "analysis", "chat", "casual"))
-        if self._contains_any(user_message, _SERIOUS_TERMS):
-            return self._first_available(config, ("analysis", "task", "chat", "casual"))
         normalized_scenario = str(scenario or "").lower()
         normalized_task_category = str(task_category or "").lower()
         if normalized_scenario in {"analysis"} or "analysis" in normalized_task_category:
@@ -592,6 +587,8 @@ class PersonaTurnPlanner:
             return self._first_available(config, ("task", "analysis", "chat", "casual"))
         if self._contains_any(user_message, _EMOTIONAL_TERMS):
             return self._first_available(config, ("emotional", "chat", "casual"))
+        if _SERIOUS_REQUEST.search(user_message):
+            return self._first_available(config, ("analysis", "task", "chat", "casual"))
         return self._first_available(config, ("casual", "chat", "task", "analysis"))
 
     def _select_triggers(
@@ -743,7 +740,7 @@ class PersonaTurnPlanner:
         user_message: str,
     ) -> list[dict[str, Any]]:
         quiet_hours = []
-        if self._contains_any(user_message, _SERIOUS_TERMS):
+        if _SERIOUS_REQUEST.search(user_message):
             quiet_hours.append(
                 {
                     "condition": "user_requested_seriousness",
@@ -755,7 +752,9 @@ class PersonaTurnPlanner:
             )
         for quiet_hour in config.quiet_hours:
             if self._condition_overlap(user_message, quiet_hour.condition):
-                quiet_hours.append(_quiet_hour_record(quiet_hour.condition, quiet_hour.clamps))
+                quiet_hours.append(
+                    _quiet_hour_record(quiet_hour.condition, quiet_hour.clamps, conditional=True)
+                )
         return quiet_hours
 
     @staticmethod
@@ -769,6 +768,8 @@ class PersonaTurnPlanner:
             return 0
         intensity = 2 if active_triggers else 1
         for quiet_hour in quiet_hours:
+            if quiet_hour.get("conditional"):
+                continue
             clamps = quiet_hour.get("clamps") or {}
             max_intensity = clamps.get("persona_intensity_max")
             if isinstance(max_intensity, int):

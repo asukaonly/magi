@@ -5,7 +5,7 @@ import pytest
 import json
 from pathlib import Path
 
-from magi.personality.loader import PersonalityConfig
+from magi.personality.loader import PersonalityConfig, QuietHour
 from magi.personality.models import EmotionalState
 from magi.personality.turn_planner import PersonaTurnPlanner
 
@@ -80,6 +80,7 @@ def test_planner_uses_analysis_register_and_quiet_clamp_for_architecture_turn() 
     assert plan.register == "analysis"
     assert plan.persona_intensity == 1
     assert plan.quiet_hours[0]["condition"] == "focused_work"
+    assert not plan.quiet_hours[0].get("conditional")
     assert [trigger.trigger_id for trigger in plan.active_triggers] == ["domain_hotzone"]
 
 
@@ -128,6 +129,7 @@ def test_planner_forces_crisis_register_and_zero_intensity() -> None:
     assert plan.register == "crisis"
     assert plan.persona_intensity == 0
     assert any(item["condition"] == "crisis" for item in plan.quiet_hours)
+    assert all(not item.get("conditional") for item in plan.quiet_hours)
 
 
 @pytest.mark.parametrize(
@@ -207,3 +209,71 @@ def test_seven_revealed_layer_accepts_total_interactions() -> None:
 
     assert plan.active_layer == "revealed"
     assert "护短" in "\n".join(plan.layer_modifiers["behavior_shifts"])
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["认真你就输了，哈哈", "她说话很严肃，但挺好玩的", 'Why so serious?', '他说「别开玩笑」的时候我笑了'],
+)
+def test_seriousness_words_do_not_force_a_register(message: str) -> None:
+    plan = PersonaTurnPlanner().build_plan(
+        config=_make_config(), user_message=message, scenario="chat", task_category="chat",
+    )
+
+    assert not plan.register_is_hard_clamp
+    assert all(item["condition"] != "user_requested_seriousness" for item in plan.quiet_hours)
+
+
+@pytest.mark.parametrize(
+    "message,register",
+    [
+        ("别开玩笑，认真回答。", "analysis"),
+        ("请认真回答。", "analysis"),
+        ("Please be serious.", "analysis"),
+        ("No jokes, please.", "analysis"),
+        ("别开玩笑，我今天心情好差。", "emotional"),
+    ],
+)
+def test_explicit_seriousness_keeps_the_relevant_register(message: str, register: str) -> None:
+    plan = PersonaTurnPlanner().build_plan(
+        config=_make_config(), user_message=message, scenario="chat", task_category="chat",
+    )
+
+    assert plan.register == register
+    assert plan.register_is_hard_clamp
+    assert [candidate.register for candidate in plan.register_candidates] == [register]
+    clamp = next(item for item in plan.quiet_hours if item["condition"] == "user_requested_seriousness")
+    assert not clamp.get("conditional")
+    assert clamp["clamps"]["jokes"] == "none"
+    assert plan.persona_intensity == 1
+
+
+def test_lexical_emotion_and_config_matches_are_conditional() -> None:
+    config = _make_config()
+    config.quiet_hours = [QuietHour(condition="tired jokes", clamps={"persona_intensity_max": 0})]
+    plan = PersonaTurnPlanner().build_plan(
+        config=config,
+        user_message="I'm tired of these absurd jokes, haha",
+        scenario="chat",
+        task_category="chat",
+    )
+
+    assert plan.register == "emotional"
+    assert not plan.register_is_hard_clamp
+    assert {item["condition"] for item in plan.quiet_hours} == {"emotional_support", "tired jokes"}
+    assert all(item["conditional"] for item in plan.quiet_hours)
+    assert _trigger_ids(plan) == ["absurdity"]
+    assert plan.persona_intensity == 2
+
+
+def test_serious_task_is_not_redirected_by_emotional_keywords() -> None:
+    plan = PersonaTurnPlanner().build_plan(
+        config=_load_seven_config(),
+        user_message="别开玩笑，这个错误搞得我心情好差，帮我修掉。",
+        scenario="task", task_category="code", tools=["edit_file"],
+    )
+
+    assert plan.register == "task"
+    assert plan.register_is_hard_clamp
+    assert plan.active_triggers == []
+    assert any(item["condition"] == "focused_work" for item in plan.quiet_hours)

@@ -216,15 +216,34 @@ class PromptContextRenderer:
                     lines.append(f"  - Behavior: {plan.register_behavior}")
         lines.append(f"* Situation Strength: {plan.situation_strength}")
         lines.append(f"* Persona Intensity: {plan.persona_intensity}/3")
+        lines.append(
+            "* Intensity limits theatrical emphasis, not the stable voice. Keep the persona's "
+            "directness, humor style and social temperament even at low intensity; never force a joke "
+            "or let style reduce answer accuracy."
+        )
         if plan.register_is_hard_clamp and plan.register_description:
             lines.append(f"* Description: {plan.register_description}")
         if plan.register_is_hard_clamp and plan.register_behavior:
             lines.append(f"* Behavior: {plan.register_behavior}")
         lines.append("")
 
-        if plan.quiet_hours:
-            lines.append("## Quiet-Hour Clamp")
-            for quiet_hour in plan.quiet_hours:
+        for conditional, heading in (
+            (False, "## Quiet-Hour Clamp"), (True, "## Quiet-Hour Candidates"),
+        ):
+            quiet_hours = [
+                item for item in plan.quiet_hours if bool(item.get("conditional")) == conditional
+            ]
+            if not quiet_hours:
+                continue
+            lines.append(heading)
+            if conditional:
+                lines.append(
+                    "[System Notice: Apply these limits only when the full conversation actually "
+                    "matches the condition. Keyword overlap is a retrieval hint, not proof. "
+                    "Distinguish playful complaints and technical frustration from a request for "
+                    "emotional support. Respect genuine distress and explicit requests to stop joking.]"
+                )
+            for quiet_hour in quiet_hours:
                 condition = str(quiet_hour.get("condition") or "active").strip()
                 lines.append(f"* Condition: {condition}")
                 clamps = quiet_hour.get("clamps") or {}
@@ -260,6 +279,10 @@ class PromptContextRenderer:
 
         if plan.selected_examples:
             lines.append("## Relevant Persona Examples")
+            lines.append(
+                "[System Notice: Examples illustrate voice, not facts about this conversation. "
+                "Do not copy their circumstances or reenact an example exchange.]"
+            )
             for example in plan.selected_examples:
                 lines.append(example)
                 lines.append("")
