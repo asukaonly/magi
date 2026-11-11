@@ -521,7 +521,7 @@ async def test_model_text_survives_execution_without_bypassing_output_schema(set
         InvocationContext("plugin", TaskContext("s", "t", "task", "local_user"),
                           ToolExecutionContext(agent_id="agent")),
     )
-    executor = _RegisteredToolExecutor(SimpleNamespace(_FILE_SCAN_TOOLS=set()))
+    executor = _RegisteredToolExecutor(SimpleNamespace(_FILE_SCAN_TOOLS=set(), tool_registry=tools))
     call_result = executor._to_tool_call_result(
         SimpleNamespace(start_time=0, tool_name=alias, tool_call=SimpleNamespace(id="call-1")), {}, result,
     )
