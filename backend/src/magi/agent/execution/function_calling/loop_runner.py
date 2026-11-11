@@ -607,7 +607,7 @@ class FunctionCallingLoopRunner:
         if decision.reason_code == "repair_exhausted":
             return True
         return bool(
-            decision.reason_code == "required_plan_incomplete"
+            decision.reason_code in {"required_plan_incomplete", "shell_job_pending"}
             and state.repair_iterations >= run_input.completion_policy.max_repair_iterations
         )
 

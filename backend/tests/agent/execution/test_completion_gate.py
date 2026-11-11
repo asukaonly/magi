@@ -505,3 +505,53 @@ def test_text_plan_can_reference_actual_current_input_or_answer(reference, text_
     assert gate.evaluate(
         **arguments, evidence=[_write("a.py")], **{text_argument: "I wrote the file."}
     ).reason_code == "validation_required"
+
+
+def _shell_job(tool="bash", *, job_id="job-1", status="running", background=False, action=None, code=None, risk="mutating"):
+    result = {
+        "job_id": job_id, "shell_tool": "bash", "status": status,
+        "background_requested": background, "return_code": code,
+        "command_succeeded": code == 0, "timed_out": False, "risk_level": risk,
+    }
+    if action:
+        result["action"] = action
+    if action == "stop" and status == "cancelled":
+        result["stopped"] = True
+    return ToolExecutionEvidence(
+        tool_name=tool, success=True, effect_class="unknown" if tool == "bash" else "read_only",
+        replay_policy="unknown", result=result,
+    )
+
+
+def test_foreground_job_requires_matching_terminal_observation_not_file_check():
+    pending = _shell_job()
+    assert _evaluate([pending, _validation("a.py")]).reason_code == "shell_job_pending"
+    assert _evaluate([pending, _shell_job("shell_job", job_id="other", status="completed", code=0)]).reason_code == "shell_job_pending"
+    assert _evaluate([pending, _shell_job("shell_job", status="cancelled")]).reason_code == "shell_job_pending"
+    assert _evaluate([pending, _shell_job("shell_job", status="completed", code=1)]).outcome is CompletionOutcome.COMPLETE
+
+
+def test_explicit_background_start_and_stop_are_observable_completed_goals():
+    assert _evaluate([_shell_job(background=True)]).outcome is CompletionOutcome.COMPLETE
+    stopped = _shell_job("shell_job", action="stop", status="cancelled")
+    assert _evaluate([_shell_job(), stopped]).outcome is CompletionOutcome.COMPLETE
+    assert _evaluate([_write("a.py"), _shell_job(), _validation("a.py"), stopped]).reason_code == "validation_required"
+    assert _evaluate([_write("a.py"), _shell_job(), stopped, _validation("a.py")]).outcome is CompletionOutcome.COMPLETE
+
+
+def test_formatter_can_replace_written_version_only_with_stable_validation_after_exit():
+    start = _shell_job()
+    finished = _shell_job("shell_job", status="completed", code=0)
+    assert _evaluate([_write("a.py"), start, _validation("a.py", digest="b"), finished]).reason_code == "validation_required"
+    assert _evaluate([_write("a.py"), start, finished, _validation("a.py", digest="b")]).outcome is CompletionOutcome.COMPLETE
+    assert _evaluate([_write("a.py"), _validation("a.py", digest="b")]).reason_code == "validation_required"
+    read_only = _shell_job(status="completed", code=0, risk="read_only")
+    assert _evaluate([_write("a.py"), read_only, _validation("a.py", digest="b")]).reason_code == "validation_required"
+    assert _evaluate([_write("a.py"), _validation("a.py"), read_only]).outcome is CompletionOutcome.COMPLETE
+
+
+@pytest.mark.parametrize("status,reason", [("fail", "validation_failed"), ("skipped", "validation_inconclusive")])
+def test_known_command_exit_does_not_hide_failed_post_mutation_validation(status, reason):
+    command = _shell_job(status="completed", code=0)
+    assert _evaluate([command, _validation("a.py", status)]).reason_code == reason
+    assert _evaluate([_shell_job(status="completed", code=0, risk="read_only"), _validation("a.py", status)]).outcome is CompletionOutcome.COMPLETE

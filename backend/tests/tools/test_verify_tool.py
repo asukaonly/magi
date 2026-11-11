@@ -289,3 +289,23 @@ async def test_absence_requires_explicit_paths_and_does_not_accept_dangling_syml
     )
     assert result.data["results"][0]["status"] == "fail"
     assert result.data["results"][0]["path"] == str(link)
+
+
+@pytest.mark.asyncio
+async def test_shell_written_invalid_file_remains_blocked_after_successful_command_exit(tmp_path):
+    import sys
+    from magi.tools.builtin.bash_tool import BashTool
+
+    if sys.platform == "win32":
+        pytest.skip("Bash is the native POSIX shell")
+    context = _ctx(tmp_path)
+    shell, verify = BashTool(), VerifyTool()
+    changed = await shell.execute({"command": "printf 'def broken(:\\n' > broken.py"}, context)
+    checked = await verify.execute({"mode": "paths", "paths": ["broken.py"]}, context)
+    assert changed.success
+    assert changed.data["return_code"] == 0
+    assert checked.data["summary"]["fail"] == 1
+    assert CompletionGate().evaluate(
+        policy=CompletionPolicy(), evidence=[_tool_evidence(shell, changed), _tool_evidence(verify, checked)],
+        repair_iterations=0,
+    ).reason_code == "validation_failed"
