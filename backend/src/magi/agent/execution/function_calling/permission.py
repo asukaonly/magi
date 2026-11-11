@@ -13,6 +13,7 @@ from magi.skills.active_restrictions import is_call_preapproved, matched_rule
 from magi.skills.allowed_tools_rules import ToolRule, any_rule_matches
 
 from ....tools.schema import ToolErrorCode
+from ..tool_metadata import resolve_tool_capability_metadata
 from .types import ToolCall, ToolCallResult
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,9 @@ class FunctionCallingPermissionMixin:
                 turn_id=turn_id,
                 workspace=workspace,
                 tool_is_dangerous=bool(tool_info.get("dangerous", False)),
+                tool_effect_class=resolve_tool_capability_metadata(
+                    host.tool_registry, tool_name, arguments=arguments
+                ).effect_class.value,
                 tool_risk_level=tool_metadata.get("permission_risk"),
                 tool_risk_authoritative=bool(
                     tool_metadata.get("permission_risk_authoritative", False)

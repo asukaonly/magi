@@ -33,6 +33,7 @@ from ..control.permission.contracts import (
     PermissionRequest,
     ToolOrigin,
 )
+from ..agent.execution.tool_metadata import resolve_tool_capability_metadata
 from magi.chat.provider import require_chat_surface_write_service
 from ..core.tool_context import ToolExecutionContext
 from ..tools.capabilities import build_tool_capabilities
@@ -315,6 +316,9 @@ class CommandRunner:
                 turn_id=turn_id,
                 workspace=workspace,
                 tool_is_dangerous=bool(info.get("dangerous", False)),
+                tool_effect_class=resolve_tool_capability_metadata(
+                    self._registry, tool_name, arguments=arguments
+                ).effect_class.value,
                 tool_risk_level=metadata.get("permission_risk"),
                 tool_risk_authoritative=bool(
                     metadata.get("permission_risk_authoritative", False)

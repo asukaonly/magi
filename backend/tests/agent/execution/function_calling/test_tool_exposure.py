@@ -21,6 +21,7 @@ from magi.agent.execution.function_calling.tool_exposure import refresh_contextu
 from magi.agent.execution.function_calling.tools import build_tools_parameter
 from magi.agent.execution.model_capabilities import ModelCapabilityProfile
 from magi.agent.execution.reasoning import ReasoningState
+from magi.agent.execution.tool_metadata import resolve_tool_capability_metadata
 from magi.agent.turn_input import UserTurnInput
 from magi.config.models import ThinkingDepth
 from magi.control.session_store import ControlSessionStore
@@ -178,7 +179,7 @@ async def test_child_and_toolless_models_do_not_gain_chat_controls(runtime):
 
 @pytest.mark.asyncio
 async def test_plan_mode_allows_discovery_and_queries_but_blocks_writes(runtime):
-    _, store, _ = runtime
+    host, store, _ = runtime
     await store.enter_plan_mode("session-a")
     for name in (
         "web-search",
@@ -189,9 +190,11 @@ async def test_plan_mode_allows_discovery_and_queries_but_blocks_writes(runtime)
         "task_query",
         "trace_query",
     ):
-        assert store.plan_allows("session-a", name)
+        effect = resolve_tool_capability_metadata(host.tool_registry, name).effect_class.value
+        assert store.plan_allows("session-a", name, effect)
     for name in ("file_write", "bash", "batch_create", "schedule"):
-        assert not store.plan_allows("session-a", name)
+        effect = resolve_tool_capability_metadata(host.tool_registry, name).effect_class.value
+        assert not store.plan_allows("session-a", name, effect)
 
 
 @pytest.mark.asyncio
