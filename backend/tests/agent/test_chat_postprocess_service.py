@@ -60,10 +60,11 @@ from magi.personality.interaction_batch_analyzer import BatchInteractionAnalysis
 from magi.personality.models import SatisfactionLevel
 from magi.personality.emotional_state import EngagementLevel, InteractionOutcome
 from magi.runtime_trace.store import RuntimeTraceStore
+from magi.utils.runtime import RuntimePaths
 
 
 async def _managed_test_attachment(
-    chat_store: ChatStore,
+    runtime_paths: RuntimePaths,
     *,
     session_id: str,
     turn_id: str,
@@ -73,7 +74,7 @@ async def _managed_test_attachment(
     include_mime_and_size: bool = False,
 ) -> dict[str, object]:
     target_path = (
-        chat_store._runtime_paths.chat_images_dir
+        runtime_paths.chat_images_dir
         / session_id
         / turn_id
         / f"{attachment_id}__{original_name}"
@@ -1236,7 +1237,9 @@ async def test_outcome_writer_does_not_complete_turn_before_final_is_saved(
 
 
 @pytest.mark.asyncio
-async def test_outcome_writer_persists_assistant_message_payload(chat_store: ChatStore) -> None:
+async def test_outcome_writer_persists_assistant_message_payload(
+    chat_store: ChatStore, runtime_paths_with_schema: RuntimePaths,
+) -> None:
     writer = ChatOutcomeWriter(
         chat_store=chat_store,
         trace_id_factory=lambda turn_id: f"trace:{turn_id}",
@@ -1249,7 +1252,7 @@ async def test_outcome_writer_persists_assistant_message_payload(chat_store: Cha
         created_at_ms=1710000000000,
     )
     attachment = await _managed_test_attachment(
-        chat_store,
+        runtime_paths_with_schema,
         session_id="session-1",
         turn_id="turn-asset-refs",
         attachment_id="att-1",
@@ -1288,7 +1291,9 @@ async def test_outcome_writer_persists_assistant_message_payload(chat_store: Cha
 
 
 @pytest.mark.asyncio
-async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatStore) -> None:
+async def test_outcome_writer_persists_segmented_chat_outcome(
+    chat_store: ChatStore, runtime_paths_with_schema: RuntimePaths,
+) -> None:
     writer = ChatOutcomeWriter(
         chat_store=chat_store,
         trace_id_factory=lambda turn_id: f"trace:{turn_id}",
@@ -1301,7 +1306,7 @@ async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatSt
         created_at_ms=1710000000000,
     )
     attachment = await _managed_test_attachment(
-        chat_store,
+        runtime_paths_with_schema,
         session_id="session-1",
         turn_id="turn-rhythm",
         attachment_id="att-1",
@@ -1711,7 +1716,9 @@ async def trace_event_bus(runtime_trace_store):
 
 @pytest.fixture
 async def chat_store(runtime_paths_with_schema):
-    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    store = ChatStore(
+        db_path=str(runtime_paths_with_schema.chat_db_path), runtime_paths=runtime_paths_with_schema,
+    )
     await store.initialize()
     try:
         yield store
@@ -3139,10 +3146,10 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
 
 @pytest.mark.asyncio
 async def test_streamed_completion_notifies_the_persisted_attachment_and_unlocks_input(
-    runtime_trace_store, chat_store
+    runtime_trace_store, chat_store, runtime_paths_with_schema,
 ):
 
-    read_service = build_chat_reader(runtime_paths=chat_store._runtime_paths)
+    read_service = build_chat_reader(runtime_paths=runtime_paths_with_schema)
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         context_assembler=_FakeContextAssembler(),
@@ -3157,7 +3164,7 @@ async def test_streamed_completion_notifies_the_persisted_attachment_and_unlocks
     turn_id = "turn-streamed"
     await _create_admitted_user_turn(chat_store, turn_id=turn_id, message_text="Tell me a joke.")
     attachment = await _managed_test_attachment(
-        chat_store,
+        runtime_paths_with_schema,
         session_id="session-1",
         turn_id=turn_id,
         attachment_id="att-streamed",
@@ -4568,7 +4575,7 @@ async def test_segmented_notification_failure_keeps_rhythm_without_duplicate_fin
 
 @pytest.mark.asyncio
 async def test_sticker_reply_persists_and_delivers_an_image_without_control_text(
-    runtime_trace_store, chat_store, monkeypatch,
+    runtime_trace_store, chat_store, runtime_paths_with_schema, monkeypatch,
 ):
     import io
     from pathlib import Path
@@ -4576,12 +4583,12 @@ async def test_sticker_reply_persists_and_delivers_an_image_without_control_text
     from magi.chat.stickers import ChatStickerLibrary
     import magi.chat.task_agent.postprocess_service as postprocess_module
 
-    library = ChatStickerLibrary(chat_store._runtime_paths)
+    library = ChatStickerLibrary(runtime_paths_with_schema)
     monkeypatch.setattr(postprocess_module, "ChatStickerLibrary", lambda: library)
     image = io.BytesIO()
     Image.new("RGB", (2, 2), "red").save(image, format="PNG")
     source_attachment = await _managed_test_attachment(
-        chat_store, session_id="source", turn_id="source-turn", attachment_id="source-image",
+        runtime_paths_with_schema, session_id="source", turn_id="source-turn", attachment_id="source-image",
         original_name="smile.png", content=image.getvalue(), include_mime_and_size=True,
     )
     sticker = await run_chat_asset_mutation(
@@ -4619,7 +4626,7 @@ async def test_sticker_reply_persists_and_delivers_an_image_without_control_text
     assert payload["sticker"] == sticker
     assert len(payload["attachments"]) == 1
     assert "storage_path" not in payload["attachments"][0]
-    reader = build_chat_reader(runtime_paths=chat_store._runtime_paths)
+    reader = build_chat_reader(runtime_paths=runtime_paths_with_schema)
     attachment = await reader.aget_attachment_payload(
         "local_user", "session-1", payload["attachments"][0]["attachment_id"],
     )
