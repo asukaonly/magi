@@ -405,6 +405,13 @@ class FunctionCallingToolBatchExecutor:
             )
         if not result.success:
             self._record_tool_failure(state, record)
+        elif result.effect_metadata is not None and result.effect_metadata.effect_class is not ToolEffectClass.READ_ONLY:
+            # A successful mutation can repair the preconditions of earlier failures.
+            # Authorization and the effect ledger still govern every new invocation.
+            state.failed_tool_call_fingerprints.clear()
+            state.failure_signature_counts.clear()
+            state.suppressed_tool_names.difference_update(state.repeated_blocker_tool_names)
+            state.repeated_blocker_tool_names.clear()
         await self._journal.record_execution(
             state=state,
             record=record,

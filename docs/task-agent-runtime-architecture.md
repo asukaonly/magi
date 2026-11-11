@@ -750,8 +750,11 @@ inside a web page. The exact model observation is still journaled for replay.
 An `INVALID_PARAMETERS` result rejects that invocation, not the tool for the
 whole run. Corrected arguments remain eligible even when several calls in one
 model response fail validation before the model can see the errors. Identical
-failed calls are still blocked by their argument fingerprints; consecutive
-failed model iterations and the run budget bound further repair attempts.
+failed calls are blocked while their preconditions remain unchanged. A successful
+mutation clears failed-call and repeated-error suppression, allowing the model to
+recheck repaired state. Permission denials and ambiguous effect replay remain
+governed by their owning boundaries; consecutive failed model iterations and the
+run budget bound further repair attempts.
 Provider challenges, missing provider configuration, and other terminal tool
 conditions retain their existing suppression policy.
 
@@ -793,9 +796,17 @@ schedules does not create a write-validation obligation, while mutations retain
 their declared effect and replay restrictions.
 Exact failed-call suppression exempts transient failures only when the executed
 operation is explicitly read-only and safely replayable. Terminal/non-retryable
-results, writes, unknown effects, and invalid arguments retain suppression. The
+results, writes, unknown effects, and invalid arguments retain suppression until
+a successful mutation changes the execution state. The
 failed-iteration and task budgets still bound read retries; execution guidance
 uses the same distinction.
+
+Native shell commands with a normal exit return a successful tool observation
+containing `return_code` and `command_succeeded`, including nonzero exits. Test
+failures are therefore available for diagnosis and a new invocation after repair,
+without being mistaken for uncertain effects. A replay of the same call identity
+is still blocked; timeouts, cancellation, and execution infrastructure failures
+retain their failure and uncertainty handling.
 
 `PreToolUse` hooks run before final invocation authorization. Registry-backed
 agent calls reapply worker guardrails and argument normalization to the hook's

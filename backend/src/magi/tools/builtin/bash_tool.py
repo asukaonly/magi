@@ -240,6 +240,7 @@ def _bounded_output_data(output: _ShellOutput) -> dict[str, Any]:
             str(process.stderr.spill_path) if process.stderr.spill_path is not None else None
         ),
         "timed_out": process.timed_out,
+        "command_succeeded": not process.timed_out and process.returncode == 0,
     }
 
 
@@ -418,10 +419,7 @@ class BashTool(Tool):
                 data=result_data,
             )
         return ToolResult(
-            success=output.process.returncode == 0,
+            # A nonzero exit is an observation, not an ambiguous invocation.
+            success=True,
             data=result_data,
-            error=output.stderr if output.process.returncode != 0 else None,
-            error_code=(
-                ToolErrorCode.COMMAND_FAILED.value if output.process.returncode != 0 else None
-            ),
         )

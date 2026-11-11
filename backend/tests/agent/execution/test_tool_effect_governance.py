@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -76,6 +77,30 @@ def _context(*, with_identity: bool = True) -> InvocationContext:
 @pytest.fixture
 def ledger(runtime_paths_with_schema) -> BackgroundTaskStore:
     return BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name == "nt", reason="Bash runs on POSIX hosts")
+async def test_failed_command_can_be_reissued_after_repair_without_replaying_call(ledger, tmp_path):
+    from magi.tools.builtin.bash_tool import BashTool
+    from magi.tools.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    registry.register(BashTool)
+    service = ToolInvocationService(registry, effect_ledger=ledger, require_effect_ledger=True)
+    ctx = _context()
+    ctx.execution_context.workspace = str(tmp_path)
+    ctx.execution_context.permissions = ["dangerous_tools"]
+    call = ToolCall("bash", {"command": "test -f repaired", "cwd": str(tmp_path)})
+    first = await service.invoke(call, ctx)
+    assert first.success and first.data["command_succeeded"] is False
+    assert first.data["return_code"] == 1
+    replay = await service.invoke(call, ctx)
+    assert replay.error_code == "TOOL_EFFECT_ALREADY_COMPLETED"
+    (tmp_path / "repaired").write_text("fixed")
+    ctx.execution_context.env_vars["trace_tool_call_id"] = "call-2"
+    second = await service.invoke(call, ctx)
+    assert second.success and second.data["command_succeeded"] is True
 
 
 @pytest.mark.asyncio

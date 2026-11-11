@@ -105,6 +105,49 @@ def _build_orchestrator() -> FunctionCallingOrchestrator:
 
 
 @pytest.mark.asyncio
+async def test_successful_mutation_allows_retrying_repaired_preconditions(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+    from magi.agent.execution.tool_effects import ToolEffectReplayPolicy
+    from magi.agent.execution.tool_metadata import ToolCapabilityMetadata, ToolEffectClass
+
+    host = _build_orchestrator()
+    state = host.build_step_state(
+        turn=UserTurnInput(text="Create the missing file and inspect it", attachments=[], user_id=None, session_id=None),
+        system_prompt="system", selected_tools=[], conversation_history=[],
+    )
+    state.tools = [{"type": "function", "function": {"name": name}}
+                   for name in ("file_read", "file_write")]
+    read = ToolCall(id="read-1", name="file_read", arguments={"path": "new.txt"})
+    write = ToolCall(id="write", name="file_write", arguments={"path": "new.txt", "content": "saved"})
+    retry = ToolCall(id="read-2", name="file_read", arguments=dict(read.arguments))
+    mutation = ToolCapabilityMetadata(
+        name="file_write", effect_class=ToolEffectClass.LOCAL_WRITE,
+        replay_policy=ToolEffectReplayPolicy.RECONCILABLE, permission_class="standard",
+    )
+    invoke = AsyncMock(side_effect=[
+        ToolCallResult(tool_call_id=read.id, tool_name=read.name, success=False,
+                       error="Missing file", error_code="FILE_NOT_FOUND"),
+        ToolCallResult(tool_call_id=write.id, tool_name=write.name, success=True,
+                       data={"saved": True}, effect_metadata=mutation),
+        ToolCallResult(tool_call_id=retry.id, tool_name=retry.name, success=True,
+                       data={"content": "saved"}),
+    ])
+    monkeypatch.setattr(host, "_execute_tool_call", invoke)
+    monkeypatch.setattr(host, "_call_llm_with_tools", AsyncMock(side_effect=[
+        {"tool_calls": [call]} for call in (read, write, retry)
+    ]))
+    for _ in range(3):
+        outcome = await host.step_executor.execute_step(
+            state=state, user_message="Create the missing file", user_id="user", session_id="session",
+            run_id="run", turn_id="turn", execution_preset="chat", execution_agent_id="chat",
+        )
+    assert invoke.await_count == 3
+    assert outcome.status == "continue"
+    assert "saved" in state.messages[-1]["content"]
+    assert not state.failed_tool_call_fingerprints
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("effect,replay,error_code,terminal,retry_allowed", [
     ("read_only", "read_only", "TIMEOUT", False, True),
     ("read_only", "read_only", "RATE_LIMITED", False, True),

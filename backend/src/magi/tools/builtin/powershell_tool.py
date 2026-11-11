@@ -299,12 +299,8 @@ class PowerShellTool(Tool):
                 data=result_data,
             )
         return ToolResult(
-            success=output.process.returncode == 0,
+            success=True,
             data=result_data,
-            error=output.stderr if output.process.returncode != 0 else None,
-            error_code=(
-                ToolErrorCode.COMMAND_FAILED.value if output.process.returncode != 0 else None
-            ),
         )
 
     @staticmethod
