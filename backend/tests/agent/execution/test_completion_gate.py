@@ -71,24 +71,24 @@ def test_empty_or_unidentified_validation_is_inconclusive(result) -> None:
     "later", [_validation("b.py"), _validation("a.py", verifier="other_check")]
 )
 def test_unrelated_success_cannot_clear_failed_check(later) -> None:
-    assert _evaluate([_validation("a.py", "fail"), later]).reason_code == "validation_failed"
+    assert _evaluate([_write("a.py"), _validation("a.py", "fail"), later]).reason_code == "validation_failed"
 
 
 def test_failures_are_resolved_per_target_across_separate_calls() -> None:
-    evidence = [_validation("a.py", "fail"), _validation("b.py", "fail"), _validation("b.py")]
+    evidence = [_write("a.py"), _write("b.py"), _validation("a.py", "fail"), _validation("b.py", "fail"), _validation("b.py")]
     assert _evaluate(evidence).reason_code == "validation_failed"
     assert _evaluate([*evidence, _validation("a.py")]).outcome is CompletionOutcome.COMPLETE
 
 
 def test_timeout_cannot_erase_a_failed_check() -> None:
     assert (
-        _evaluate([_validation("a.py", "fail"), _validation("a.py", "timeout")]).reason_code
+        _evaluate([_write("a.py"), _validation("a.py", "fail"), _validation("a.py", "timeout")]).reason_code
         == "validation_failed"
     )
 
 
 def test_unknown_verifier_can_be_replaced_by_real_check_of_same_path() -> None:
-    evidence = [_validation("a.py", "skipped", verifier="(none)")]
+    evidence = [_write("a.py"), _validation("a.py", "skipped", verifier="(none)")]
     assert _evaluate([*evidence, _validation("b.py")]).reason_code == "validation_inconclusive"
     assert _evaluate([*evidence, _validation("a.py")]).outcome is CompletionOutcome.COMPLETE
 
@@ -114,8 +114,8 @@ def test_unidentified_pass_cannot_be_repaired_by_another_target() -> None:
         tool_name="verify", success=True, effect_class="read_only", replay_policy="read_only",
         result={"results": [{"path": "a.py", "status": "pass", "verifier": "py_compile"}]},
     )
-    assert _evaluate([unidentified, _validation("b.py")]).reason_code == "validation_inconclusive"
-    assert _evaluate([unidentified, _validation("a.py")]).outcome is CompletionOutcome.COMPLETE
+    assert _evaluate([_write("a.py"), unidentified, _validation("b.py")]).reason_code == "validation_inconclusive"
+    assert _evaluate([_write("a.py"), unidentified, _validation("a.py")]).outcome is CompletionOutcome.COMPLETE
 
 
 def test_unknown_effect_requires_rechecking_declared_files() -> None:
@@ -151,6 +151,36 @@ def test_chat_without_effects_completes() -> None:
 
     assert decision.outcome is CompletionOutcome.COMPLETE
     assert decision.reason_code == "evidence_satisfied"
+
+
+@pytest.mark.parametrize("status", ["fail", "skipped", "timeout"])
+def test_read_only_diagnostic_can_report_unsuccessful_checks(status) -> None:
+    decision = _evaluate([_validation("a.py", status)])
+    assert decision.outcome is CompletionOutcome.COMPLETE
+
+
+@pytest.mark.parametrize("code", [0, 1])
+def test_normal_command_exit_can_be_reported_without_file_verification(code) -> None:
+    command = ToolExecutionEvidence(
+        tool_name="bash", success=True, effect_class="unknown", replay_policy="unknown",
+        result={"return_code": code, "command_succeeded": code == 0, "timed_out": False},
+    )
+    assert _evaluate([command]).outcome is CompletionOutcome.COMPLETE
+    assert _evaluate([_write("a.py"), _validation("a.py"), command]).reason_code == "validation_required"
+    assert _evaluate([_write("a.py"), command, _validation("a.py")]).outcome is CompletionOutcome.COMPLETE
+
+
+@pytest.mark.parametrize("tool,result", [
+    ("plugin", {"return_code": 0, "command_succeeded": True, "timed_out": False}),
+    ("bash", {"return_code": 0, "command_succeeded": True, "timed_out": True}),
+    ("bash", {"return_code": 1, "command_succeeded": True, "timed_out": False}),
+    ("bash", {"status": "running"}),
+])
+def test_unknown_effect_without_trusted_terminal_receipt_still_requires_validation(tool, result) -> None:
+    command = ToolExecutionEvidence(
+        tool_name=tool, success=True, effect_class="unknown", replay_policy="unknown", result=result,
+    )
+    assert _evaluate([command]).reason_code == "validation_required"
 
 
 def test_local_write_requires_validation() -> None:
@@ -218,6 +248,7 @@ def test_unsuccessful_validation_requests_repair(status, reason_code, reasoning_
     decision = CompletionGate().evaluate(
         policy=CompletionPolicy(),
         evidence=[
+            _write("/workspace/a.py"),
             ToolExecutionEvidence(
                 tool_name="verify",
                 success=True,

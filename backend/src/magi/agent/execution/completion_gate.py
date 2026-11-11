@@ -47,8 +47,19 @@ class CompletionGate:
         if plan_decision is not None:
             return plan_decision
 
+        guarded_effects = [
+            item for item in evidence
+            if item.success and (
+                (item.effect_class == "local_write" and policy.require_local_write_validation)
+                or (
+                    item.effect_class == "unknown"
+                    and policy.require_unknown_effect_validation
+                    and not _completed_command(item)
+                )
+            )
+        ]
         failed_validation = failed_validation_evidence(
-            evidence,
+            evidence if guarded_effects else [],
             validation_tool_names=policy.validation_tool_names,
         )
         successful_validation = successful_validation_evidence(
@@ -56,7 +67,7 @@ class CompletionGate:
             validation_tool_names=policy.validation_tool_names,
         )
         inconclusive_validation = inconclusive_validation_evidence(
-            evidence,
+            evidence if guarded_effects else [],
             validation_tool_names=policy.validation_tool_names,
         )
         if unresolved_validations(failed_validation, evidence, successful_validation):
@@ -98,16 +109,6 @@ class CompletionGate:
                 reasoning_helpful=False,
             )
 
-        local_writes = [
-            item for item in evidence if item.success and item.effect_class == "local_write"
-        ]
-        unknown_effects = [
-            item for item in evidence if item.success and item.effect_class == "unknown"
-        ]
-        guarded_effects = [
-            *(local_writes if policy.require_local_write_validation else []),
-            *(unknown_effects if policy.require_unknown_effect_validation else []),
-        ]
         last_guarded_effect_index = max(
             (index for index, item in enumerate(evidence) if item in guarded_effects),
             default=-1,
@@ -148,6 +149,19 @@ class CompletionGate:
 __all__ = ["CompletionGate"]
 
 
+def _completed_command(item: ToolExecutionEvidence) -> bool:
+    """Accept an actual shell exit receipt, without claiming file integrity."""
+    if item.tool_name not in {"bash", "powershell"} or not isinstance(item.result, dict):
+        return False
+    code = item.result.get("return_code")
+    return (
+        item.success
+        and type(code) is int
+        and item.result.get("command_succeeded") is (code == 0)
+        and item.result.get("timed_out") is False
+    )
+
+
 def _effects_have_current_validation(
     evidence: list[ToolExecutionEvidence],
     guarded_effects: list[ToolExecutionEvidence],
@@ -172,7 +186,13 @@ def _effects_have_current_validation(
         if item in successful_validation
         for row in validation_checks(item)
     ]
-    last_unscoped_effect = max(unscoped_effects, default=-1)
+    # A completed command may still alter a file declared by an earlier write.
+    last_unscoped_effect = max(
+        [*unscoped_effects, *(
+            index for index, item in enumerate(evidence) if _completed_command(item)
+        )],
+        default=-1,
+    )
     return all(
         any(index > effect_index for index, _ in checks) for effect_index in unscoped_effects
     ) and all(

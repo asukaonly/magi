@@ -545,7 +545,7 @@ class FunctionCallingLoopRunner:
             )
         return ExecutionOutcome(
             status="blocked",
-            content=_blocked_outcome_message(decision),
+            content=_blocked_outcome_message(decision, step_outcome.content),
             failure_reason=decision.reason_code,
             error_text=" ".join(decision.observations),
             tool_failures=list(state.tool_failures),
@@ -583,7 +583,10 @@ class FunctionCallingLoopRunner:
                 state,
                 ExecutionOutcome(
                     status="failed",
-                    content="",
+                    content=_partial_outcome_message(
+                        "The task budget ended before required completion repair.",
+                        outcome.content,
+                    ),
                     failure_reason="repair_budget_unavailable",
                     error_text="The task budget ended before required completion repair.",
                     tool_failures=list(state.tool_failures),
@@ -701,9 +704,17 @@ def _build_completed_outcome(
     )
 
 
-def _blocked_outcome_message(decision: CompletionDecision) -> str:
+def _blocked_outcome_message(decision: CompletionDecision, content: str = "") -> str:
     detail = " ".join(item.strip() for item in decision.observations if item.strip())
-    return detail or f"The runtime blocked completion: {decision.reason_code}."
+    return _partial_outcome_message(
+        detail or f"The runtime blocked completion: {decision.reason_code}.", content
+    )
+
+
+def _partial_outcome_message(reason: str, content: str) -> str:
+    if not content.strip():
+        return reason
+    return f"{reason}\n\nPartial result (completion not verified):\n{content}"
 
 
 def _build_cancelled_outcome(
