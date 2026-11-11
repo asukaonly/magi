@@ -371,3 +371,28 @@ class TestFindRelevantToolsTool:
         assert first.data["discovery_metrics"]["cache_hit"] is False
         assert second.data["discovery_metrics"]["cache_hit"] is False
         assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_discovery_honors_requested_limit_above_two(self, tmp_path) -> None:
+        from magi.skills.schema import SkillMetadata
+        from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
+        from magi.tools.registry import ToolRegistry
+
+        registry = ToolRegistry()
+        registry.register(FindRelevantToolsTool)
+        names = ["calendar-availability", "calendar-events", "calendar-meetings", "calendar-rooms"]
+        registry.register_skill_index({
+            name: SkillMetadata(
+                name=name, description="Find calendar availability, events, meetings, and rooms.",
+                directory=tmp_path, category="calendar", tags=["calendar", "availability"],
+            ) for name in names
+        })
+
+        result = await registry.execute(
+            "find-relevant-tools", {"query": "calendar availability", "limit": 4},
+            _make_context_with_memory_query(),
+        )
+
+        assert result.success is True
+        assert set(result.data["tool_expansion"]["append_tools"]) == set(names)
+        assert result.data["discovery_metrics"]["recommended_count"] == 4

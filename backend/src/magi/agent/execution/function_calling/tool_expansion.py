@@ -18,10 +18,6 @@ def apply_tool_expansion_from_results(
     state: FunctionCallingStepState,
     tool_results: list[Any],
 ) -> list[str]:
-    if state.tool_expansion_count >= host._MAX_TOOL_EXPANSIONS_PER_TURN:
-        if _collect_requested_tool_names(tool_results):
-            _record_rejection(state, "The tool discovery expansion budget is exhausted.")
-        return []
     raw_append_tools = _collect_requested_tool_names(tool_results)
     if not raw_append_tools:
         return []
@@ -30,13 +26,11 @@ def apply_tool_expansion_from_results(
         host,
         raw_append_tools=raw_append_tools,
         known_names=set(state.selected_tool_names),
-        max_additions=int(host._MAX_TOOLS_PER_EXPANSION),
     )
     additions = _ensure_validation_companion(
         host,
         additions=additions,
         selected_names=set(state.selected_tool_names),
-        max_additions=int(host._MAX_TOOLS_PER_EXPANSION),
     )
     if not additions:
         return []
@@ -89,7 +83,6 @@ def _ensure_validation_companion(
     *,
     additions: list[str],
     selected_names: set[str],
-    max_additions: int,
 ) -> list[str]:
     if not additions or "verify" in selected_names:
         return additions
@@ -104,23 +97,7 @@ def _ensure_validation_companion(
     verify_name = _normalize_known_tool_name(host, "verify")
     if verify_name is None or verify_name in additions:
         return additions
-    if max_additions < 2:
-        return []
-    # Verification is a policy companion, so it displaces the lowest-ranked
-    # read-only capability when the bounded expansion is already full. A tool
-    # that created the validation obligation must never be the displaced item.
-    admitted = list(additions)
-    if len(admitted) >= max_additions:
-        drop_index = next(
-            (
-                index
-                for index in range(len(admitted) - 1, -1, -1)
-                if admitted[index] not in validation_required
-            ),
-            len(admitted) - 1,
-        )
-        admitted.pop(drop_index)
-    return [*admitted, verify_name]
+    return [*additions, verify_name]
 
 
 def _filter_known_additions(
@@ -128,12 +105,9 @@ def _filter_known_additions(
     *,
     raw_append_tools: list[str],
     known_names: set[str],
-    max_additions: int,
 ) -> list[str]:
     additions: list[str] = []
     for raw_name in raw_append_tools:
-        if len(additions) >= max_additions:
-            break
         normalized = _normalize_known_tool_name(host, raw_name)
         if normalized is None or normalized in known_names:
             continue
