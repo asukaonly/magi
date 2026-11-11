@@ -7,6 +7,7 @@ and provider implementations remain backend-owned.
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from enum import Enum
@@ -610,7 +611,7 @@ class MultiProviderTool(Tool):
                 error=str(e),
                 error_code="INVALID_CONFIG",
             )
-        except TimeoutError as e:
+        except (TimeoutError, asyncio.TimeoutError) as e:
             return ToolResult(
                 success=False,
                 error=str(e) or "Provider request timed out",

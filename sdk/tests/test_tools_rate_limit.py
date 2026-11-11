@@ -1,5 +1,7 @@
 """Tests for provider rate-limit projection in SDK tool results."""
 
+import asyncio
+
 import pytest
 from magi_plugin_sdk.tools import MultiProviderTool, ToolSchema
 
@@ -46,10 +48,11 @@ async def test_multi_provider_tool_projects_rate_limit_metadata() -> None:
 
 
 @pytest.mark.asyncio
-async def test_multi_provider_tool_preserves_timeout_classification(monkeypatch) -> None:
+@pytest.mark.parametrize("timeout_type", [TimeoutError, asyncio.TimeoutError])
+async def test_multi_provider_tool_preserves_timeout_classification(monkeypatch, timeout_type) -> None:
     from unittest.mock import AsyncMock
 
-    monkeypatch.setattr(_Provider, "execute", AsyncMock(side_effect=TimeoutError()))
+    monkeypatch.setattr(_Provider, "execute", AsyncMock(side_effect=timeout_type()))
     result = await _Tool().execute_with_provider("limited", {})
 
     assert result.success is False
