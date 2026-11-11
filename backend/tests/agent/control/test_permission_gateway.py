@@ -104,12 +104,15 @@ async def test_permission_mode_risk_matrix(mode, tool, arguments, prompted):
 
 
 @pytest.mark.asyncio
-async def test_off_mode_still_blocks_kill_list() -> None:
+@pytest.mark.parametrize("command", [
+    "rm -rf /", "rm -rf /tmp/project /", "rm -f /tmp/file /usr/bin/foo",
+])
+async def test_off_mode_still_blocks_kill_list(command: str) -> None:
     prompter = _StubPrompter(UserPromptResponse(allow=True))
     gateway, _ = await _make_gateway(mode=PermissionMode.OFF, prompter=prompter)
     decision = await gateway.gate(
         tool_name="bash",
-        arguments={"command": "rm -rf /"},
+        arguments={"command": command},
         agent_id="a1",
     )
     assert decision.outcome is PermissionOutcome.KILL_LISTED
