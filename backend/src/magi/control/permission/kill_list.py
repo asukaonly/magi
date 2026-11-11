@@ -16,6 +16,7 @@ criteria tight.
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -82,7 +83,7 @@ _RE_RM_ROOT = re.compile(
     \brm\s+                         # rm
     (?:-[A-Za-z]*[rRf][A-Za-z]*\s+)+ # one or more flags including -r/-R and -f (any order)
     (?:--no-preserve-root\s+)?      # optional explicit override
-    (?:/|/\*|/\s*$|/\s*;|~/?\s*$)   # the target: bare root or ~
+    ["']?(?:/\*?|~/?)["']?(?=\s|[;&|)]|$) # a complete root target, not a subtree
     """,
     re.VERBOSE,
 )
@@ -181,16 +182,58 @@ def _match_shell_system_write(args: dict[str, Any]) -> bool:
     cmd = _command_text(args)
     if not cmd:
         return False
-    # Only match when a redirect or write command targets a system path.
-    # Accepted indicators: `> /System/...`, `>> /System/...`,
-    # `tee /System/...`, `cp ... /System/...`.
-    if not re.search(r">>?\s*/(?:System|usr/s?bin|sbin|bin)/", cmd):
-        if not re.search(
-            r"\b(?:tee|cp|mv|install|ln)\b[^\n]*?\s/(?:System|usr/s?bin|sbin|bin)/",
-            cmd,
-        ):
-            return False
-    return True
+    try:
+        lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";&|()<>\n")
+        lexer.whitespace = " \t\r"
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return False
+
+    stage: list[str] = []
+    for token in [*tokens, ";"]:
+        if token and all(char in ";&|()\n" for char in token):
+            if _stage_writes_system_path(stage):
+                return True
+            stage = []
+        else:
+            stage.append(token)
+    return False
+
+
+def _stage_writes_system_path(tokens: list[str]) -> bool:
+    def protected(path: str) -> bool:
+        return path.startswith(_SYSTEM_PATH_PREFIXES) or path in {
+            prefix.rstrip("/") for prefix in _SYSTEM_PATH_PREFIXES
+        }
+
+    arguments: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token and all(char in "<>" for char in token):
+            target = tokens[index + 1] if index + 1 < len(tokens) else ""
+            if ">" in token and protected(target):
+                return True
+            index += 2
+            continue
+        arguments.append(token)
+        index += 1
+
+    for index, command in enumerate(arguments):
+        if command not in {"tee", "cp", "mv", "install", "ln"}:
+            continue
+        operands = arguments[index + 1:]
+        if command in {"tee", "mv"} or (command == "install" and "-d" in operands):
+            return any(protected(value) for value in operands)
+        for position, value in enumerate(operands):
+            if value in {"-t", "--target-directory"}:
+                return position + 1 < len(operands) and protected(operands[position + 1])
+            if value.startswith("--target-directory="):
+                return protected(value.partition("=")[2])
+        # Copying or linking an OS-owned source does not mutate that source.
+        return bool(operands) and protected(operands[-1])
+    return False
 
 
 # File-tool predicates: protect system paths for dedicated write / edit tools.

@@ -15,6 +15,8 @@ from magi.control.permission.kill_list import check_kill_list
         ("bash", {"command": "rm -rf --no-preserve-root /"}, "rm_rf_root"),
         ("bash", {"command": "rm -fr /"}, "rm_rf_root"),
         ("bash", {"command": "rm -rf ~"}, "rm_rf_root"),
+        ("bash", {"command": 'rm -rf "/"; echo done'}, "rm_rf_root"),
+        ("bash", {"command": "rm -rf /*"}, "rm_rf_root"),
         ("shell", {"command": "rm -rf /"}, "rm_rf_root"),
         ("powershell", {"command": "rm -rf /"}, "remove_item_root"),
         (
@@ -87,6 +89,18 @@ from magi.control.permission.kill_list import check_kill_list
             {"command": "cp malware /System/Library/CoreServices/evil"},
             "shell_write_to_system_path",
         ),
+        *[("bash", {"command": command}, "shell_write_to_system_path") for command in [
+            "cp local-file /usr/bin",
+            "cp local-file /usr/bin/tool > /tmp/copy.log",
+            "cp -t /usr/bin local-file",
+            "cp --target-directory=/usr/bin local-file",
+            "ln -s /tmp/tool /usr/bin/tool",
+            "mv /usr/bin/tool /tmp/tool",
+            "tee /tmp/log /usr/bin/tool",
+            "install -d /usr/bin/new-directory /tmp/new-directory",
+            "echo ok; cp local-file /usr/bin/tool",
+            "echo ok\ncp local-file /usr/bin/tool",
+        ]],
         # file tools writing system path
         (
             "file_write",
@@ -112,6 +126,17 @@ def test_kill_list_matches(tool: str, args: dict, expected_key: str) -> None:
         # Legitimate dev commands must NOT hit the kill list.
         ("bash", {"command": "rm -rf ./node_modules"}),
         ("bash", {"command": "rm -rf target/debug/"}),
+        *[("bash", {"command": command}) for command in [
+            "rm -rf /tmp/project/build",
+            "rm -f /tmp/project/old.txt",
+            "rm -rf ~/project/build",
+            "cp /usr/bin/python3 /tmp/local-python",
+            "cp '/usr/bin/python3' '/tmp/local python'",
+            "ln -s /usr/bin/python3 /tmp/python",
+            "cp -t /tmp /usr/bin/python3",
+            "cp --target-directory=/tmp /usr/bin/python3",
+            "install -m 755 /usr/bin/python3 /tmp/python",
+        ]],
         ("bash", {"command": "git push --force origin feature/x"}),
         ("bash", {"command": "sudo apt-get install ripgrep"}),
         ("bash", {"command": "curl https://example.com/page.html"}),
