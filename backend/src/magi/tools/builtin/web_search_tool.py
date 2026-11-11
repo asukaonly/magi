@@ -412,12 +412,12 @@ class WebSearchTool(MultiProviderTool):
             ),
             error_code=ToolErrorCode.NO_PROVIDERS_CONFIGURED.value,
             data={
-                "next_action": "ask_user_to_configure_api_key",
+                "next_action": "use_available_alternative_tools",
                 "retryable": False,
                 "terminal": True,
                 "llm_guidance": t(
                     "tools.web_search.no_providers.llm_guidance",
-                    fallback="Do not retry web search until at least one search provider is available. Ask the user to confirm tool configuration or restore a supported provider.",
+                    fallback="Web search is unavailable until a search provider is configured. Continue with other available tools when they can complete the task, such as fetching a known URL. Ask the user to configure search only if it is still needed.",
                 ),
                 "user_message_template": t(
                     "tools.web_search.no_providers.user_message",
@@ -861,12 +861,12 @@ class WebSearchTool(MultiProviderTool):
             name for name in self.get_all_provider_names() if name != "duckduckgo"
         ]
         guidance_data: Dict[str, Any] = {
-            "next_action": "ask_user_to_configure_search_provider",
+            "next_action": "use_available_alternative_tools",
             "retryable": False,
             "terminal": True,
             "llm_guidance": t(
                 "tools.web_search.duckduckgo_challenge.llm_guidance",
-                fallback="DuckDuckGo is currently blocked by an anti-bot challenge for this search. Ask the user to configure Brave, Perplexity, or Tavily via system-settings before retrying. Do not keep retrying DuckDuckGo for the same request.",
+                fallback="DuckDuckGo is blocked by an anti-bot challenge. Do not retry it for this request. Continue with other available tools when they can complete the task, such as fetching a known URL. Ask the user to configure another search provider only if search is still needed.",
             ),
             "user_message_template": t(
                 "tools.web_search.duckduckgo_challenge.user_message",

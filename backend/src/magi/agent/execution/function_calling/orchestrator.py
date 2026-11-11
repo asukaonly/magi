@@ -121,9 +121,6 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         "TOOL_EFFECT_UNCERTAIN",
     }
     _TERMINAL_TOOL_ERROR_CODES = {
-        "NO_PROVIDERS_CONFIGURED",
-        "PROVIDER_CHALLENGE",
-        "PROVIDER_NOT_CONFIGURED",
         "REPEATED_TOOL_BLOCKER",
         "TOOL_EFFECT_ALREADY_COMPLETED",
         "TOOL_EFFECT_IDENTITY_REQUIRED",

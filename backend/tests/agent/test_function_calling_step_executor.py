@@ -1286,8 +1286,13 @@ async def test_step_executor_returns_control_after_one_step_until_called_again(m
     assert step_state.iteration == 2
 
 
-def test_replan_blocked_for_terminal_provider_configuration_error() -> None:
-    """Terminal provider errors should stop the loop instead of chasing fallback tools."""
+@pytest.mark.parametrize("error_code", [
+    "NO_PROVIDERS_CONFIGURED", "PROVIDER_CHALLENGE", "PROVIDER_NOT_CONFIGURED",
+])
+@pytest.mark.parametrize("alternative_available", [False, True])
+def test_provider_failure_replans_when_another_tool_is_available(
+    error_code: str, alternative_available: bool,
+) -> None:
     orchestrator = _build_orchestrator()
 
     results = [
@@ -1296,21 +1301,22 @@ def test_replan_blocked_for_terminal_provider_configuration_error() -> None:
             tool_name="weather",
             success=False,
             error="API key not configured",
-            error_code="NO_PROVIDERS_CONFIGURED",
+            error_code=error_code,
             execution_time=0.01,
         )
     ]
     available_tools = [
         {"type": "function", "function": {"name": "weather"}},
-        {"type": "function", "function": {"name": "web-search"}},
     ]
+    if alternative_available:
+        available_tools.append({"type": "function", "function": {"name": "web-search"}})
 
     allowed = orchestrator._should_allow_replan_after_failed_iteration(
         results,
         consecutive_failed_tool_iterations=1,
         available_tools=available_tools,
     )
-    assert allowed is False
+    assert allowed is alternative_available
 
 
 @pytest.mark.parametrize("untried_available", [False, True])
@@ -1340,3 +1346,45 @@ def test_nonterminal_blocker_can_replan_only_when_an_untried_tool_exists(untried
         available_tools=available_tools,
     )
     assert allowed is untried_available
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_code", [
+    "NO_PROVIDERS_CONFIGURED", "PROVIDER_CHALLENGE", "PROVIDER_NOT_CONFIGURED",
+])
+async def test_provider_failure_suppresses_only_failed_tool_and_allows_fetch(
+    monkeypatch, error_code: str,
+) -> None:
+    from unittest.mock import AsyncMock
+
+    host = _build_orchestrator()
+    def schemas(names):
+        return [{"type": "function", "function": {"name": name}} for name in names]
+    monkeypatch.setattr(host, "_build_tools_parameter", schemas)
+    state = host.build_step_state(
+        turn=UserTurnInput(text="Read the official site", attachments=[], user_id=None, session_id=None),
+        system_prompt="system", selected_tools=["web-search", "web-fetch"], conversation_history=[],
+    )
+    monkeypatch.setattr(host, "_call_llm_with_tools", AsyncMock(side_effect=[
+        {"tool_calls": [ToolCall(id="search", name="web-search", arguments={"query": "official site"})]},
+        {"tool_calls": [ToolCall(id="fetch", name="web-fetch", arguments={"url": "https://example.org"})]},
+    ]))
+    invoke = AsyncMock(side_effect=[
+        ToolCallResult(tool_call_id="search", tool_name="web-search", success=False,
+                       error="Search provider unavailable", error_code=error_code),
+        ToolCallResult(tool_call_id="fetch", tool_name="web-fetch", success=True,
+                       data={"content": "Official page"}),
+    ])
+    monkeypatch.setattr(host, "_execute_tool_call", invoke)
+
+    for _ in range(2):
+        outcome = await host.step_executor.execute_step(
+            state=state, user_message="Read the official site", user_id="user", session_id="session",
+            run_id="run", turn_id="turn", execution_preset="chat", execution_agent_id="chat",
+        )
+        assert outcome.status == "continue"
+
+    assert state.suppressed_tool_names == {"web-search"}
+    assert state.selected_tool_names == ["web-fetch"]
+    assert [call.kwargs["tool_call"].name for call in invoke.await_args_list] == ["web-search", "web-fetch"]
+    assert state.consecutive_failed_tool_iterations == 0
