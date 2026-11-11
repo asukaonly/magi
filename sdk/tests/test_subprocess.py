@@ -193,6 +193,75 @@ async def test_bounded_runner_captures_utf8_streams() -> None:
 
 
 @pytest.mark.asyncio
+async def test_runner_without_deadline_streams_output_and_registers_pid(tmp_path, monkeypatch):
+    registry_path = tmp_path / "children.json"
+    monkeypatch.setenv("MAGI_CHILD_PROCESS_REGISTRY", str(registry_path))
+    output: dict[str, bytearray] = {"stdout": bytearray(), "stderr": bytearray()}
+    spawned = []
+
+    def on_spawn(pid: int) -> None:
+        spawned.append(pid)
+        entries = managed_subprocess._load_registry(registry_path)
+        assert len(entries) == 1
+        assert entries[0].pid == pid
+        assert entries[0].label == "test.shell-job"
+        if os.name != "nt":
+            assert os.getpgid(pid) == pid
+
+    result = await managed_subprocess.run_bounded_subprocess(
+        [sys.executable, "-c", "import sys; print('output'); print('error', file=sys.stderr)"],
+        shell=False, timeout=None, label="test.shell-job",
+        on_spawn=on_spawn, on_output=lambda stream, chunk: output[stream].extend(chunk),
+        max_output_bytes=3, max_spill_bytes=0,
+    )
+
+    assert len(spawned) == 1
+    assert result.returncode == 0
+    assert not result.timed_out
+    assert output == {"stdout": b"output\n", "stderr": b"error\n"}
+    assert result.stdout.tail == b"ut\n"
+    assert result.stderr.tail == b"or\n"
+    assert result.stdout.truncated
+    assert managed_subprocess._load_registry(registry_path) == []
+
+
+@pytest.mark.asyncio
+async def test_output_callback_failure_does_not_interrupt_capture():
+    def on_output(_stream: str, _chunk: bytes) -> None:
+        raise RuntimeError("observer unavailable")
+
+    result = await managed_subprocess.run_bounded_subprocess(
+        [sys.executable, "-c", "print('still captured')"], shell=False,
+        timeout=None, on_output=on_output,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.tail == b"still captured\n"
+
+
+@pytest.mark.asyncio
+async def test_spawn_callback_failure_cleans_process_and_registration(tmp_path, monkeypatch):
+    registry_path = tmp_path / "children.json"
+    monkeypatch.setenv("MAGI_CHILD_PROCESS_REGISTRY", str(registry_path))
+    spawned = []
+
+    def on_spawn(pid: int) -> None:
+        spawned.append(pid)
+        raise RuntimeError("job owner unavailable")
+
+    with pytest.raises(RuntimeError, match="job owner unavailable"):
+        await managed_subprocess.run_bounded_subprocess(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            shell=False, timeout=None, label="test.failed-job", on_spawn=on_spawn,
+            terminate_grace_seconds=0.1,
+        )
+
+    assert len(spawned) == 1
+    assert not managed_subprocess._pid_alive(spawned[0])
+    assert managed_subprocess._load_registry(registry_path) == []
+
+
+@pytest.mark.asyncio
 async def test_bounded_runner_drains_streams_concurrently() -> None:
     stream_bytes = 512 * 1024
     script = (
@@ -371,9 +440,14 @@ async def test_successful_root_exit_terminates_detached_descendant(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("timeout", [60, None])
 async def test_cancellation_terminates_descendant_and_is_reraised(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    timeout: float | None,
 ) -> None:
+    registry_path = tmp_path / "children.json"
+    monkeypatch.setenv("MAGI_CHILD_PROCESS_REGISTRY", str(registry_path))
     pid_path = tmp_path / "cancel-child.pid"
     heartbeat_path = tmp_path / "cancel-heartbeat.txt"
     script = _heartbeat_script(pid_path, heartbeat_path)
@@ -381,7 +455,8 @@ async def test_cancellation_terminates_descendant_and_is_reraised(
         managed_subprocess.run_bounded_subprocess(
             [sys.executable, "-c", script],
             shell=False,
-            timeout=60,
+            timeout=timeout,
+            label="test.cancelled-job",
             terminate_grace_seconds=0.1,
         )
     )
@@ -390,10 +465,12 @@ async def test_cancellation_terminates_descendant_and_is_reraised(
     child_pid = int(pid_path.read_text(encoding="utf-8"))
     try:
         await _wait_for_path(heartbeat_path)
+        assert len(managed_subprocess._load_registry(registry_path)) == 1
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
         await _assert_heartbeat_stopped(heartbeat_path)
+        assert managed_subprocess._load_registry(registry_path) == []
     finally:
         if not task.done():
             task.cancel()
@@ -566,3 +643,20 @@ def test_windows_orphan_termination_uses_hidden_tree_kill(
         assert kwargs["creationflags"] == 0x08000000
         assert kwargs["startupinfo"] == "hidden"
         assert kwargs["stdin"] is subprocess.DEVNULL
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+@pytest.mark.parametrize("group_leader", [False, True])
+@pytest.mark.parametrize("force", [False, True])
+def test_posix_orphan_termination_only_signals_owned_group(monkeypatch, group_leader, force):
+    calls = []
+    monkeypatch.setattr(os, "getpgid", lambda _pid: 42 if group_leader else 1)
+    monkeypatch.setattr(os, "kill", lambda pid, sig: calls.append(("pid", pid, sig)))
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: calls.append(("group", pid, sig)))
+
+    managed_subprocess._terminate_registered_orphan(42, force=force)
+
+    assert calls == [(
+        "group" if group_leader else "pid", 42,
+        managed_subprocess.signal.SIGKILL if force else managed_subprocess.signal.SIGTERM,
+    )]
