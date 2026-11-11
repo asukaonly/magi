@@ -8,6 +8,7 @@ import pytest
 from magi.agent.execution.function_calling.orchestrator import FunctionCallingOrchestrator
 from magi.agent.execution.function_calling.step_models import FunctionCallingStepState
 from magi.llm.model_context import ModelContextProfile
+from magi.llm.model_context import ResolvedModel
 
 
 class _ToolRegistry:
@@ -269,3 +270,48 @@ async def test_final_response_budget_ignores_tools_not_sent_to_provider() -> Non
     assert without_tools.fits_input_capacity is True
     assert failure is None
     assert state.selected_tool_names == ["large-tool"]
+
+
+@pytest.mark.asyncio
+async def test_model_switch_takes_effect_next_run_after_capacity_guard(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from magi.agent.execution.function_calling.run_input import AgentRunRequest
+    from magi.agent.turn_input import UserTurnInput
+    from magi.context.prompt_lifecycle import DEFAULT_HEADLESS_SYSTEM_PROMPT
+    from magi.llm.provider_bridge import LLMProviderBridge, ProviderResponse
+
+    large = ResolvedModel(
+        SimpleNamespace(model_name="large", provider_name="test"),
+        ModelContextProfile("test", "large", 128_000, 8_192),
+    )
+    small = ResolvedModel(
+        SimpleNamespace(model_name="small", provider_name="test"),
+        ModelContextProfile("test", "small", 4_000, 1_024),
+    )
+    selected = large
+    host = FunctionCallingOrchestrator(_ToolRegistry({}), active_model_provider=lambda: selected)
+    prepare_context = host._prepare_context_for_model
+    provider_models = []
+
+    async def switch_after_guard(state, **kwargs):
+        nonlocal selected
+        failure = await prepare_context(state, **kwargs)
+        selected = small
+        return failure
+
+    async def chat_with_tools(bridge, **kwargs):
+        provider_models.append(bridge.llm.model_name)
+        return ProviderResponse(content="complete")
+
+    monkeypatch.setattr(host, "_prepare_context_for_model", switch_after_guard)
+    monkeypatch.setattr(LLMProviderBridge, "chat_with_tools", chat_with_tools)
+    for prompt in ("x" * 20_000, "short next request"):
+        outcome = await host.run(AgentRunRequest(
+            turn=UserTurnInput(text=prompt), system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
+            selected_tools=[], user_id="test",
+        ))
+        assert outcome.status == "completed"
+
+    assert provider_models == ["large", "small"]
+    assert host._active_model_context == small.context

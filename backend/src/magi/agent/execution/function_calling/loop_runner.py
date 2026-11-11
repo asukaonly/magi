@@ -162,6 +162,18 @@ class FunctionCallingLoopRunner:
                 thinking_depth=effective_depth,
                 control=control,
             )
+            if step_outcome.failure_reason == "TASK_BUDGET_EXCEEDED":
+                await emit_stream_event(
+                    LLMStreamEvent(kind="text_reset", step_label="task_budget_finalization")
+                )
+                outcome = await self._run_fallback_final_response(
+                    state=state,
+                    run_input=run_input,
+                    thinking_depth=self._resolve_effective_reasoning_depth(state),
+                    control=control,
+                    final_response_reason="task_budget_finalization",
+                )
+                return await self._gate_fallback_outcome(state, run_input, outcome)
             loop_outcome = await self._handle_step_outcome(
                 state=state,
                 step_outcome=step_outcome,

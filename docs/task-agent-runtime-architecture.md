@@ -1277,6 +1277,9 @@ identity are the only execution ownership seams.
 
 Model capacity metadata travels with the scenario-resolved adapter. Main-loop
 calls leave `max_tokens` unset; required fields belong to the provider adapter.
+The resolved model and capacity are pinned for one run, including its retries
+and final response. Model configuration changes take effect at the next run so
+the capacity guard and actual provider request cannot use different models.
 Context planning reserves up to 65,536 generation tokens, bounded by the model's
 output capability and one quarter of its context window (8,192 when output
 capability is unknown). This is planning headroom, not an output request or a
@@ -1295,6 +1298,15 @@ prevents an incomplete question tool from opening a dialog. Previous tool result
 stay in the unchanged request history. Truncated attempts retain usage in failed trace spans. Other
 provider errors are not treated as output exhaustion, and exhausted recovery
 must not be accepted as a completed answer.
+
+Generation recovery also retries interrupted stream reads at most twice and
+rate limits with bounded 1/2/4/8-second backoff. All retries share task accounting,
+new request IDs and preview resets; backoff checks cancellation. Generic HTTP
+and connection failures already handled by SDK request retries are not retried
+again here. Tool-generation retries reserve additional capacity without spending
+the prepaid final-answer call. If no retry capacity remains, the run uses that
+reserved call for a no-tools final response instead of executing another tool
+decision with no capacity left to explain its result.
 
 Stream completion must be explicit: Chat Completions requires a finish reason,
 Anthropic requires its stop reason and message-stop event, and Responses requires

@@ -1,21 +1,13 @@
-"""Failure classification and retry helpers for function-calling execution."""
+"""Failure classification for function-calling execution."""
 
 from __future__ import annotations
-
-import asyncio
-import logging
-from collections.abc import Awaitable, Callable
-from typing import Any
 
 from ....llm.error_classifier import (
     ClassifiedError,
     LLMErrorKind,
     classify_exception,
-    is_rate_limit_exception,
 )
 from ..task_budget import TaskBudgetExceeded
-
-logger = logging.getLogger(__name__)
 
 
 # Mapping from the structured ``LLMErrorKind`` produced by
@@ -30,9 +22,7 @@ _KIND_TO_TRACE_BUCKET: dict[LLMErrorKind, str] = {
 
 
 class FunctionCallingFailureMixin:
-    """Classify execution failures and retry transient LLM rate limits."""
-
-    _RATE_LIMIT_BACKOFF_SECONDS: tuple[float, ...]
+    """Classify execution failures for terminal outcomes and traces."""
 
     def _classify_exception_failure(self, exc: Exception) -> str:
         if isinstance(exc, TaskBudgetExceeded):
@@ -49,42 +39,3 @@ class FunctionCallingFailureMixin:
         if len(raw) > max_length:
             raw = raw[: max_length - 1] + "..."
         return f"{bucket}: {raw}"
-
-    @staticmethod
-    def _is_rate_limit_exception(exc: Exception) -> bool:
-        """Shared detector for upstream 429 / rate-limit errors."""
-        return bool(is_rate_limit_exception(exc))
-
-    async def _invoke_with_rate_limit_backoff(
-        self,
-        factory: Callable[[], Awaitable[Any]],
-        *,
-        label: str,
-    ) -> Any:
-        """Run ``factory()`` with exponential backoff on rate-limit errors."""
-        last_exc: Exception | None = None
-        for attempt in range(len(self._RATE_LIMIT_BACKOFF_SECONDS) + 1):
-            try:
-                return await factory()
-            except Exception as exc:  # noqa: BLE001 - transparent rethrow below
-                if not self._is_rate_limit_exception(exc):
-                    raise
-                last_exc = exc
-                if attempt >= len(self._RATE_LIMIT_BACKOFF_SECONDS):
-                    logger.error(
-                        "[FunctionCalling] %s rate-limited after %d retries, giving up",
-                        label,
-                        attempt,
-                    )
-                    raise
-                delay = self._RATE_LIMIT_BACKOFF_SECONDS[attempt]
-                logger.warning(
-                    "[FunctionCalling] %s rate-limited; backing off %.1fs (attempt %d/%d)",
-                    label,
-                    delay,
-                    attempt + 1,
-                    len(self._RATE_LIMIT_BACKOFF_SECONDS),
-                )
-                await asyncio.sleep(delay)
-        assert last_exc is not None
-        raise last_exc

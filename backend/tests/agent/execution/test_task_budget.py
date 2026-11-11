@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from magi.agent.execution.function_calling.failures import FunctionCallingFailureMixin
@@ -26,6 +28,8 @@ from magi.agent.execution.task_budget import (
 from magi.agent.turn_input import UserTurnInput
 from magi.context.prompt_lifecycle import DEFAULT_HEADLESS_SYSTEM_PROMPT
 from magi.llm.provider_bridge import ProviderResponse
+from magi.llm.provider_bridge import ProviderUsage
+from magi.llm.output_limit import OutputLimitReached
 
 
 @pytest.mark.asyncio
@@ -361,6 +365,55 @@ async def test_last_budget_slot_forces_a_tool_turn_to_finalize() -> None:
     assert isinstance(messages, list)
     assert "Do not call tools or output any tool markup" in messages[-1]["content"]
     assert budget.llm_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retry_error", [
+    OutputLimitReached(ProviderUsage(completion_tokens=4_096)),
+    httpx.ReadError("stream disconnected"),
+    RuntimeError("429 Too Many Requests"),
+])
+@pytest.mark.parametrize("max_calls", [2, 3])
+async def test_generation_retry_preserves_finalization_budget(monkeypatch, retry_error, max_calls) -> None:
+    from magi.agent.execution.function_calling import llm
+    from magi.agent.execution.function_calling.step_models import FunctionCallingStepOutcome
+
+    registry = SimpleNamespace(
+        is_skill=lambda name: False,
+        get_tool_info=lambda name: {"name": name, "description": "Demo tool", "parameters": []},
+    )
+    orchestrator = FunctionCallingOrchestrator(
+        llm_adapter=SimpleNamespace(model_name="fake", provider_name="fake"),
+        tool_registry=registry,
+    )
+    monkeypatch.setattr(llm.asyncio, "sleep", AsyncMock())
+    resets = AsyncMock()
+    monkeypatch.setattr(llm, "emit_stream_event", resets)
+    monkeypatch.setattr("magi.agent.execution.function_calling.loop_runner.emit_stream_event", resets)
+    with_tools = AsyncMock(side_effect=[
+        retry_error,
+        ProviderResponse(content="", tool_calls=[SimpleNamespace(id="call", name="demo", arguments={})]),
+    ])
+    without_tools = AsyncMock(return_value=ProviderResponse(content='{"result_status":"success"}'))
+    orchestrator.provider_bridge.chat_with_tools = with_tools
+    orchestrator.provider_bridge.chat_response = without_tools
+    tool_batch = AsyncMock(return_value=FunctionCallingStepOutcome(status="continue", iteration=1))
+    orchestrator.step_executor._tool_batch_executor.handle_tool_call_response = tool_batch
+
+    async with task_execution_budget_scope(max_llm_calls=max_calls) as budget:
+        outcome = await orchestrator.run(AgentRunRequest(
+            turn=UserTurnInput(text="Use a tool if needed."),
+            system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
+            selected_tools=["demo"], user_id="budget-user", final_response_json_mode=True,
+        ))
+
+    assert outcome.status == "completed"
+    assert outcome.content == '{"result_status":"success"}'
+    assert with_tools.await_count == max_calls - 1
+    assert tool_batch.await_count == max_calls - 2
+    without_tools.assert_awaited_once()
+    assert budget.llm_calls == max_calls
+    assert any(call.args[0].kind == "text_reset" for call in resets.await_args_list)
 
 
 @pytest.mark.asyncio
