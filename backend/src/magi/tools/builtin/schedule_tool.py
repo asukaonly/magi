@@ -151,6 +151,7 @@ class ScheduleTool(Tool):
     @staticmethod
     def _schema_metadata() -> dict[str, Any]:
         return {
+            "read_only_actions": ["list", "get", "activity"],
             "task_intents": ["schedule_task", "manage_reminder", "automation"],
             "domains": ["automation", "scheduler"],
             "operations": ["list", "create", "update", "delete", "run"],

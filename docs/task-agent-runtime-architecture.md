@@ -786,6 +786,11 @@ fallback.
 
 Tool results become `ToolExecutionEvidence`. The completion gate consumes this
 normalized evidence instead of trusting a model claim that work succeeded.
+Mixed-action tools explicitly declare their read-only actions. Invocation
+authorization, effect admission, and completion evidence use the final executed
+arguments after hooks: reading settings, listing stickers, or inspecting
+schedules does not create a write-validation obligation, while mutations retain
+their declared effect and replay restrictions.
 
 `PreToolUse` hooks run before final invocation authorization. Registry-backed
 agent calls reapply worker guardrails and argument normalization to the hook's

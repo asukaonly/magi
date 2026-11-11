@@ -124,7 +124,7 @@ class FunctionCallingToolBatchJournal:
         iteration: int,
     ) -> None:
         result = record.result
-        metadata = resolve_tool_capability_metadata(
+        metadata = result.effect_metadata or resolve_tool_capability_metadata(
             self._driver.tool_registry,
             record.tool_call.name,
         )

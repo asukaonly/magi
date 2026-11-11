@@ -28,9 +28,9 @@ from magi.runtime_trace import build_root_span_id, build_trace_id, normalize_tur
 from .tool_effects import (
     ToolEffectIntent,
     ToolEffectLedger,
-    ToolEffectReplayPolicy,
     ToolEffectState,
 )
+from .tool_metadata import resolve_tool_capability_metadata
 
 logger = logging.getLogger(__name__)
 _SUMMARY_LIMIT = 500
@@ -208,10 +208,10 @@ class ToolInvocationService:
         ctx: InvocationContext,
         runtime: _InvocationRuntime,
     ) -> tuple[_EffectAttempt | None, Any | None]:
-        policy, idempotency_parameter, canonical_tool_name = _resolve_effect_policy(
-            self._tool_registry,
-            call.name,
+        metadata = resolve_tool_capability_metadata(
+            self._tool_registry, call.name, arguments=call.args,
         )
+        policy = metadata.replay_policy
         if not policy.requires_ledger:
             return None, None
 
@@ -238,12 +238,12 @@ class ToolInvocationService:
         arguments_digest = _stable_digest(dict(call.args))
         idempotency_key_digest = _idempotency_key_digest(
             call.args,
-            idempotency_parameter,
+            metadata.idempotency_key_parameter,
         )
         semantic_key = _stable_digest(
             {
                 "scope_id": scope_id,
-                "tool_name": canonical_tool_name,
+                "tool_name": metadata.name,
                 "arguments_digest": arguments_digest,
                 "connection_id": getattr(
                     getattr(ctx.execution_context, "invocation", None),
@@ -270,7 +270,7 @@ class ToolInvocationService:
             )
             or None,
             tool_call_id=runtime.tool_call_id,
-            tool_name=canonical_tool_name,
+            tool_name=metadata.name,
             replay_policy=policy,
             arguments_digest=arguments_digest,
             idempotency_key_digest=idempotency_key_digest,
@@ -507,34 +507,6 @@ def _apply_tool_exception_to_span(
             "error_message": str(exc)[:1000],
         }
     )
-
-
-def _resolve_effect_policy(
-    tool_registry: Any,
-    requested_name: str,
-) -> tuple[ToolEffectReplayPolicy, str | None, str]:
-    tool = None
-    getter = getattr(tool_registry, "get_tool", None)
-    if callable(getter):
-        tool = getter(requested_name)
-    schema = None
-    get_schema = getattr(tool, "get_schema", None)
-    if callable(get_schema):
-        schema = get_schema()
-    raw_policy = getattr(schema, "effect_replay_policy", None)
-    try:
-        policy = ToolEffectReplayPolicy(str(raw_policy))
-    except ValueError:
-        policy = ToolEffectReplayPolicy.UNKNOWN
-    raw_parameter = getattr(schema, "effect_idempotency_key_parameter", None)
-    idempotency_parameter = (
-        str(raw_parameter).strip() if isinstance(raw_parameter, str) else None
-    ) or None
-    raw_name = getattr(schema, "name", None)
-    canonical_name = (str(raw_name).strip() if isinstance(raw_name, str) else "") or str(
-        requested_name
-    )
-    return policy, idempotency_parameter, canonical_name
 
 
 def _resolve_effect_scope(

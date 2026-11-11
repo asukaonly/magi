@@ -22,6 +22,7 @@ class ChatStickersTool(Tool):
                 "Send a saved sticker by replying only [[STICKER:sticker_id]]."
             ),
             category="chat", effect_class="local_write", effect_replay_policy="reconcilable",
+            metadata={"read_only_actions": ["list"]},
             parameters=[
                 ToolParameter(name="action", type=ParameterType.STRING, required=True,
                               enum=["list", "save", "remove"], description="Library operation."),

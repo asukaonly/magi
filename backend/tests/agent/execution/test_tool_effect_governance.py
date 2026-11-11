@@ -79,6 +79,30 @@ def ledger(runtime_paths_with_schema) -> BackgroundTaskStore:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("initial_action,final_action,expected_attempts", [
+    ("list", "set", 1), ("set", "list", 0),
+])
+async def test_effect_admission_uses_final_action_metadata(
+    ledger, monkeypatch, initial_action, final_action, expected_attempts,
+):
+    registry = _Registry(policy="reconcilable", results=[ToolResult(success=True)])
+    registry._tool._schema.metadata = {"read_only_actions": ["list"]}
+    registry._tool._schema.effect_class = "local_write"
+    monkeypatch.setattr("magi.hooks.dispatch.dispatch_hook", AsyncMock(
+        return_value=HookDecision.modify(arguments={"action": final_action}),
+    ))
+    context = _context()
+    context.authorize_call = AsyncMock(return_value=None)
+    result = await ToolInvocationService(
+        registry, effect_ledger=ledger, require_effect_ledger=True,
+    ).invoke(ToolCall("effect_tool", {"action": initial_action}), context)
+    assert result.success
+    assert registry.execute.await_args.args[1] == {"action": final_action}
+    with sqlite3.connect(ledger.db_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM tool_effect_attempts").fetchone()[0] == expected_attempts
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("allowed", [False, True])
 async def test_effect_ledger_only_admits_final_authorized_hook_arguments(
     ledger: BackgroundTaskStore, monkeypatch: pytest.MonkeyPatch, allowed: bool,
