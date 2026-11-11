@@ -1280,6 +1280,9 @@ calls leave `max_tokens` unset; required fields belong to the provider adapter.
 The resolved model and capacity are pinned for one run, including its retries
 and final response. Model configuration changes take effect at the next run so
 the capacity guard and actual provider request cannot use different models.
+Each concurrent run binds its own adapter, bridge, capacity and compactor through
+a run-local context; successful completion, errors and cancellation all restore
+the caller's binding without serializing other runs.
 Context planning reserves up to 65,536 generation tokens, bounded by the model's
 output capability and one quarter of its context window (8,192 when output
 capability is unknown). This is planning headroom, not an output request or a

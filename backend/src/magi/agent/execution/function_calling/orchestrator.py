@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, cast
 
 from ....llm.base import LLMAdapter
@@ -18,7 +20,7 @@ from ....utils.model_context_messages import (
 )
 from ...message_utils import append_latest_user_message
 from ....context.window_budget import ContextWindowUsage, build_context_window_budget
-from ....llm.model_context import ResolvedModel, unknown_model_context
+from ....llm.model_context import ModelContextProfile, ResolvedModel, unknown_model_context
 from ....tools.system_tools import resolve_resident_system_tools
 from ..attachment_resolver import AttachmentResolverPort, NullAttachmentResolver
 from ...turn_input import UserTurnInput
@@ -64,6 +66,14 @@ if TYPE_CHECKING:
     from ....tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _RunModelResources:
+    adapter: LLMAdapter | None
+    context: ModelContextProfile
+    bridge: LLMProviderBridge | None
+    compactor: ContextCompactor
 
 
 class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
@@ -166,10 +176,8 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             scenario_llm_pool: ScenarioLLMPool for context compaction summariser.
             active_model_provider: Resolves the adapter and limits for this run.
         """
-        self.llm = llm_adapter
         self._active_model_provider = active_model_provider
-        self._active_model_context = unknown_model_context(llm_adapter)
-        self.provider_bridge = LLMProviderBridge(llm_adapter) if llm_adapter else None
+        self._scenario_llm_pool = scenario_llm_pool
         self.postprocessor = FunctionCallingPostprocessor()
         self.tool_registry = tool_registry
         self.skill_runner = skill_runner
@@ -187,11 +195,42 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         self.step_executor = FunctionCallingStepExecutor(self)
         self._loop_runner = FunctionCallingLoopRunner(self)
         self._current_messages: List[Dict[str, Any]] = []
-        self._context_compactor = ContextCompactor(
-            scenario_llm_pool=scenario_llm_pool,
-            budget_provider=lambda: build_context_window_budget(self._active_model_context),
-            on_event=loop_event_callback,
+        self._model_resources = ContextVar(
+            "function_calling_model_resources",
+            default=_RunModelResources(
+                adapter=llm_adapter,
+                context=unknown_model_context(llm_adapter),
+                bridge=LLMProviderBridge(llm_adapter) if llm_adapter else None,
+                compactor=self._new_context_compactor(),
+            ),
         )
+
+    def _new_context_compactor(self) -> ContextCompactor:
+        return ContextCompactor(
+            scenario_llm_pool=self._scenario_llm_pool,
+            budget_provider=lambda: build_context_window_budget(self._active_model_context),
+            on_event=self.loop_event_callback,
+        )
+
+    @property
+    def llm(self) -> LLMAdapter | None:
+        return self._model_resources.get().adapter
+
+    @property
+    def provider_bridge(self) -> LLMProviderBridge | None:
+        return self._model_resources.get().bridge
+
+    @property
+    def _active_model_context(self) -> ModelContextProfile:
+        return self._model_resources.get().context
+
+    @_active_model_context.setter
+    def _active_model_context(self, context: ModelContextProfile) -> None:
+        self._model_resources.set(replace(self._model_resources.get(), context=context))
+
+    @property
+    def _context_compactor(self) -> ContextCompactor:
+        return self._model_resources.get().compactor
 
     def __getattr__(self, name: str) -> Any:
         operations = self.__dict__.get("_operations")
@@ -325,24 +364,32 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     def _resolve_llm(self) -> LLMAdapter:
         if self._active_model_provider is not None:
             resolved = self._active_model_provider()
-            llm = resolved.adapter
-            self._active_model_context = resolved.context
-            if llm is not self.llm:
-                self.llm = llm
-                self.provider_bridge = LLMProviderBridge(llm)
+            current = self._model_resources.get()
+            self._model_resources.set(replace(
+                current,
+                adapter=resolved.adapter,
+                context=resolved.context,
+                bridge=(current.bridge if resolved.adapter is current.adapter else LLMProviderBridge(resolved.adapter)),
+            ))
         if self.llm is None or self.provider_bridge is None:
             raise ValueError("FunctionCallingOrchestrator requires an LLM adapter or llm_pool")
         return self.llm
 
     async def run(self, request: AgentRunRequest) -> ExecutionOutcome:
         """Run one bounded LLM/tool lifecycle through the only engine entry."""
-        async with task_execution_budget_scope():
-            try:
-                effective = request.control or null_run_control()
-                with bind_detach_signal(effective.detach_signal):
-                    return await self._loop_runner.run(request, control=effective)
-            finally:
-                await release_prepaid_task_llm_calls()
+        model_token = self._model_resources.set(replace(
+            self._model_resources.get(), compactor=self._new_context_compactor(),
+        ))
+        try:
+            async with task_execution_budget_scope():
+                try:
+                    effective = request.control or null_run_control()
+                    with bind_detach_signal(effective.detach_signal):
+                        return await self._loop_runner.run(request, control=effective)
+                finally:
+                    await release_prepaid_task_llm_calls()
+        finally:
+            self._model_resources.reset(model_token)
 
     async def _prepare_context_for_model(
         self,
