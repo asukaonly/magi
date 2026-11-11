@@ -11,7 +11,6 @@ from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
 
-DEFAULT_PDF_ATTACHMENT_MAX_CHARS = 120_000
 PDF_PARSER_BACKEND = "pypdf"
 
 
@@ -44,23 +43,19 @@ class LocalPdfAttachmentParser:
     def parse_file(
         self,
         file_path: str | Path,
-        *,
-        max_chars: int = DEFAULT_PDF_ATTACHMENT_MAX_CHARS,
     ) -> ParsedPdfAttachment:
         """Parse one local PDF and return structured extraction output."""
 
         path = Path(file_path)
         try:
             with path.open("rb") as file:
-                return self.parse_stream(file, max_chars=max_chars)
+                return self.parse_stream(file)
         except OSError:
             return _failed_parse("Unsupported PDF format")
 
     def parse_stream(
         self,
         file: BinaryIO,
-        *,
-        max_chars: int = DEFAULT_PDF_ATTACHMENT_MAX_CHARS,
     ) -> ParsedPdfAttachment:
         """Parse a PDF from an already-validated, held file handle."""
 
@@ -114,15 +109,11 @@ class LocalPdfAttachmentParser:
                 error="No readable text found in PDF",
             )
 
-        character_count = len(normalized_text)
-        safe_max_chars = max(1, int(max_chars))
-        truncated = character_count > safe_max_chars
-        visible_text = normalized_text[:safe_max_chars] if truncated else normalized_text
         return ParsedPdfAttachment(
-            text=visible_text,
-            character_count=character_count,
-            truncated=truncated,
-            excerpt=visible_text[: min(len(visible_text), 200)],
+            text=normalized_text,
+            character_count=len(normalized_text),
+            truncated=False,
+            excerpt=normalized_text[:200],
             page_count=page_count,
             extraction_succeeded=True,
             error=None,

@@ -35,17 +35,19 @@ def test_parse_file_returns_clean_failure_for_invalid_pdf(tmp_path: Path) -> Non
     assert parsed.error == "Unsupported PDF format"
 
 
-def test_parse_file_truncates_extracted_pdf_text(tmp_path: Path) -> None:
+def test_parse_file_preserves_long_pdf_text_for_paged_reads(tmp_path: Path) -> None:
     file_path = tmp_path / "long.pdf"
-    file_path.write_bytes(_build_simple_pdf_bytes("abcdefghijklmnopqrstuvwxyz"))
+    text = "A" * 120_000 + "Tail"
+    file_path.write_bytes(_build_simple_pdf_bytes(text))
 
     parser = LocalPdfAttachmentParser()
-    parsed = parser.parse_file(file_path, max_chars=10)
+    parsed = parser.parse_file(file_path)
 
     assert parsed.extraction_succeeded is True
-    assert parsed.text == "abcdefghij"
-    assert parsed.character_count == 26
-    assert parsed.truncated is True
+    assert parsed.text == text
+    assert parsed.character_count == len(text)
+    assert parsed.truncated is False
+    assert parsed.excerpt == text[:200]
 
 
 def _build_simple_pdf_bytes(text: str, *, compressed: bool = False) -> bytes:

@@ -155,3 +155,67 @@ async def test_read_chat_attachment_requires_session_id() -> None:
 
     assert result.success is False
     assert "session_id is required" in str(result.error)
+
+
+@pytest.mark.asyncio
+async def test_read_long_attachment_pages_through_tail_and_cached_content() -> None:
+    runtime_paths = get_runtime_paths()
+    attachment_dir = runtime_paths.chat_files_dir / "session-1" / "turn-1"
+    attachment_dir.mkdir(parents=True, exist_ok=True)
+    attachment_path = attachment_dir / "att-1__long.txt"
+    text = "A" * 120_000 + "Tail"
+    attachment_path.write_text(text, encoding="utf-8")
+    payload = {
+        "attachment_id": "att-1", "turn_id": "turn-1", "kind": "text_file",
+        "original_name": "long.txt", "mime_type": "text/plain", "parse_status": "pending",
+        "size_bytes": attachment_path.stat().st_size, "storage_path": str(attachment_path),
+    }
+    ctx = _context()
+    ctx.capabilities = ToolCapabilities(chat=_FakeChatPort(payload))
+    tool = ReadChatAttachmentTool()
+
+    first = await tool.execute({"attachment_id": "att-1", "limit": 120_000}, ctx)
+    assert first.success is True
+    assert first.data["text"] == text[:120_000]
+    assert first.data["total_chars"] == len(text)
+    assert first.data["is_complete"] is False
+    assert first.data["next_offset"] == 120_000
+    assert first.data["source_truncated"] is False
+
+    for _ in range(2):
+        tail = await tool.execute({"attachment_id": "att-1", "offset": first.data["next_offset"]}, ctx)
+        assert tail.success is True
+        assert tail.data["text"] == "Tail"
+        assert tail.data["total_chars"] == len(text)
+        assert tail.data["is_complete"] is True
+        assert tail.data["next_offset"] is None
+        assert tail.data["source_truncated"] is False
+        assert tail.data["parse_status"] == "parsed"
+
+
+@pytest.mark.asyncio
+async def test_cached_attachment_preserves_source_extraction_metadata() -> None:
+    runtime_paths = get_runtime_paths()
+    attachment_dir = runtime_paths.chat_files_dir / "session-1" / "turn-1"
+    attachment_dir.mkdir(parents=True, exist_ok=True)
+    attachment_path = attachment_dir / "att-1__report.pdf"
+    attachment_path.write_bytes(b"%PDF-")
+    derived_dir = runtime_paths.chat_derived_dir / "session-1" / "turn-1"
+    derived_dir.mkdir(parents=True, exist_ok=True)
+    (derived_dir / "att-1.txt").write_text("Extracted text", encoding="utf-8")
+    payload = {
+        "attachment_id": "att-1", "turn_id": "turn-1", "kind": "pdf",
+        "original_name": "report.pdf", "mime_type": "application/pdf",
+        "parse_status": "parsed", "truncated": True, "page_count": 8,
+        "storage_path": str(attachment_path), "size_bytes": attachment_path.stat().st_size,
+    }
+    ctx = _context()
+    ctx.capabilities = ToolCapabilities(chat=_FakeChatPort(payload))
+
+    result = await ReadChatAttachmentTool().execute({"attachment_id": "att-1"}, ctx)
+
+    assert result.success is True
+    assert result.data["text"] == "Extracted text"
+    assert result.data["source_truncated"] is True
+    assert result.data["page_count"] == 8
+    assert result.data["parse_status"] == "parsed"
