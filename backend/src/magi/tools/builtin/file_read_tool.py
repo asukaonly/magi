@@ -196,7 +196,7 @@ class FileReadTool(Tool):
             )
 
         file_size = os.path.getsize(request.file_path)
-        if request.offset >= file_size:
+        if request.offset > file_size:
             return _error_result(
                 f"Offset {request.offset} is beyond file size {file_size}",
                 ToolErrorCode.OFFSET_OUT_OF_RANGE,
