@@ -529,6 +529,10 @@ async def test_execution_failure_returns_terminal_result_and_scoped_stream(
     assert result.root_user_message == "hello"
     assert result.turn_id == (turn_id or None)
     assert result.streamed is bool(turn_id and enabled)
+    from magi.chat.task_agent.postprocess_service import ChatPostProcessService
+    assert ChatPostProcessService._resolve_execution_terminal(result) == (
+        "failed", result.response_text,
+    )
     if turn_id and enabled:
         assert emitted.await_count == 2
         calls = [c.kwargs for c in emitted.await_args_list]

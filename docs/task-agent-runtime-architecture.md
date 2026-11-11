@@ -1353,7 +1353,10 @@ attachment extraction, parent launch snapshots, and other run-local material
 are not.
 
 Agent-run terminal status is preserved across the chat turn, delivery control,
-and canonical trace. A visible failure or blocked message is a presentation
+and canonical trace, including exceptions caught by the outer chat executor
+before a structured loop outcome is available. Those exceptions return an
+explicit failed outcome rather than the default completed result. A visible
+failure or blocked message is a presentation
 surface, not an accepted assistant answer: failed and blocked turns create no
 assistant-memory projection and promote an explicit runtime outcome instead.
 Cancellation and delivery recovery use the same canonical terminal-outcome
