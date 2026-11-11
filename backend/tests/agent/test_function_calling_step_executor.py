@@ -104,6 +104,95 @@ def _build_orchestrator() -> FunctionCallingOrchestrator:
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("effect,replay,error_code,terminal,retry_allowed", [
+    ("read_only", "read_only", "TIMEOUT", False, True),
+    ("read_only", "read_only", "RATE_LIMITED", False, True),
+    ("read_only", "read_only", "TIMEOUT", True, False),
+    ("read_only", "read_only", "INVALID_PARAMETERS", False, False),
+    ("local_write", "reconcilable", "TIMEOUT", False, False),
+    ("unknown", "unknown", "TIMEOUT", False, False),
+    (None, None, "TIMEOUT", False, False),
+])
+async def test_only_retryable_reads_can_repeat_failed_arguments(
+    monkeypatch, effect, replay, error_code, terminal, retry_allowed,
+) -> None:
+    from unittest.mock import AsyncMock
+    from magi.agent.execution.tool_effects import ToolEffectReplayPolicy
+    from magi.agent.execution.tool_metadata import ToolCapabilityMetadata, ToolEffectClass
+
+    host = _build_orchestrator()
+    state = host.build_step_state(
+        turn=UserTurnInput(text="Fetch a page", attachments=[], user_id=None, session_id=None),
+        system_prompt="system", selected_tools=[], conversation_history=[],
+    )
+    state.tools = [
+        {"type": "function", "function": {"name": name}}
+        for name in ("web-fetch", "web-search")
+    ]
+    metadata = None if effect is None else ToolCapabilityMetadata(
+        name="web-fetch", effect_class=ToolEffectClass(effect),
+        replay_policy=ToolEffectReplayPolicy(replay), permission_class="standard",
+    )
+    invoke = AsyncMock(side_effect=[
+        ToolCallResult(tool_call_id="call", tool_name="web-fetch", success=False,
+                       error="Temporary failure", error_code=error_code,
+                       data={"terminal": terminal}, effect_metadata=metadata),
+        ToolCallResult(tool_call_id="call", tool_name="web-fetch", success=True,
+                       data={"content": "recovered"}, effect_metadata=metadata),
+    ])
+    monkeypatch.setattr(host, "_execute_tool_call", invoke)
+    monkeypatch.setattr(host, "_call_llm_with_tools", AsyncMock(return_value={
+        "tool_calls": [ToolCall(id="call", name="web-fetch", arguments={"url": "https://example.org"})],
+    }))
+    outcomes = []
+    for _ in range(2):
+        outcomes.append(await host.step_executor.execute_step(
+            state=state, user_message="Fetch a page", user_id="user", session_id="session",
+            run_id="run", turn_id="turn", execution_preset="chat", execution_agent_id="chat",
+        ))
+    assert invoke.await_count == (2 if retry_allowed else 1)
+    assert outcomes[0].status == "continue"
+    if retry_allowed:
+        assert state.messages[-1]["role"] == "tool"
+        assert "recovered" in state.messages[-1]["content"]
+        assert state.consecutive_failed_tool_iterations == 0
+    else:
+        assert state.tool_failures[-1]["error_code"] == "REPEATED_FAILED_TOOL_CALL"
+
+
+@pytest.mark.asyncio
+async def test_transient_read_retries_remain_bounded(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+    from magi.agent.execution.tool_effects import ToolEffectReplayPolicy
+    from magi.agent.execution.tool_metadata import ToolCapabilityMetadata, ToolEffectClass
+
+    host = _build_orchestrator()
+    state = host.build_step_state(
+        turn=UserTurnInput(text="Fetch", attachments=[], user_id=None, session_id=None),
+        system_prompt="system", selected_tools=[], conversation_history=[],
+    )
+    invoke = AsyncMock(return_value=ToolCallResult(
+        tool_call_id="call", tool_name="web-fetch", success=False, error="Timeout", error_code="TIMEOUT",
+        effect_metadata=ToolCapabilityMetadata(
+            name="web-fetch", effect_class=ToolEffectClass.READ_ONLY,
+            replay_policy=ToolEffectReplayPolicy.READ_ONLY, permission_class="standard",
+        ),
+    ))
+    monkeypatch.setattr(host, "_execute_tool_call", invoke)
+    monkeypatch.setattr(host, "_call_llm_with_tools", AsyncMock(return_value={
+        "tool_calls": [ToolCall(id="call", name="web-fetch", arguments={})],
+    }))
+    for _ in range(3):
+        outcome = await host.step_executor.execute_step(
+            state=state, user_message="Fetch", user_id="user", session_id="session",
+            run_id="run", turn_id="turn", execution_preset="chat", execution_agent_id="chat",
+        )
+    assert invoke.await_count == 3
+    assert outcome.status == "failed"
+    assert outcome.failure_reason == "ALL_TOOLS_FAILED"
+
+
 def test_build_step_state_does_not_duplicate_latest_user_message_from_history() -> None:
     orchestrator = _build_orchestrator()
 

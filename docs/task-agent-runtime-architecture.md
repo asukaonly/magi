@@ -791,6 +791,11 @@ authorization, effect admission, and completion evidence use the final executed
 arguments after hooks: reading settings, listing stickers, or inspecting
 schedules does not create a write-validation obligation, while mutations retain
 their declared effect and replay restrictions.
+Exact failed-call suppression exempts transient failures only when the executed
+operation is explicitly read-only and safely replayable. Terminal/non-retryable
+results, writes, unknown effects, and invalid arguments retain suppression. The
+failed-iteration and task budgets still bound read retries; execution guidance
+uses the same distinction.
 
 `PreToolUse` hooks run before final invocation authorization. Registry-backed
 agent calls reapply worker guardrails and argument normalization to the hook's
