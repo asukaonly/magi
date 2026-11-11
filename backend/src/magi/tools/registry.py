@@ -128,6 +128,14 @@ class ToolRegistry(
 
         return dispose
 
+    def owned_tool_instances(self, owner_id: object) -> tuple[Tool, ...]:
+        """Retain exact instances for cleanup after their owner is unregistered."""
+        with self._registration_lock:
+            return tuple(
+                tool for name, tool in self._tool_instances.items()
+                if self._tool_owners[name] == owner_id
+            )
+
     def unregister(self, tool_name: str, *, owner_id: object | None = None) -> bool:
         """
         Unregister a tool.

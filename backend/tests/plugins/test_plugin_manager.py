@@ -1826,3 +1826,68 @@ def test_temporal_projection_preserves_budget_payload_and_host_provenance(tmp_pa
             {"event_id": "evt-1", "reference": evidence["metadata_json"]["source_evidence_ref"]}
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_core_tools_unload_cleans_exact_registered_instances_after_removal(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+    from magi.tools.builtin.bash_tool import BashTool
+    from magi.tools.builtin.powershell_tool import PowerShellTool
+    from magi.tools.platform_tools import native_shell_tool_name
+
+    config = AppConfig()
+    config.plugins.packages["core-tools"] = PluginSettings(trusted=True, source="builtin")
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
+    monkeypatch.setattr("magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True)
+    registry = ToolRegistry()
+    manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
+        tool_registry=registry, source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
+        search_paths=[Path(__file__).resolve().parents[3] / "plugins"],
+    )
+    manager.scan(persist_discovery=False)
+    manager.activate_enabled_plugins()
+    name = native_shell_tool_name()
+    original = registry.get_tool(name)
+    cleanup = AsyncMock()
+    monkeypatch.setattr(original, "clear_user_content", cleanup)
+    manager.unload_plugin("core-tools")
+    assert registry.get_tool(name) is None
+
+    replacement_class = PowerShellTool if name == "powershell" else BashTool
+    replacement = replacement_class()
+    replacement_cleanup = AsyncMock()
+    monkeypatch.setattr(replacement, "clear_user_content", replacement_cleanup)
+    dispose = registry.register(replacement_class, tool_instance=replacement, owner_id="replacement")
+    try:
+        await manager.drain_shutdowns("core-tools")
+        cleanup.assert_awaited_once_with()
+        replacement_cleanup.assert_not_awaited()
+        assert registry.get_tool(name) is replacement
+    finally:
+        dispose()
+        await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_tool_cleanup_failure_blocks_plugin_replacement(monkeypatch) -> None:
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    manager = PluginManager(
+        tool_registry=ToolRegistry(), source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None, search_paths=[],
+    )
+    instance = Plugin()
+    shutdown = AsyncMock()
+    monkeypatch.setattr(instance, "shutdown", shutdown)
+    tool = SimpleNamespace(clear_user_content=AsyncMock(side_effect=RuntimeError("process cleanup failed")))
+    manager._fire_plugin_shutdown("core-tools", "core-connection", instance, owned_tools=(tool,))
+
+    with pytest.raises(RuntimeError, match="replacement is blocked"):
+        await manager.drain_shutdowns("core-tools")
+    with pytest.raises(RuntimeError, match="process cleanup failed"):
+        manager._require_no_pending_shutdown("core-tools")
+    shutdown.assert_not_awaited()
+    assert "core-connection" in manager._pending_plugin_shutdowns

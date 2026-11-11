@@ -227,6 +227,7 @@ class ChatForgettingRecoveryModule(LifecycleModule):
         from .forgetting import ChatForgettingRecoveryService
         from .provider import get_chat_read_service
         from .runtime_forgetting import ChatRuntimeForgettingCoordinator
+        from ..tools.lifecycle import clear_session_shell_jobs
 
         chat_read_service = get_chat_read_service()
         memory = require_initialized(
@@ -264,6 +265,7 @@ class ChatForgettingRecoveryModule(LifecycleModule):
             ),
             l0_store=memory.l0,
             clear_control_session=resolve_control_session_store().clear_session,
+            clear_shell_jobs=clear_session_shell_jobs,
         )
         recovery = await ChatForgettingRecoveryService(
             chat_read_service=chat_read_service,

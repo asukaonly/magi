@@ -9,6 +9,16 @@ from ..core.logger import get_logger
 logger = get_logger(__name__)
 
 
+async def clear_session_shell_jobs(user_id: str, session_id: str) -> None:
+    """Stop shell processes and forget receipts owned by a deleted conversation."""
+    from . import tool_registry
+    from .platform_tools import native_shell_tool_name
+
+    shell = tool_registry.get_tool(native_shell_tool_name())
+    if shell is not None:
+        await shell.jobs.close_scope(user_id=user_id, session_id=session_id)
+
+
 class ToolsModule(LifecycleModule):
     """Configure runtime tool integrations for L7."""
 
@@ -38,3 +48,11 @@ class ToolsModule(LifecycleModule):
         if agent_tool and hasattr(agent_tool, "configure"):
             agent_tool.configure(llm_adapter=llm_adapter, tool_registry_instance=tool_registry)
             logger.info("Agent tool configured with runtime LLM adapter")
+
+    async def shutdown(self) -> None:
+        from . import tool_registry
+        from .platform_tools import native_shell_tool_name
+
+        shell = tool_registry.get_tool(native_shell_tool_name())
+        if shell is not None:
+            await shell.clear_user_content()

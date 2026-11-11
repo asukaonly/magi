@@ -987,6 +987,7 @@ def get_chat_forgetting_service() -> ChatForgettingService:
     from .provider import get_chat_store
     from .user_turn_delivery import ChatUserTurnDeliveryScheduler
     from .runtime_forgetting import ChatRuntimeForgettingCoordinator
+    from ..tools.lifecycle import clear_session_shell_jobs
 
     agent_runtime = get_optional_agent_runtime()
     task_agent_manager = (
@@ -1022,6 +1023,7 @@ def get_chat_forgetting_service() -> ChatForgettingService:
             post_turn_understanding_service=post_turn_understanding_service,
             background_task_manager=get_optional_background_task_manager(),
             clear_control_session=resolve_control_session_store().clear_session,
+            clear_shell_jobs=clear_session_shell_jobs,
         ),
     )
 

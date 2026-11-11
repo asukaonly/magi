@@ -143,9 +143,10 @@ async def test_powershell_timeout_keeps_partial_output_and_bounded_metadata(
     maximum = next(
         parameter.max_value for parameter in tool.schema.parameters if parameter.name == "timeout"
     )
-    assert 0 < maximum < tool.schema.timeout
+    assert maximum is None
+    assert (await tool.validate_parameters({"command": "echo hi", "timeout": 3600}))[0]
     result = await tool.execute(
-        {"command": "Write-Output hi", "cwd": ".", "timeout": maximum},
+        {"command": "Write-Output hi", "cwd": ".", "timeout": 30},
         _context(),
     )
 
@@ -162,5 +163,5 @@ async def test_powershell_timeout_keeps_partial_output_and_bounded_metadata(
     assert command[0] == "powershell.exe"
     assert "-NonInteractive" in command
     assert kwargs["shell"] is False
-    assert kwargs["timeout"] == maximum
+    assert kwargs["timeout"] is None
     assert kwargs["max_spill_bytes"] == 0

@@ -212,9 +212,10 @@ async def test_bash_timeout_keeps_partial_output_and_bounded_metadata(
     maximum = next(
         parameter.max_value for parameter in tool.schema.parameters if parameter.name == "timeout"
     )
-    assert 0 < maximum < tool.schema.timeout
+    assert maximum is None
+    assert (await tool.validate_parameters({"command": "echo hi", "timeout": 3600}))[0]
     result = await tool.execute(
-        {"command": "echo hi", "cwd": ".", "timeout": maximum},
+        {"command": "echo hi", "cwd": ".", "timeout": 30},
         ToolExecutionContext(agent_id="test-agent", workspace="."),
     )
 
@@ -230,5 +231,5 @@ async def test_bash_timeout_keeps_partial_output_and_bounded_metadata(
     command, kwargs = calls[0]
     assert command == ["/usr/bin/bash", "-c", "echo hi"]
     assert kwargs["shell"] is False
-    assert kwargs["timeout"] == maximum
+    assert kwargs["timeout"] is None
     assert kwargs["max_spill_bytes"] == 0

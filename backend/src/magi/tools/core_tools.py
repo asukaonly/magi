@@ -10,6 +10,7 @@ from magi.control.tools import (
 
 from .builtin.ask_user_question_tool import AskUserQuestionTool
 from .builtin.bash_tool import BashTool
+from .builtin.shell_job_tool import ShellJobTool
 from .builtin.capabilities_tool import CapabilitiesTool
 from .builtin.current_time_tool import CurrentTimeTool
 from .builtin.environment_query_tool import EnvironmentQueryTool
@@ -49,6 +50,7 @@ def core_tool_classes_for_os(os_name: str | None = None) -> tuple[type, ...]:
     )
     return (
         shell_tool,
+        ShellJobTool,
         FileReadTool,
         FileWriteTool,
         FileEditTool,

@@ -13,10 +13,12 @@ from __future__ import annotations
 import os
 import shutil
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Dict
 
 from magi_plugin_sdk.command_risk import classify_powershell_command
-from magi_plugin_sdk.subprocess import run_bounded_subprocess
+from magi_plugin_sdk.subprocess import BoundedSubprocessResult, run_bounded_subprocess
+from ._shell_jobs import ShellJobs
 from ..schema import (
     ParameterType,
     Tool,
@@ -34,9 +36,8 @@ from .bash_tool import (
     _decode_bounded_process_output,
 )
 
-MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS = 600
 POWERSHELL_TOOL_TIMEOUT_SECONDS = (
-    MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS + SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
+    30 + SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
 )
 
 _UTF8_PRELUDE = (
@@ -99,12 +100,13 @@ def _powershell_parameters() -> list[ToolParameter]:
         ToolParameter(
             name="timeout",
             type=ParameterType.INTEGER,
-            description="Timeout (seconds)",
+            description="Foreground wait in seconds (at most 30 per call). Longer commands keep running as jobs.",
             required=False,
-            default=60,
+            default=30,
             min_value=1,
-            max_value=MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS,
         ),
+        ToolParameter(name="background", type=ParameterType.BOOLEAN, default=False,
+                      description="Return after starting the command; manage it with shell_job."),
         ToolParameter(
             name="prefer_pwsh",
             type=ParameterType.BOOLEAN,
@@ -150,7 +152,7 @@ def _powershell_request(
     return _PowerShellRequest(
         command=parameters["command"],
         cwd=parameters.get("cwd", context.workspace),
-        timeout=parameters.get("timeout", 60),
+        timeout=parameters.get("timeout", 30),
         prefer_pwsh=bool(parameters.get("prefer_pwsh", True)),
         confirm_destructive=bool(parameters.get("confirm_destructive", False)),
     )
@@ -200,6 +202,7 @@ class PowerShellTool(Tool):
     """Run a PowerShell command on Windows with UTF-8 output enforced."""
 
     def _init_schema(self) -> None:
+        self.jobs = ShellJobs("powershell")
         self.schema = ToolSchema(
             name="powershell",
             description=(
@@ -211,7 +214,9 @@ class PowerShellTool(Tool):
                 "tools. This is the host-native shell on Windows. Tip: "
                 "end pipelines with `| ConvertTo-Json -Depth 4 -Compress` so "
                 "the agent receives structured data instead of formatted "
-                "tables."
+                "tables. Commands that exceed the foreground wait keep running; "
+                "use shell_job with the returned job_id to wait, inspect, or stop them. "
+                "Set background=true to start a long-running service."
             ),
             category="system",
             version="1.0.0",
@@ -240,12 +245,15 @@ class PowerShellTool(Tool):
             return _unsupported_result(risk_data)
 
         try:
-            output = await self._run_powershell(executable, request)
-            return self._result_from_output(
-                executable=executable,
-                request=request,
-                output=output,
+            return await self.jobs.start(
+                command=request.command, context=context,
                 risk_data=risk_data,
+                background=bool(parameters.get("background", False)), wait_seconds=request.timeout,
+                run=partial(self._run_powershell, executable, request),
+                render=lambda result: self._result_from_output(
+                    executable=executable, request=request,
+                    output=_decode_bounded_process_output(result), risk_data=risk_data,
+                ),
             )
         except FileNotFoundError:
             return ToolResult(
@@ -266,16 +274,21 @@ class PowerShellTool(Tool):
         self,
         executable: str,
         request: _PowerShellRequest,
-    ) -> _ShellOutput:
-        result = await run_bounded_subprocess(
+        **callbacks: Any,
+    ) -> BoundedSubprocessResult:
+        return await run_bounded_subprocess(
             _argv(executable, request.command),
             shell=False,
-            timeout=request.timeout,
+            timeout=None,
             cwd=request.cwd,
             env=_build_subprocess_env(),
             max_spill_bytes=0,
+            label="shell_job.powershell",
+            **callbacks,
         )
-        return _decode_bounded_process_output(result)
+
+    async def clear_user_content(self) -> None:
+        await self.jobs.close()
 
     def _result_from_output(
         self,

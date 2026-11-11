@@ -27,6 +27,7 @@ from magi_plugin_sdk.runtime import (
     SDK_VERSION,
 )
 from magi_plugin_sdk.versioning import validate_sdk_requirement
+from magi_plugin_sdk.tools import Tool
 
 from ..config import PluginSettings, get_config, save_config
 from .base import Plugin
@@ -202,6 +203,7 @@ class PluginManager(PluginInstallationMixin):
         storage_runtime: Any = None,
     ) -> None:
         self._search_paths = list(search_paths)
+        self._tool_registry = tool_registry
         self._source_registry = source_registry
         self._request_source_schedule_refresh = request_source_schedule_refresh
         self._package_states: dict[str, PluginPackageState] = {}
@@ -1113,6 +1115,8 @@ class PluginManager(PluginInstallationMixin):
 
     @_serialized_lifecycle_mutation
     def unload_connection(self, connection_id: str) -> None:
+        from .process_runtime import ProcessPluginProxy
+
         connection = self.connection_store.get(connection_id)
         self._guard_storage(connection.plugin_id, connection_id)
         instance = self._plugin_instances.get(connection_id) or self._setup_instances.get(connection_id)
@@ -1122,6 +1126,11 @@ class PluginManager(PluginInstallationMixin):
                 self._publish_connection_readiness(connection_id)
             return
         plugin_id = self._instance_packages[connection_id]
+        # Worker shutdown owns its resources and must also work after worker death.
+        owned_tools = (
+            () if isinstance(instance, ProcessPluginProxy)
+            else self._tool_registry.owned_tool_instances(connection_id)
+        )
         try:
             try:
                 self._settings_service.unregister_connection(connection_id)
@@ -1132,7 +1141,7 @@ class PluginManager(PluginInstallationMixin):
             self._setup_instances.pop(connection_id, None)
             self._instance_packages.pop(connection_id, None)
             self._connection_contributions.pop(connection_id, None)
-            self._fire_plugin_shutdown(plugin_id, connection_id, instance)
+            self._fire_plugin_shutdown(plugin_id, connection_id, instance, owned_tools=owned_tools)
             self._clear_connection_failure(connection_id)
             self._publish_connection_readiness(connection_id)
             self._refresh_package_contributions(plugin_id)
@@ -1153,7 +1162,9 @@ class PluginManager(PluginInstallationMixin):
         if failures:
             raise RuntimeError(f"Plugin unload failed: {failures}") from failures[0]
 
-    def _fire_plugin_shutdown(self, plugin_id: str, connection_id: str, instance: Plugin) -> None:
+    def _fire_plugin_shutdown(
+        self, plugin_id: str, connection_id: str, instance: Plugin, *, owned_tools: tuple[Tool, ...] = (),
+    ) -> None:
         completion: Future[None] = Future()
         self._pending_plugin_shutdowns[connection_id] = completion
         self._shutdown_owners[connection_id] = plugin_id
@@ -1161,6 +1172,12 @@ class PluginManager(PluginInstallationMixin):
         async def run_shutdown() -> None:
             try:
                 await self.ingress_registry.drain(connection_id)
+                cleanup_results = await asyncio.gather(
+                    *(tool.clear_user_content() for tool in owned_tools), return_exceptions=True,
+                )
+                for cleanup_result in cleanup_results:
+                    if isinstance(cleanup_result, BaseException):
+                        raise cleanup_result
                 result = instance.shutdown()
                 if inspect.isawaitable(result):
                     await result
