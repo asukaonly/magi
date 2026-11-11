@@ -10,6 +10,7 @@ from magi.config.models import ThinkingDepth
 from magi.llm.openai import OpenAIAdapter
 from magi.llm.openai_transport import create_completion, _responses_kwargs
 from magi.llm.provider_bridge import LLMProviderBridge
+from magi.llm.stream_errors import IncompleteStreamError
 
 
 def response(*, tools=False, status="completed"):
@@ -104,7 +105,7 @@ async def test_plain_stream_and_direct_adapter_share_responses_transport():
 async def test_stream_failure_never_returns_partial_tools(terminal):
     async with client_for([list(events(tools=True, terminal=terminal))], []) as client:
         bridge = bridge_for(client)
-        with pytest.raises(RuntimeError):
+        with pytest.raises(IncompleteStreamError if terminal is None else RuntimeError):
             await bridge.chat_with_tools_stream("sys", [{"role": "user", "content": "hello"}], [])
 
 

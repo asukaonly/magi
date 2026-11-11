@@ -344,6 +344,7 @@ class ProviderBridgeResponseMixin:
     def _parse_openai_response(self, response: Any) -> ProviderResponse:
         choice = response.choices[0]
         message = choice.message
+        content = (message.content or "") + (getattr(message, "refusal", None) or "")
 
         tool_calls: list[ProviderToolCall] = []
         raw_tool_calls: list[dict[str, Any]] = []
@@ -379,7 +380,7 @@ class ProviderBridgeResponseMixin:
                 tool_calls=tool_calls,
                 assistant_message={
                     "role": "assistant",
-                    "content": message.content or "",
+                    "content": content,
                     "tool_calls": raw_tool_calls,
                     **({"reasoning_content": message.reasoning_content}
                        if getattr(message, "reasoning_content", None) else {}),
@@ -390,7 +391,7 @@ class ProviderBridgeResponseMixin:
                 usage=self._extract_openai_usage(response),
             )
 
-        provider_response = self._build_content_response(message.content or "")
+        provider_response = self._build_content_response(content)
         provider_response.metadata = self._build_openai_metadata(choice, message, raw_tool_calls)
         provider_response.usage = self._extract_openai_usage(response)
         return provider_response

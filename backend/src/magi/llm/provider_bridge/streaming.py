@@ -7,6 +7,7 @@ from contextlib import aclosing
 
 from ..openai_transport import create_completion
 from ..output_limit import OutputLimitReached
+from ..stream_errors import IncompleteStreamError
 from types import SimpleNamespace
 
 from dataclasses import dataclass, field
@@ -42,6 +43,7 @@ def _build_request_preview(messages: List[Dict[str, Any]]) -> str:
 class _ChatStreamState:
     started_at: float
     stop_reason: str | None = None
+    message_stopped: bool = False
     usage_data: Any = None
     usage_payload: dict[str, int] | None = None
     usage_for_trace: Any = None
@@ -178,6 +180,8 @@ class ProviderBridgeChatStreamingMixin:
         )
         if state.stop_reason == "max_tokens":
             raise OutputLimitReached(state.usage_for_trace)
+        if not state.message_stopped or state.stop_reason is None:
+            raise IncompleteStreamError("Anthropic stream ended before completion")
         state.usage_payload = host._anthropic_usage_to_wire(state.usage_data)
         if state.usage_payload is not None:
             usage_event = LLMStreamEvent(kind="usage", usage=state.usage_payload)
@@ -239,6 +243,8 @@ class ProviderBridgeChatStreamingMixin:
             message = getattr(event, "message", None)
             if message is not None:
                 state.usage_data = getattr(message, "usage", state.usage_data)
+        if event_type == "message_stop":
+            state.message_stopped = True
         return None, in_thinking
 
     async def _stream_openai_chat_response(
@@ -358,7 +364,9 @@ class ProviderBridgeChatStreamingMixin:
             return []
 
         events = _openai_reasoning_payloads(delta)
-        content = getattr(delta, "content", None)
+        content = (getattr(delta, "content", None) or "") + (
+            getattr(delta, "refusal", None) or ""
+        )
         if content:
             events.extend(_openai_visible_content_payloads(content, state, scrubber))
         if hasattr(chunk, "usage") and chunk.usage is not None:

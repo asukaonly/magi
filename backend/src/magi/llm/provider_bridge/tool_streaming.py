@@ -7,6 +7,7 @@ from contextlib import aclosing
 
 from ..openai_transport import create_completion
 from ..output_limit import OutputLimitReached
+from ..stream_errors import IncompleteStreamError
 from types import SimpleNamespace
 
 from dataclasses import dataclass, field
@@ -46,6 +47,7 @@ class _AnthropicToolStreamState:
     current_tool_name: str | None = None
     current_tool_json_parts: List[str] = field(default_factory=list)
     stop_reason: str | None = None
+    message_stopped: bool = False
     usage_data: Any = None
 
 
@@ -193,6 +195,8 @@ class ProviderBridgeToolStreamingMixin:
             message = getattr(event, "message", None)
             if message is not None:
                 state.usage_data = getattr(message, "usage", state.usage_data)
+        elif event_type == "message_stop":
+            state.message_stopped = True
 
     async def _handle_anthropic_tool_block_start(
         self,
@@ -367,6 +371,8 @@ class ProviderBridgeToolStreamingMixin:
         usage = host._extract_anthropic_stream_usage(stream, state.usage_data)
         if state.stop_reason == "max_tokens":
             raise OutputLimitReached(usage)
+        if not state.message_stopped or state.stop_reason is None:
+            raise IncompleteStreamError("Anthropic stream ended before completion")
         for call in state.tool_calls:
             await emit_stream_event(LLMStreamEvent(
                 kind="tool_call_end", tool_call_id=call.id,
@@ -578,12 +584,15 @@ class ProviderBridgeToolStreamingMixin:
         delta: Any,
         state: _OpenAIToolStreamState,
     ) -> None:
-        if not (hasattr(delta, "content") and delta.content):
+        content = (getattr(delta, "content", None) or "") + (
+            getattr(delta, "refusal", None) or ""
+        )
+        if not content:
             return
         if state.has_tool_calls:
-            state.content_parts.append(delta.content)
+            state.content_parts.append(content)
             return
-        visible, reasoning_leak = state.scrubber.feed(delta.content)
+        visible, reasoning_leak = state.scrubber.feed(content)
         if reasoning_leak:
             await emit_stream_event(
                 LLMStreamEvent(kind="reasoning_delta", text=reasoning_leak)

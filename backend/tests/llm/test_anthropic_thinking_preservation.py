@@ -188,7 +188,8 @@ def _thinking_then_tool_events() -> List[Any]:
         SimpleNamespace(type="content_block_delta", index=1,
                         delta=SimpleNamespace(type="input_json_delta", partial_json='{"command": "ls"}')),
         SimpleNamespace(type="content_block_stop", index=1),
-        SimpleNamespace(type="message_delta", usage=SimpleNamespace(output_tokens=5)),
+        SimpleNamespace(type="message_delta", delta=SimpleNamespace(stop_reason="tool_use"),
+                        usage=SimpleNamespace(output_tokens=5)),
         SimpleNamespace(type="message_stop"),
     ]
 

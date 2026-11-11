@@ -1291,6 +1291,13 @@ stay in the unchanged request history. Truncated attempts retain usage in failed
 provider errors are not treated as output exhaustion, and exhausted recovery
 must not be accepted as a completed answer.
 
+Stream completion must be explicit: Chat Completions requires a finish reason,
+Anthropic requires its stop reason and message-stop event, and Responses requires
+the completed response event. EOF alone is an incomplete-stream failure; no tool
+from that generation may execute. Provider refusal text remains a valid visible
+response in streaming and non-streaming calls instead of becoming an empty-response
+execution error.
+
 Chat prompt assembly combines:
 
 - the active run's ordered Working Surface when it exists, otherwise the

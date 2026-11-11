@@ -8,6 +8,7 @@ from typing import Any, AsyncIterator
 from types import SimpleNamespace
 
 from .output_limit import OutputLimitReached
+from .stream_errors import IncompleteStreamError
 
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
@@ -179,7 +180,7 @@ async def _response_chunks(stream: Any, model: str) -> AsyncIterator[ChatComplet
             "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}], "usage": usage,
         })
     if not terminal:
-        raise RuntimeError("Responses stream ended before completion")
+        raise IncompleteStreamError("Responses stream ended before completion")
 
 
 async def _completion_chunks(stream: Any, model: str, *, responses: bool) -> AsyncIterator[Any]:
@@ -201,6 +202,8 @@ async def _completion_chunks(stream: Any, model: str, *, responses: bool) -> Asy
                 yield chunk
             if finish_reason == "length":
                 raise OutputLimitReached(usage, usage_format="openai")
+            if finish_reason is None:
+                raise IncompleteStreamError("Chat completion stream ended before completion")
     finally:
         if hasattr(stream, "close"):
             await stream.close()
