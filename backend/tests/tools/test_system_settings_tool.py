@@ -353,3 +353,19 @@ async def test_save_acknowledgement_without_matching_readback_cannot_complete(mo
     assert result.success
     assert result.data["results"][0]["status"] == "fail"
     assert _gate_for_setting(result).reason_code == "validation_failed"
+
+
+@pytest.mark.asyncio
+async def test_tool_owned_typed_value_is_compared_without_reconverting(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    target = SimpleNamespace(
+        update_config=AsyncMock(return_value=ToolResult(success=True, data={"value": True})),
+        get_config_value=AsyncMock(return_value=ToolResult(success=True, data=True)),
+    )
+    monkeypatch.setattr(tool_registry, "get_tool", lambda name: target)
+    result = await SystemSettingsTool().execute(
+        {"action": "set", "path": "tool.example.enabled", "value": "true"}, _context()
+    )
+    assert result.success
+    assert result.data["results"][0]["status"] == "pass"

@@ -443,7 +443,8 @@ class SystemSettingsActionsMixin:
             field = parsed.target_path.rsplit(".", 1)[-1]
             expected = update_result.data.get("value", update_result.data.get(field, value))
         try:
-            expected = self._convert_value(expected, saved_value) if saved_value is not None else expected
+            if saved_value is not None and not isinstance(expected, type(saved_value)):
+                expected = self._convert_value(expected, saved_value)
         except (TypeError, ValueError, AttributeError):
             found = False
         return ToolResult(
