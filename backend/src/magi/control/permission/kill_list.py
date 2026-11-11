@@ -231,8 +231,23 @@ def _stage_writes_system_path(tokens: list[str]) -> bool:
                 return position + 1 < len(operands) and protected(operands[position + 1])
             if value.startswith("--target-directory="):
                 return protected(value.partition("=")[2])
+            if value.startswith("-t") and len(value) > 2:
+                return protected(value[2:])
+        paths: list[str] = []
+        position = 0
+        while position < len(operands):
+            value = operands[position]
+            if value == "--":
+                paths.extend(operands[position + 1:])
+                break
+            if value in {"-m", "--mode", "-o", "--owner", "-g", "--group", "-S", "--suffix"}:
+                position += 2
+                continue
+            if not value.startswith("-"):
+                paths.append(value)
+            position += 1
         # Copying or linking an OS-owned source does not mutate that source.
-        return bool(operands) and protected(operands[-1])
+        return bool(paths) and protected(paths[-1])
     return False
 
 
