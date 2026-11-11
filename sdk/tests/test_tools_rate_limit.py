@@ -43,3 +43,15 @@ async def test_multi_provider_tool_projects_rate_limit_metadata() -> None:
     assert result.success is False
     assert result.error_code == "RATE_LIMITED"
     assert result.data == {"retry_after_seconds": 3.0}
+
+
+@pytest.mark.asyncio
+async def test_multi_provider_tool_preserves_timeout_classification(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(_Provider, "execute", AsyncMock(side_effect=TimeoutError()))
+    result = await _Tool().execute_with_provider("limited", {})
+
+    assert result.success is False
+    assert result.error_code == "TIMEOUT"
+    assert result.error == "Provider request timed out"

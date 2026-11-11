@@ -106,7 +106,8 @@ async def test_web_search_duckduckgo_challenge_guidance_uses_current_language(mo
     assert result.data["retryable"] is False
     assert result.data["terminal"] is True
     assert "反机器人验证" in result.error
-    assert "不要在同一个请求里反复重试 DuckDuckGo" in result.data["llm_guidance"]
+    assert "本次请求不要重试它" in result.data["llm_guidance"]
+    assert "其他可用工具" in result.data["llm_guidance"]
 
 
 @pytest.mark.asyncio

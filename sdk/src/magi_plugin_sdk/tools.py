@@ -610,6 +610,12 @@ class MultiProviderTool(Tool):
                 error=str(e),
                 error_code="INVALID_CONFIG",
             )
+        except TimeoutError as e:
+            return ToolResult(
+                success=False,
+                error=str(e) or "Provider request timed out",
+                error_code="TIMEOUT",
+            )
         except Exception as e:
             if getattr(e, "status_code", None) == 429:
                 retry_after_seconds = getattr(e, "retry_after_seconds", None)

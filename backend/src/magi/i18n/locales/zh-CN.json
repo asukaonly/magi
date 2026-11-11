@@ -197,6 +197,10 @@
         "llm_guidance": "DuckDuckGo 触发了反机器人验证，本次请求不要重试它。如果其他可用工具能完成任务，请继续使用，例如读取已知网址。只有仍需搜索时，再请用户配置其他搜索提供商。",
         "user_message": "DuckDuckGo 这次触发了反机器人验证，没法返回稳定结果。请先在设置中配置 Brave、Perplexity 或 Tavily，然后我可以继续搜索。",
         "fallback_reason": "DuckDuckGo 返回了反机器人验证页面，而不是可用的搜索结果。"
+      },
+      "temporary_provider_failure": {
+        "llm_guidance": "搜索提供商超时或受到限流。可以有限重试，并遵守返回的等待时间；也可以使用其他可用工具继续完成任务。",
+        "user_message": "搜索暂时不可用（{providers}）。我可以重试，或使用其他可用工具继续。"
       }
     },
     "config": {

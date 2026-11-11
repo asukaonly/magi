@@ -197,6 +197,10 @@
         "llm_guidance": "DuckDuckGo is blocked by an anti-bot challenge. Do not retry it for this request. Continue with other available tools when they can complete the task, such as fetching a known URL. Ask the user to configure another search provider only if search is still needed.",
         "user_message": "DuckDuckGo hit an anti-bot check this time and could not return stable results. Please configure Brave, Perplexity, or Tavily in settings, then I can continue the search.",
         "fallback_reason": "DuckDuckGo returned an anti-bot verification challenge instead of usable search results."
+      },
+      "temporary_provider_failure": {
+        "llm_guidance": "Search failed because a provider timed out or was rate limited. A bounded retry is allowed; respect any retry delay. Other available tools may also complete the task.",
+        "user_message": "Search is temporarily unavailable ({providers}). I can retry or use another available tool."
       }
     },
     "config": {

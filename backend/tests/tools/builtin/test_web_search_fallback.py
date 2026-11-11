@@ -240,3 +240,57 @@ async def test_brave_rate_limit_defers_shared_gate_and_falls_back(monkeypatch) -
         ("wait", "brave", None),
         ("defer", "brave", 4.0),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure,error_code,retryable", [
+    (TimeoutError("timed out"), "TIMEOUT", True),
+    (ProviderRateLimitError("slow down", retry_after_seconds=4.0), "RATE_LIMITED", True),
+    (ValueError("invalid credentials"), "PROVIDER_ERROR", False),
+])
+async def test_search_preserves_transient_failure_and_allows_same_query_retry(
+    monkeypatch, failure, error_code: str, retryable: bool,
+) -> None:
+    monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
+    requests = []
+
+    def behavior(params):
+        requests.append(params["query"])
+        if len(requests) == 1:
+            raise failure
+        return {"results": [{"title": "Report", "url": "https://example.org"}], "total": 1}
+
+    tool = _tool([_FakeProvider("tavily", behavior=behavior)], default="tavily")
+    result = await tool.execute({"query": "news"}, _ctx())
+
+    assert result.success is False
+    assert result.error_code == error_code
+    assert result.data["retryable"] is retryable
+    assert result.data["terminal"] is not retryable
+    if error_code == "RATE_LIMITED":
+        assert result.data["retry_after_seconds"] == 4.0
+    if retryable:
+        recovered = await tool.execute({"query": "news"}, _ctx())
+        assert recovered.success is True
+        assert requests == ["news", "news"]
+
+
+@pytest.mark.asyncio
+async def test_permanent_fallback_failure_does_not_hide_retryable_provider(monkeypatch) -> None:
+    monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
+
+    def timeout(_params):
+        raise TimeoutError("timed out")
+
+    def invalid_config(_params):
+        raise ValueError("invalid credentials")
+
+    tool = _tool([
+        _FakeProvider("tavily", behavior=timeout),
+        _FakeProvider("searxng", behavior=invalid_config),
+    ], default="tavily")
+    result = await tool.execute({"query": "news"}, _ctx())
+
+    assert result.error_code == "TIMEOUT"
+    assert result.data["retryable"] is True
+    assert [attempt["error_code"] for attempt in result.data["attempts"]] == ["TIMEOUT", "INVALID_CONFIG"]
