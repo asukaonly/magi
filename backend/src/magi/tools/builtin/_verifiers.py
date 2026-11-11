@@ -7,11 +7,14 @@ extensions so the caller can record a ``skipped`` outcome.
 
 Subprocess verifiers honour a per-call timeout. TypeScript and JSX use the
 installed project compiler without emitting files or executing package scripts.
-Python, JSON and TOML are parsed in-process, including in a frozen sidecar.
+Python, JSON, TOML, YAML and CSV are parsed in-process, including in a frozen
+sidecar. Plain documents use byte readback; their content identity is checked
+by the verify tool and completion gate, without claiming syntax validation.
 """
 from __future__ import annotations
 
 import asyncio
+import csv
 import json
 import shutil
 import sys
@@ -20,6 +23,8 @@ import traceback
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Literal, Optional
+
+import yaml
 
 from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from .bash_tool import _build_subprocess_env, _decode_process_output_with_encoding
@@ -257,6 +262,38 @@ async def _verify_toml(path: Path, timeout_s: int) -> VerifyOutcome:
     )
 
 
+async def _verify_document(path: Path, timeout_s: int) -> VerifyOutcome:
+    _ = timeout_s
+    start = time.monotonic()
+    suffix = path.suffix.lower()
+    verifier = "text.readback"
+    check_kind = "readback"
+    error = None
+    try:
+        if suffix in {".yaml", ".yml"}:
+            verifier, check_kind = "yaml.safe_load_all", "format"
+            with path.open(encoding="utf-8-sig") as source:
+                for _ in yaml.safe_load_all(source):
+                    pass
+        elif suffix in {".csv", ".tsv"}:
+            verifier, check_kind = "csv.reader", "format"
+            with path.open(encoding="utf-8-sig", newline="") as source:
+                for _ in csv.reader(source, delimiter="\t" if suffix == ".tsv" else ",", strict=True):
+                    pass
+        else:
+            with path.open("rb") as source:
+                while source.read(1024 * 1024):
+                    pass
+    except (OSError, UnicodeError, yaml.YAMLError, csv.Error) as exc:
+        error = str(exc)
+    return VerifyOutcome(
+        path=str(path), verifier=verifier, status="fail" if error is not None else "pass",
+        exit_code=1 if error is not None else 0, stdout="", stderr=error or "",
+        reason="File bytes read successfully; no syntax or semantic check." if check_kind == "readback" and error is None else None,
+        duration_ms=int((time.monotonic() - start) * 1000), check_kind=check_kind,
+    )
+
+
 _DISPATCH: dict[str, VerifierFn] = {
     ".py": _verify_python,
     ".ts": _verify_typescript,
@@ -267,10 +304,20 @@ _DISPATCH: dict[str, VerifierFn] = {
     ".cjs": _verify_javascript,
     ".json": _verify_json,
     ".toml": _verify_toml,
+    ".yaml": _verify_document,
+    ".yml": _verify_document,
+    ".csv": _verify_document,
+    ".tsv": _verify_document,
+    ".md": _verify_document,
+    ".markdown": _verify_document,
+    ".txt": _verify_document,
+    ".rst": _verify_document,
 }
 
 
 def get_verifier_for(path: Path) -> VerifierFn | None:
+    if path.name.upper() in {"README", "LICENSE", "NOTICE", "CHANGELOG"}:
+        return _verify_document
     return _DISPATCH.get(path.suffix.lower())
 
 

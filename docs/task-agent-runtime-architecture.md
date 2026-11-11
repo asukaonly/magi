@@ -816,6 +816,11 @@ It enforces these current invariants:
 - empty or malformed validation results are inconclusive. A successful file
   check identifies its path, verifier, and SHA-256 content version; a file
   changed during verification cannot produce passing evidence;
+- verification follows the artifact type: code retains compile/parse/type checks,
+  YAML and CSV use safe format parsers, and Markdown/plain documents use complete
+  byte readback matched to the written content version. Document readback proves
+  persistence and integrity, not syntax or semantic correctness; it can satisfy
+  a document-save task without a code syntax checker;
 - `verify` explicitly declares read-only effect and replay metadata, so the
   validation call itself does not introduce another effect requiring validation;
 - TypeScript and JSX verification uses the installed project compiler, its

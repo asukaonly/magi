@@ -35,10 +35,12 @@ class VerifyTool(Tool):
             name="verify",
             description=(
                 "Run a file or project sanity check (compile / parse / "
-                "typecheck) on one or more files. TypeScript and JSX use the "
+                "typecheck), or read back plain documents and confirm their content identity. "
+                "YAML and CSV receive format checks; Markdown and plain text receive "
+                "readback checks, not syntax or semantic validation. TypeScript and JSX use the "
                 "project configuration and installed local compiler. This "
                 "does not run package scripts, builds, tests, or visual checks. Use after a file_edit or "
-                "file_write to confirm the change still parses before "
+                "file_write to confirm the saved content and applicable syntax before "
                 "claiming the task is done. mode=changed verifies every file "
                 "edited in this session; mode=paths verifies an explicit list."
             ),

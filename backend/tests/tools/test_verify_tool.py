@@ -159,10 +159,17 @@ async def test_verify_changed_empty_session_returns_empty(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_verification_identifies_the_written_content_version(tmp_path: Path) -> None:
-    target = tmp_path / "created.json"
+@pytest.mark.parametrize("filename,content", [
+    ("created.json", '{"ok": true}'),
+    ("draft.md", "# Draft\nComplete text.\n"),
+    ("note.txt", "Complete text.\n"),
+    ("config.yaml", "enabled: true\n"),
+    ("data.csv", "name,value\nexample,1\n"),
+])
+async def test_verification_identifies_the_written_content_version(tmp_path: Path, filename, content) -> None:
+    target = tmp_path / filename
     write = await FileWriteTool().execute(
-        {"path": str(target), "content": '{"ok": true}'}, _ctx(tmp_path)
+        {"path": str(target), "content": content}, _ctx(tmp_path)
     )
     verify = await VerifyTool().execute({"mode": "paths", "paths": [str(target)]}, _ctx(tmp_path))
     assert write.success and verify.success
@@ -191,12 +198,13 @@ async def test_verification_identifies_the_written_content_version(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("filename", ["changing.json", "changing.md"])
 async def test_file_changed_during_verification_is_inconclusive(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, filename
 ) -> None:
     from magi.tools.builtin._verifiers import verify_file
 
-    target = tmp_path / "changing.json"
+    target = tmp_path / filename
     target.write_text('{"before": true}')
 
     async def changing_verifier(path, *, timeout_s):

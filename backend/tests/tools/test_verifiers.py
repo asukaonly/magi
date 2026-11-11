@@ -80,3 +80,43 @@ async def test_missing_file_returns_error(tmp_path: Path) -> None:
     assert result.status == "skipped"
     reason = (result.reason or "").lower()
     assert "not exist" in reason or "not found" in reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name,content,status,verifier,kind",
+    [
+        ("draft.md", b"# Draft\nComplete text.\n", "pass", "text.readback", "readback"),
+        ("note.txt", "caf\u00e9".encode("latin-1"), "pass", "text.readback", "readback"),
+        ("README", b"Project notes\n", "pass", "text.readback", "readback"),
+        ("config.yaml", b"enabled: true\n---\nitems: [one, two]\n", "pass", "yaml.safe_load_all", "format"),
+        ("config.yml", b"items: [unclosed\n", "fail", "yaml.safe_load_all", "format"),
+        ("unsafe.yaml", b"!!python/object/apply:os.system [echo unsafe]", "fail", "yaml.safe_load_all", "format"),
+        ("data.csv", b'name,note\r\nAlice,"two, words"\r\n', "pass", "csv.reader", "format"),
+        ("data.tsv", b"name\tnote\nAlice\tok\n", "pass", "csv.reader", "format"),
+        ("broken.csv", b'name,note\nAlice,"unclosed\n', "fail", "csv.reader", "format"),
+    ],
+)
+async def test_document_verification_reports_its_actual_check(
+    tmp_path, name, content, status, verifier, kind,
+):
+    target = tmp_path / name
+    target.write_bytes(content)
+    result = await verify_file(target, timeout_s=10)
+    assert (result.status, result.verifier, result.check_kind) == (status, verifier, kind)
+    if status == "fail":
+        assert result.stderr
+
+
+@pytest.mark.asyncio
+async def test_document_read_failure_cannot_pass(tmp_path, monkeypatch):
+    target = tmp_path / "draft.md"
+    target.write_text("draft")
+
+    def denied_open(*args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "open", denied_open)
+    result = await verify_file(target, timeout_s=10)
+    assert result.status == "fail"
+    assert "denied" in result.stderr
