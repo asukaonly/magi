@@ -1454,7 +1454,7 @@ async def test_execute_with_tools_stops_replanning_for_non_recoverable_tool_fail
 
 
 @pytest.mark.asyncio
-async def test_execute_with_tools_stops_replanning_for_provider_challenge_even_with_other_tools() -> (
+async def test_execute_with_tools_uses_other_tools_after_provider_challenge() -> (
     None
 ):
     registry = _SequencedToolRegistry(
@@ -1479,22 +1479,22 @@ async def test_execute_with_tools_stops_replanning_for_provider_challenge_even_w
 
     async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
         llm_calls.append(kwargs)
+        if len(llm_calls) == 3:
+            return {"content": "Search was unavailable; local files contain no matches.", "tool_calls": []}
+        tool_name = "web_search" if len(llm_calls) == 1 else "grep"
+        call_id = f"call_{tool_name}"
+        arguments = {"query": "magi"} if tool_name == "web_search" else {"pattern": "magi"}
         return {
             "content": "",
             "assistant_message": {
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [
-                    {
-                        "id": "call_search",
-                        "type": "function",
-                        "function": {"name": "web_search", "arguments": "{}"},
-                    }
-                ],
+                "tool_calls": [{
+                    "id": call_id, "type": "function",
+                    "function": {"name": tool_name, "arguments": json.dumps(arguments)},
+                }],
             },
-            "tool_calls": [
-                ToolCall(id="call_search", name="web_search", arguments={"query": "magi"})
-            ],
+            "tool_calls": [ToolCall(id=call_id, name=tool_name, arguments=arguments)],
         }
 
     async def _fake_call_llm_without_tools(**kwargs):  # type: ignore[no-untyped-def]
@@ -1512,10 +1512,10 @@ async def test_execute_with_tools_stops_replanning_for_provider_challenge_even_w
         max_iterations=4,
     )
 
-    assert result.status == "failed"
-    assert result.failure_reason == "ALL_TOOLS_FAILED"
-    assert len(llm_calls) == 1
-    assert [call[0] for call in registry.calls] == ["web_search"]
+    assert result.status == "completed"
+    assert result.failure_reason is None
+    assert len(llm_calls) == 3
+    assert [call[0] for call in registry.calls] == ["web_search", "grep"]
 
 
 @pytest.mark.asyncio
