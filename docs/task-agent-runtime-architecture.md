@@ -1165,6 +1165,11 @@ assembly.
 
 ## Durable Run Journal And Trace Projection
 
+Synchronous iteration and tool diagnostic projections are best-effort: a trace
+write failure is logged without discarding a valid model or tool result. This
+does not relax durable run journals, effect ledgers, model-context commits, or
+terminal chat transactions; those remain required for consistent execution.
+
 `runtime_trace.db` contains:
 
 - `agent_run_manifests` — insert-once prompt, message, tool-schema, and

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional
+from sqlite3 import OperationalError
+from unittest.mock import AsyncMock
 
 import pytest
 from agent.agent_run_helpers import run_agent
@@ -199,3 +201,40 @@ async def test_execute_with_tools_persists_iteration_llm_and_tool_rows(
     assert tool_call is not None
     assert tool_call.tool_name == "web-search"
     assert tool_call.success is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_write", ["upsert_span", "upsert_tool_call"])
+async def test_diagnostic_failure_preserves_tool_result_and_final_answer(
+    runtime_trace_store: RuntimeTraceStore,
+    monkeypatch: pytest.MonkeyPatch,
+    failed_write: str,
+) -> None:
+    monkeypatch.setattr(runtime_trace_store, failed_write, AsyncMock(
+        side_effect=OperationalError("trace database is locked"),
+    ))
+    orchestrator = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=_DummyToolRegistry(),
+        runtime_trace_store=runtime_trace_store,
+    )
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", AsyncMock(side_effect=[
+        {"tool_calls": [ToolCall(id="read", name="web-search", arguments={"query": "news"})]},
+        {"content": "A complete answer based on the search result."},
+    ]))
+    execute_tool = AsyncMock(return_value=ToolCallResult(
+        tool_call_id="read", tool_name="web-search", success=True, data={"headline": "news"},
+    ))
+    monkeypatch.setattr(orchestrator, "_execute_tool_call", execute_tool)
+
+    outcome = await run_agent(
+        orchestrator,
+        turn=UserTurnInput(text="Find news", attachments=[], user_id=None, session_id=None),
+        system_prompt="You are helpful.", selected_tools=["web-search"],
+        user_id="local_user", session_id="session-1", turn_id="turn-1",
+        conversation_history=[], execution_agent_id="chat:local_user",
+    )
+
+    execute_tool.assert_awaited_once()
+    assert outcome.status == "completed"
+    assert outcome.content == "A complete answer based on the search result."
