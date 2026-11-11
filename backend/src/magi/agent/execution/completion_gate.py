@@ -12,6 +12,7 @@ from .evidence import (
     successful_validation_evidence,
     text_evidence_ref,
     unresolved_validations,
+    validation_check_passed,
     validation_checks,
 )
 from magi.control.run_plan import (
@@ -91,18 +92,11 @@ class CompletionGate:
                 )
             )
         ]
-        first_mutation = next(
-            (index for index, item in enumerate(evidence) if _mutating_effect(item, evidence)),
-            len(evidence),
-        )
         # A command exit needs no invented file check, but an actual failed check
         # after a mutation remains actionable evidence.
-        validation_after_mutation = [
-            item for index, item in enumerate(evidence)
-            if index > first_mutation or (index == first_mutation and has_inline_validation(item))
-        ]
+        validation_scopes = _validation_scopes(evidence)
         failed_validation = failed_validation_evidence(
-            validation_after_mutation,
+            evidence,
             validation_tool_names=policy.validation_tool_names,
         )
         successful_validation = successful_validation_evidence(
@@ -110,10 +104,10 @@ class CompletionGate:
             validation_tool_names=policy.validation_tool_names,
         )
         inconclusive_validation = inconclusive_validation_evidence(
-            validation_after_mutation,
+            evidence,
             validation_tool_names=policy.validation_tool_names,
         )
-        if unresolved_validations(failed_validation, evidence, successful_validation):
+        if unresolved_validations(failed_validation, evidence, successful_validation, required_paths=validation_scopes):
             if repair_iterations >= policy.max_repair_iterations:
                 return CompletionDecision(
                     outcome=CompletionOutcome.BLOCKED,
@@ -131,7 +125,7 @@ class CompletionGate:
                 repairable=True,
                 reasoning_helpful=True,
             )
-        if unresolved_validations(inconclusive_validation, evidence, successful_validation):
+        if unresolved_validations(inconclusive_validation, evidence, successful_validation, required_paths=validation_scopes):
             if repair_iterations >= policy.max_repair_iterations:
                 return CompletionDecision(
                     outcome=CompletionOutcome.BLOCKED,
@@ -205,7 +199,7 @@ def _completed_command(item: ToolExecutionEvidence) -> bool:
     return (
         item.success
         and item.result.get("status") not in {"starting", "running", "cancelled", "failed"}
-        and type(code) is int
+        and isinstance(code, int) and not isinstance(code, bool)
         and item.result.get("command_succeeded") is (code == 0)
         and item.result.get("timed_out") is False
     )
@@ -284,9 +278,31 @@ def _has_later_mutation(evidence: list[ToolExecutionEvidence], start: int, end: 
         if not _mutating_effect(item, evidence):
             continue
         targets = item.result.get("validation_targets") if isinstance(item.result, dict) else None
-        if not targets or any(isinstance(target, dict) and target.get("path") == path for target in targets):
+        if targets is None or targets == []:
+            return True
+        if isinstance(targets, list) and any(
+            isinstance(target, dict) and target.get("path") == path for target in targets
+        ):
             return True
     return False
+
+
+def _validation_scopes(evidence: list[ToolExecutionEvidence]) -> dict[str, set[str] | None]:
+    """Own only declared targets; unscoped mutations conservatively cover all checks."""
+    paths: set[str] | None = set()
+    scopes = {}
+    for item in evidence:
+        if paths is not None and _mutating_effect(item, evidence):
+            targets = item.result.get("validation_targets") if isinstance(item.result, dict) else None
+            if not isinstance(targets, list) or not targets or any(
+                not isinstance(target, dict) or not isinstance(target.get("path"), str) or not target["path"]
+                for target in targets
+            ):
+                paths = None
+            else:
+                paths.update(target["path"] for target in targets)
+        scopes[item.evidence_id] = None if paths is None else set(paths)
+    return scopes
 
 
 def _effects_have_current_validation(
@@ -312,6 +328,7 @@ def _effects_have_current_validation(
         for index, item in enumerate(evidence)
         if item in successful_validation
         for row in validation_checks(item)
+        if validation_check_passed(row)
     ]
     # A completed command may still alter a file declared by an earlier write.
     last_unscoped_effect = max(

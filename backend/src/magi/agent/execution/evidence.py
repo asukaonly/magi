@@ -102,15 +102,14 @@ def successful_validation_evidence(
     *,
     validation_tool_names: frozenset[str],
 ) -> list[ToolExecutionEvidence]:
-    """Return successful validation calls whose result does not report failures."""
+    """Retain independently passing targets, including those in mixed batches."""
 
     return [
         item
         for item in evidence
         if (item.tool_name in validation_tool_names or has_inline_validation(item))
         and item.success
-        and not _result_reports_validation_failure(item.result)
-        and not _result_reports_validation_inconclusive(item.result)
+        and any(validation_check_passed(row) for row in validation_checks(item))
     ]
 
 
@@ -226,26 +225,50 @@ def validation_checks(item: ToolExecutionEvidence) -> list[dict[str, Any]]:
     return [row for row in item.result["results"] if isinstance(row, dict)]
 
 
+def validation_check_passed(row: dict[str, Any]) -> bool:
+    return row.get("status") == "pass" and row.get("success") is not False and _has_check_identity(row)
+
+
+def _row_matches_scope(row: dict[str, Any], scope: set[str]) -> bool:
+    path = row.get("path")
+    return not isinstance(path, str) or not path or path in scope
+
+
 def unresolved_validations(
     candidates: list[ToolExecutionEvidence],
     evidence: list[ToolExecutionEvidence],
     successful: list[ToolExecutionEvidence],
+    *,
+    required_paths: dict[str, set[str] | None] | None = None,
 ) -> list[ToolExecutionEvidence]:
     """Keep failed or inconclusive checks until the same targets pass later."""
     unresolved = []
     for index, item in enumerate(evidence):
         if item not in candidates:
             continue
+        scope = required_paths.get(item.evidence_id) if required_paths is not None else None
+        if scope is not None and item.tool_name == "verify":
+            scope = {path for path in scope if not path.startswith("settings://")}
+        if scope == set():
+            continue
         later = [other for other in evidence[index + 1 :] if other in successful]
+        checks = validation_checks(item)
         required = [
             row
-            for row in validation_checks(item)
-            if row.get("status") != "pass" or not _has_check_identity(row)
+            for row in checks
+            if not validation_check_passed(row)
         ]
-        passed = [row for other in later for row in validation_checks(other)]
+        if scope is not None and required:
+            required = [row for row in required if _row_matches_scope(row, scope)]
+            if not required:
+                continue
+        if scope is not None and checks and not any(_row_matches_scope(row, scope) for row in checks):
+            continue
+        passed = [row for other in later for row in validation_checks(other) if validation_check_passed(row)]
         restored = [
             row for other in successful if other.tool_name == "file_rollback"
-            for row in validation_checks(other) if row.get("verifier") == "snapshot.restore"
+            for row in validation_checks(other)
+            if row.get("verifier") == "snapshot.restore" and validation_check_passed(row)
         ]
         if (not later and not required) or any(
             not row.get("path")

@@ -309,3 +309,60 @@ async def test_shell_written_invalid_file_remains_blocked_after_successful_comma
         policy=CompletionPolicy(), evidence=[_tool_evidence(shell, changed), _tool_evidence(verify, checked)],
         repair_iterations=0,
     ).reason_code == "validation_failed"
+
+
+@pytest.mark.asyncio
+async def test_saved_setting_does_not_own_unrelated_file_diagnostic(tmp_path):
+    from magi.tools.builtin.system_settings_tool import SystemSettingsTool
+
+    path = tmp_path / "existing.py"
+    path.write_text("def broken(:\n")
+    context = _ctx(tmp_path)
+    setting, verify = SystemSettingsTool(), VerifyTool()
+    saved = await setting.execute(
+        {"action": "set", "path": "app.diagnostics.full_content_logging_enabled", "value": "false"}, context
+    )
+    checked = await verify.execute({"mode": "paths", "paths": [str(path)]}, context)
+    assert saved.data["results"][0]["status"] == "pass"
+    assert checked.data["summary"]["fail"] == 1
+    assert CompletionGate().evaluate(
+        policy=CompletionPolicy(), evidence=[_tool_evidence(setting, saved), _tool_evidence(verify, checked)],
+        repair_iterations=0,
+    ).outcome is CompletionOutcome.COMPLETE
+    empty = await verify.execute({"mode": "changed"}, context)
+    assert empty.data["results"] == []
+    assert CompletionGate().evaluate(
+        policy=CompletionPolicy(), evidence=[_tool_evidence(setting, saved), _tool_evidence(verify, empty)],
+        repair_iterations=0,
+    ).outcome is CompletionOutcome.COMPLETE
+
+
+@pytest.mark.asyncio
+async def test_mixed_check_keeps_written_target_pass_without_owning_existing_failure(tmp_path):
+    path = tmp_path / "written.py"
+    existing = tmp_path / "existing.py"
+    existing.write_text("def broken(:\n")
+    context = _ctx(tmp_path)
+    writer, verify = FileWriteTool(), VerifyTool()
+    saved = await writer.execute({"path": str(path), "content": "x = 1\n"}, context)
+    checked = await verify.execute({"mode": "paths", "paths": [str(path), str(existing)]}, context)
+    assert checked.data["summary"]["pass"] == checked.data["summary"]["fail"] == 1
+    own_write = _tool_evidence(writer, saved)
+    mixed_check = _tool_evidence(verify, checked)
+    gate = CompletionGate()
+    assert gate.evaluate(
+        policy=CompletionPolicy(), evidence=[own_write, mixed_check], repair_iterations=0
+    ).outcome is CompletionOutcome.COMPLETE
+    unknown = ToolExecutionEvidence(
+        tool_name="plugin", success=True, effect_class="unknown", replay_policy="unknown",
+    )
+    assert gate.evaluate(
+        policy=CompletionPolicy(), evidence=[own_write, unknown, mixed_check], repair_iterations=0
+    ).reason_code == "validation_failed"
+    await FileReadTool().execute({"path": str(existing)}, context)
+    bad_write = await writer.execute({"path": str(existing), "content": "def broken(:\n"}, context)
+    assert bad_write.success, bad_write.error
+    rechecked = await verify.execute({"mode": "paths", "paths": [str(path), str(existing)]}, context)
+    assert gate.evaluate(
+        policy=CompletionPolicy(), evidence=[own_write, _tool_evidence(writer, bad_write), _tool_evidence(verify, rechecked)], repair_iterations=0
+    ).reason_code == "validation_failed"

@@ -174,6 +174,7 @@ def test_normal_command_exit_can_be_reported_without_file_verification(code) -> 
     ("plugin", {"return_code": 0, "command_succeeded": True, "timed_out": False}),
     ("bash", {"return_code": 0, "command_succeeded": True, "timed_out": True}),
     ("bash", {"return_code": 1, "command_succeeded": True, "timed_out": False}),
+    ("bash", {"return_code": False, "command_succeeded": True, "timed_out": False}),
     ("bash", {"status": "running"}),
 ])
 def test_unknown_effect_without_trusted_terminal_receipt_still_requires_validation(tool, result) -> None:
@@ -555,3 +556,18 @@ def test_known_command_exit_does_not_hide_failed_post_mutation_validation(status
     command = _shell_job(status="completed", code=0)
     assert _evaluate([command, _validation("a.py", status)]).reason_code == reason
     assert _evaluate([_shell_job(status="completed", code=0, risk="read_only"), _validation("a.py", status)]).outcome is CompletionOutcome.COMPLETE
+
+
+def test_malformed_mutation_targets_cannot_replace_a_written_version():
+    malformed = ToolExecutionEvidence(
+        tool_name="plugin", success=True, effect_class="unknown", replay_policy="unknown",
+        result={"validation_targets": 42},
+    )
+    assert _evaluate([_write("a.py"), malformed, _validation("a.py", digest="b")]).reason_code == "validation_required"
+
+
+def test_long_read_only_command_does_not_introduce_mutation_obligations():
+    start = _shell_job(risk="read_only")
+    finished = _shell_job("shell_job", status="completed", code=0, risk="read_only")
+    assert _evaluate([start, finished, _validation("a.py", "fail")]).outcome is CompletionOutcome.COMPLETE
+    assert _evaluate([_write("a.py"), start, finished, _validation("a.py", digest="b")]).reason_code == "validation_required"
