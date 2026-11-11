@@ -50,7 +50,7 @@ class CompletionGate:
 
         guarded_effects = [
             item for item in evidence
-            if item.success and (
+            if item.success and not _rollback_without_changes(item) and (
                 (item.effect_class == "local_write" and policy.require_local_write_validation)
                 or (
                     item.effect_class == "unknown"
@@ -163,6 +163,23 @@ def _completed_command(item: ToolExecutionEvidence) -> bool:
     )
 
 
+def _rollback_without_changes(item: ToolExecutionEvidence) -> bool:
+    return (
+        item.tool_name == "file_rollback" and isinstance(item.result, dict)
+        and (item.result.get("dry_run") is True or item.result.get("restored") == [])
+    )
+
+
+def _has_later_mutation(evidence: list[ToolExecutionEvidence], start: int, end: int, path: str) -> bool:
+    for item in evidence[start + 1 : end]:
+        if not item.success or item.effect_class not in {"local_write", "unknown"} or _rollback_without_changes(item):
+            continue
+        targets = item.result.get("validation_targets") if isinstance(item.result, dict) else None
+        if not targets or any(isinstance(target, dict) and target.get("path") == path for target in targets):
+            return True
+    return False
+
+
 def _effects_have_current_validation(
     evidence: list[ToolExecutionEvidence],
     guarded_effects: list[ToolExecutionEvidence],
@@ -212,8 +229,17 @@ def _effects_have_current_validation(
                 )
                 or (
                     target.get("content_sha256") is not None
-                    and index > max(effect_index, last_unscoped_effect)
                     and row.get("content_sha256") == target["content_sha256"]
+                    and index > last_unscoped_effect
+                    and (
+                        index > effect_index
+                        or (index == effect_index and evidence[index].tool_name == "file_rollback")
+                    )
+                )
+                or (
+                    row.get("check_kind") == "absence"
+                    and index > max(effect_index, last_unscoped_effect)
+                    and _has_later_mutation(evidence, effect_index, index, path)
                 )
             )
             for index, row in checks

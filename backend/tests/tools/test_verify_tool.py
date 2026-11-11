@@ -232,3 +232,60 @@ async def test_verify_rejects_invalid_mode_or_missing_paths(
     res = await VerifyTool().execute({"mode": mode_value}, _ctx(tmp_path))
     assert not res.success
     assert expected_error_field in (res.error or "").lower()
+
+
+def _tool_evidence(tool, result):
+    schema = tool.get_schema()
+    return ToolExecutionEvidence(
+        tool_name=schema.name, success=result.success, effect_class=schema.effect_class,
+        replay_policy=schema.effect_replay_policy, result=result.data,
+    )
+
+
+@pytest.mark.asyncio
+async def test_explicit_absence_verifies_deletion_and_retires_previous_content(tmp_path):
+    path = tmp_path / "draft.json"
+    context = _ctx(tmp_path)
+    write_tool, verify_tool = FileWriteTool(), VerifyTool()
+    write = await write_tool.execute({"path": str(path), "content": "{broken"}, context)
+    failed = await verify_tool.execute({"mode": "paths", "paths": [str(path)]}, context)
+    path.unlink()
+    missing = await verify_tool.execute({"mode": "paths", "paths": [str(path)]}, context)
+    absent = await verify_tool.execute(
+        {"mode": "paths", "paths": [str(path)], "expected_state": "absent"}, context
+    )
+    assert missing.data["results"][0]["status"] == "skipped"
+    assert absent.data["results"][0]["status"] == "pass"
+    evidence = [_tool_evidence(write_tool, write), _tool_evidence(verify_tool, failed)]
+    deletion = ToolExecutionEvidence(
+        tool_name="bash", success=True, effect_class="unknown", replay_policy="unknown",
+        result={"return_code": 0, "command_succeeded": True, "timed_out": False},
+    )
+    gate = CompletionGate()
+    assert gate.evaluate(
+        policy=CompletionPolicy(), evidence=[*evidence, _tool_evidence(verify_tool, absent)], repair_iterations=0
+    ).reason_code == "validation_required"
+    assert gate.evaluate(
+        policy=CompletionPolicy(),
+        evidence=[*evidence, deletion, _tool_evidence(verify_tool, missing), _tool_evidence(verify_tool, absent)],
+        repair_iterations=0,
+    ).outcome is CompletionOutcome.COMPLETE
+    path.write_text("new content")
+    present = await verify_tool.execute(
+        {"mode": "paths", "paths": [str(path)], "expected_state": "absent"}, context
+    )
+    assert present.data["results"][0]["status"] == "fail"
+
+
+@pytest.mark.asyncio
+async def test_absence_requires_explicit_paths_and_does_not_accept_dangling_symlink(tmp_path):
+    tool = VerifyTool()
+    invalid = await tool.execute({"expected_state": "absent"}, _ctx(tmp_path))
+    assert not invalid.success
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path / "missing")
+    result = await tool.execute(
+        {"mode": "paths", "paths": [str(link)], "expected_state": "absent"}, _ctx(tmp_path)
+    )
+    assert result.data["results"][0]["status"] == "fail"
+    assert result.data["results"][0]["path"] == str(link)

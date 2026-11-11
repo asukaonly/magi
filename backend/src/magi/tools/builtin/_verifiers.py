@@ -48,6 +48,7 @@ class VerifyOutcome:
     check_kind: str = "syntax"
     input_digest: str | None = None
     command: list[str] | None = None
+    expected_state: str = "present"
 
     def to_dict(self) -> dict:
         return asdict(self)

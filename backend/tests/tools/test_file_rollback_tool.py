@@ -138,3 +138,57 @@ async def test_rollback_without_history_preserves_file_and_empty_journal(tmp_pat
     assert result.data["restored"] == []
     assert untouched.read_bytes() == b"untouched bytes"
     assert list(resolve_session_cache(tmp_path,"s1").iter_edits()) == []
+
+
+@pytest.mark.asyncio
+async def test_rollback_verifies_snapshot_instead_of_requiring_original_syntax_to_pass(tmp_path):
+    from magi.agent.execution.completion_gate import CompletionGate
+    from magi.agent.execution.completion_policy import CompletionPolicy
+    from magi.agent.execution.contracts import CompletionOutcome
+    from magi.agent.execution.evidence import ToolExecutionEvidence
+    from magi.agent.execution.tool_metadata import resolve_tool_capability_metadata
+    from types import SimpleNamespace
+    from magi.tools.builtin.file_write_tool import FileWriteTool
+    from magi.tools.builtin.verify_tool import VerifyTool
+
+    path = tmp_path / "original.json"
+    path.write_text("original invalid JSON")
+    context = _ctx(tmp_path)
+    evidence = []
+
+    async def call(tool, parameters):
+        result = await tool.execute(parameters, context)
+        assert result.success, result.error
+        schema = tool.get_schema()
+        metadata = resolve_tool_capability_metadata(SimpleNamespace(get_tool=lambda _: tool), schema.name)
+        evidence.append(ToolExecutionEvidence(
+            tool_name=schema.name, success=result.success, effect_class=metadata.effect_class.value,
+            replay_policy=schema.effect_replay_policy, result=result.data,
+        ))
+        return result
+
+    await call(FileReadTool(), {"path": str(path)})
+    await call(FileWriteTool(), {"path": str(path), "content": "different invalid JSON"})
+    await call(VerifyTool(), {"mode": "paths", "paths": [str(path)]})
+    restored = await call(FileRollbackTool(), {"mode": "last"})
+    assert restored.data["results"][0]["status"] == "pass"
+    assert path.read_text() == "original invalid JSON"
+    gate = CompletionGate()
+    assert gate.evaluate(policy=CompletionPolicy(), evidence=evidence, repair_iterations=0).outcome is CompletionOutcome.COMPLETE
+    await call(VerifyTool(), {"mode": "paths", "paths": [str(path)]})
+    assert gate.evaluate(policy=CompletionPolicy(), evidence=evidence, repair_iterations=0).outcome is CompletionOutcome.COMPLETE
+    await call(FileReadTool(), {"path": str(path)})
+    await call(FileWriteTool(), {"path": str(path), "content": "another invalid JSON"})
+    assert gate.evaluate(policy=CompletionPolicy(), evidence=evidence, repair_iterations=0).reason_code == "validation_required"
+
+
+@pytest.mark.asyncio
+async def test_rollback_readback_mismatch_does_not_create_passing_receipt(tmp_path, monkeypatch):
+    _, _, context = await _make_two_edits(tmp_path)
+    monkeypatch.setattr(
+        "magi.tools.builtin.file_rollback_tool.atomic_write_bytes",
+        lambda path, data: path.write_bytes(b"incorrect snapshot"),
+    )
+    result = await FileRollbackTool().execute({"mode": "last"}, context)
+    assert result.data["restored"][0]["ok"] is False
+    assert result.data["results"][0]["status"] == "fail"

@@ -186,6 +186,11 @@ def _result_reports_validation_inconclusive(value: Any) -> bool:
 def _has_check_identity(row: dict[str, Any]) -> bool:
     path, verifier, digest = (row.get(key) for key in ("path", "verifier", "content_sha256"))
     if (
+        isinstance(path, str) and bool(path.strip())
+        and verifier == "filesystem.absence" and row.get("check_kind") == "absence"
+    ):
+        return row.get("expected_state") == "absent" and digest is None
+    if (
         isinstance(path, str) and path.startswith("settings://")
         and verifier == "settings.readback" and row.get("check_kind") == "settings"
     ):
@@ -202,7 +207,7 @@ def _has_check_identity(row: dict[str, Any]) -> bool:
 
 def has_inline_validation(item: ToolExecutionEvidence) -> bool:
     """Only built-in mutation receipts may verify their own saved state."""
-    return item.tool_name == "system-settings" and bool(validation_checks(item))
+    return item.tool_name in {"system-settings", "file_rollback"} and bool(validation_checks(item))
 
 
 def validation_checks(item: ToolExecutionEvidence) -> list[dict[str, Any]]:
@@ -222,26 +227,35 @@ def unresolved_validations(
     for index, item in enumerate(evidence):
         if item not in candidates:
             continue
-        later = [
-            other
-            for other in evidence[index + 1 :]
-            if other in successful and other.tool_name == item.tool_name
-        ]
+        later = [other for other in evidence[index + 1 :] if other in successful]
         required = [
             row
             for row in validation_checks(item)
             if row.get("status") != "pass" or not _has_check_identity(row)
         ]
         passed = [row for other in later for row in validation_checks(other)]
-        if not later or any(
+        restored = [
+            row for other in successful if other.tool_name == "file_rollback"
+            for row in validation_checks(other) if row.get("verifier") == "snapshot.restore"
+        ]
+        if (not later and not required) or any(
             not row.get("path")
-            or not any(
-                check.get("path") == row["path"]
-                and (
-                    row.get("verifier") in (None, "", "(none)")
-                    or check.get("verifier") == row["verifier"]
+            or not (
+                any(
+                    check.get("path") == row["path"]
+                    and (
+                        row.get("verifier") in (None, "", "(none)")
+                        or check.get("verifier") == row["verifier"]
+                        or check.get("check_kind") in {"absence", "restoration"}
+                    )
+                    for check in passed
                 )
-                for check in passed
+                or any(
+                    check.get("path") == row["path"]
+                    and row.get("content_sha256") is not None
+                    and check.get("content_sha256") == row["content_sha256"]
+                    for check in restored
+                )
             )
             for row in required
         ):

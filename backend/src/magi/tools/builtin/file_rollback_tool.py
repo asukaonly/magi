@@ -158,6 +158,16 @@ class FileRollbackTool(Tool):
                     ]
                     if not dry_run else []
                 ),
+                "results": (
+                    [{
+                        "path": str(sc.root.workspace_root / path),
+                        "verifier": "snapshot.restore",
+                        "check_kind": "restoration",
+                        "status": "pass" if entry["ok"] else "fail",
+                        "content_sha256": entry.get("restored_sha256"),
+                    } for path, entry in {entry["path"]: entry for entry in restored}.items()]
+                    if not dry_run else []
+                ),
             },
         )
 
@@ -219,6 +229,8 @@ class FileRollbackTool(Tool):
         try:
             current = absolute.read_bytes() if absolute.is_file() else b""
             atomic_write_bytes(absolute, snapshot_bytes)
+            if absolute.read_bytes() != snapshot_bytes:
+                raise OSError("Restored content did not match the saved snapshot")
         except Exception as exc:
             logger.warning("file_rollback.write_failed", exc_info=True)
             return {
@@ -244,6 +256,7 @@ class FileRollbackTool(Tool):
             "path": rec.path,
             "ok": True,
             "restored_bytes": len(snapshot_bytes),
+            "restored_sha256": hashlib.sha256(snapshot_bytes).hexdigest(),
             "before_op": rec.op,
         }
 
