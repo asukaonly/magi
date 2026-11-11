@@ -70,6 +70,23 @@ class CompletionGate:
                 repairable=not exhausted,
             )
 
+        failed_effect_jobs = {
+            item.result["job_id"] for item in evidence
+            if _mutating_effect(item, evidence)
+            and any(_failed_shell_job(other) for other in _later_shell_observations(item, evidence))
+        }
+        if policy.require_effect_terminal_state and failed_effect_jobs:
+            return CompletionDecision(
+                outcome=CompletionOutcome.BLOCKED,
+                reason_code="uncertain_effect",
+                observations=(
+                    "A shell job failed without a reliable exit result. Reconcile its possible "
+                    "state changes before claiming completion. Job IDs: "
+                    + ", ".join(sorted(failed_effect_jobs)),
+                ),
+                evidence_refs=refs,
+            )
+
         plan_decision = _evaluate_required_plan(
             run_plan,
             evidence=evidence,
@@ -83,7 +100,7 @@ class CompletionGate:
 
         guarded_effects = [
             item for item in evidence
-            if item.success and not _rollback_without_changes(item)
+            if _mutating_effect(item, evidence)
             and not _confirmed_shell_effect(item, evidence) and (
                 (item.effect_class == "local_write" and policy.require_local_write_validation)
                 or (
@@ -220,16 +237,16 @@ def _confirmed_shell_control(item: ToolExecutionEvidence) -> bool:
 def _pending_shell_jobs(evidence: list[ToolExecutionEvidence]) -> set[str]:
     pending: dict[str, str] = {}
     for item in evidence:
-        if not item.success or not isinstance(item.result, dict):
+        if not isinstance(item.result, dict):
             continue
         job_id = item.result.get("job_id")
         if not isinstance(job_id, str) or not job_id:
             continue
-        if item.tool_name in {"bash", "powershell"} and item.result.get("status") in {"starting", "running"}:
+        if item.success and item.tool_name in {"bash", "powershell"} and item.result.get("status") in {"starting", "running"}:
             if not _confirmed_shell_control(item):
                 pending[job_id] = item.tool_name
         elif item.tool_name == "shell_job" and pending.get(job_id) == item.result.get("shell_tool"):
-            if _completed_command(item) or _confirmed_shell_control(item):
+            if _completed_command(item) or _confirmed_shell_control(item) or _failed_shell_job(item):
                 pending.pop(job_id)
     return set(pending)
 
@@ -237,13 +254,34 @@ def _pending_shell_jobs(evidence: list[ToolExecutionEvidence]) -> set[str]:
 def _confirmed_shell_effect(item: ToolExecutionEvidence, evidence: list[ToolExecutionEvidence]) -> bool:
     if _completed_command(item) or _confirmed_shell_control(item):
         return True
-    if item.tool_name not in {"bash", "powershell"} or not isinstance(item.result, dict):
-        return False
-    job_id = item.result.get("job_id")
-    return bool(
-        job_id and item.result.get("status") in {"starting", "running"}
-        and job_id not in _pending_shell_jobs(evidence)
+    return any(
+        _completed_command(other) or _confirmed_shell_control(other)
+        for other in _later_shell_observations(item, evidence)
     )
+
+
+def _failed_shell_job(item: ToolExecutionEvidence) -> bool:
+    return (
+        item.tool_name == "shell_job" and isinstance(item.result, dict)
+        and item.result.get("status") == "failed"
+    )
+
+
+def _later_shell_observations(
+    item: ToolExecutionEvidence, evidence: list[ToolExecutionEvidence]
+) -> list[ToolExecutionEvidence]:
+    if (
+        item.tool_name not in {"bash", "powershell"} or not isinstance(item.result, dict)
+        or not isinstance(item.result.get("job_id"), str) or not item.result["job_id"]
+        or item.result.get("status") not in {"starting", "running"}
+    ):
+        return []
+    return [
+        other for other in evidence[evidence.index(item) + 1 :]
+        if other.tool_name == "shell_job" and isinstance(other.result, dict)
+        and other.result.get("job_id") == item.result["job_id"]
+        and other.result.get("shell_tool") == item.tool_name
+    ]
 
 
 def _rollback_without_changes(item: ToolExecutionEvidence) -> bool:
