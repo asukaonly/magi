@@ -7,6 +7,7 @@ from .contracts import CompletionDecision, CompletionOutcome
 from .evidence import (
     ToolExecutionEvidence,
     failed_validation_evidence,
+    has_inline_validation,
     inconclusive_validation_evidence,
     successful_validation_evidence,
     unresolved_validations,
@@ -167,7 +168,7 @@ def _effects_have_current_validation(
     guarded_effects: list[ToolExecutionEvidence],
     successful_validation: list[ToolExecutionEvidence],
 ) -> bool:
-    targets: dict[str, tuple[int, str | None]] = {}
+    targets: dict[str, tuple[int, dict]] = {}
     unscoped_effects: list[int] = []
     for index, item in enumerate(evidence):
         if item not in guarded_effects:
@@ -179,7 +180,7 @@ def _effects_have_current_validation(
         for target in declared:
             if not isinstance(target, dict) or not target.get("path"):
                 return False
-            targets[str(target["path"])] = (index, target.get("content_sha256"))
+            targets[str(target["path"])] = (index, target)
     checks = [
         (index, row)
         for index, item in enumerate(evidence)
@@ -194,16 +195,30 @@ def _effects_have_current_validation(
         default=-1,
     )
     return all(
-        any(index > effect_index for index, _ in checks) for effect_index in unscoped_effects
+        any(
+            index > effect_index and not has_inline_validation(evidence[index])
+            for index, _ in checks
+        ) for effect_index in unscoped_effects
     ) and all(
-        digest is not None
-        and any(
-            index > max(effect_index, last_unscoped_effect)
-            and row.get("path") == path
-            and row.get("content_sha256") == digest
+        any(
+            row.get("path") == path
+            and (
+                (
+                    target.get("expected_state") == "saved"
+                    and row.get("verifier") == "settings.readback"
+                    and row.get("matched") is True
+                    and index == effect_index
+                    and has_inline_validation(evidence[index])
+                )
+                or (
+                    target.get("content_sha256") is not None
+                    and index > max(effect_index, last_unscoped_effect)
+                    and row.get("content_sha256") == target["content_sha256"]
+                )
+            )
             for index, row in checks
         )
-        for path, (effect_index, digest) in targets.items()
+        for path, (effect_index, target) in targets.items()
     )
 
 

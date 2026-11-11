@@ -98,7 +98,7 @@ def successful_validation_evidence(
     return [
         item
         for item in evidence
-        if item.tool_name in validation_tool_names
+        if (item.tool_name in validation_tool_names or has_inline_validation(item))
         and item.success
         and not _result_reports_validation_failure(item.result)
         and not _result_reports_validation_inconclusive(item.result)
@@ -115,7 +115,7 @@ def failed_validation_evidence(
     return [
         item
         for item in evidence
-        if item.tool_name in validation_tool_names
+        if (item.tool_name in validation_tool_names or has_inline_validation(item))
         and (not item.success or _result_reports_validation_failure(item.result))
     ]
 
@@ -130,7 +130,7 @@ def inconclusive_validation_evidence(
     return [
         item
         for item in evidence
-        if item.tool_name in validation_tool_names
+        if (item.tool_name in validation_tool_names or has_inline_validation(item))
         and item.success
         and _result_reports_validation_inconclusive(item.result)
     ]
@@ -185,6 +185,11 @@ def _result_reports_validation_inconclusive(value: Any) -> bool:
 
 def _has_check_identity(row: dict[str, Any]) -> bool:
     path, verifier, digest = (row.get(key) for key in ("path", "verifier", "content_sha256"))
+    if (
+        isinstance(path, str) and path.startswith("settings://")
+        and verifier == "settings.readback" and row.get("check_kind") == "settings"
+    ):
+        return row.get("matched") is True
     return (
         isinstance(path, str)
         and bool(path.strip())
@@ -193,6 +198,11 @@ def _has_check_identity(row: dict[str, Any]) -> bool:
         and isinstance(digest, str)
         and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
     )
+
+
+def has_inline_validation(item: ToolExecutionEvidence) -> bool:
+    """Only built-in mutation receipts may verify their own saved state."""
+    return item.tool_name == "system-settings" and bool(validation_checks(item))
 
 
 def validation_checks(item: ToolExecutionEvidence) -> list[dict[str, Any]]:
