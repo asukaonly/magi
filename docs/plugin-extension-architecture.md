@@ -206,7 +206,10 @@ replacing another owner. Disposers are tied to an exact registration, so stale
 cleanup cannot remove a replacement. Each connection owns its loaded instance
 and contribution identifiers. Reload, package replacement, and shutdown drain
 the previous instance before publishing a replacement. Package removal requires
-disconnecting its connections first.
+disconnecting its connections first. Bundled host tool instances release their
+owned resources before plugin shutdown; a cleanup failure blocks replacement.
+External process connections release resources through their worker lifetime,
+without requiring an RPC to an already exited worker.
 
 The public SDK is version `0.2.2`, with plugin protocol `2`. Disk manifests
 declare `protocol_version = 2`, `min_sdk_version`, and an execution mode

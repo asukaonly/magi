@@ -646,9 +646,11 @@ provider call.
 If the first surface is insufficient, the model may use the resident,
 bounded `find-relevant-tools` capability during the loop. Metadata retrieval and
 L4 advisory reranking happen only inside that explicit discovery step. The
-runtime admits at most three expansions per turn, each adding at most two
-capabilities. It reserves one of those slots for `verify` when a discovered capability has a local-write or
-unknown effect, and records `CAPABILITIES_EXPANDED`; it does not restart semantic
+runtime admits expansions within the model's schema capacity and the shared task
+budget, without a separate fixed expansion count. Discovery defaults to two
+recommendations but accepts larger requests. It adds `verify` alongside discovered
+local-write or unknown-effect capabilities without displacing a requested tool,
+and records `CAPABILITIES_EXPANDED`; it does not restart semantic
 routing. This intentionally changes the tool-schema prefix only for a run that
 has produced evidence that its stable initial surface is insufficient.
 Each expansion preserves previously admitted tools and checks the active model's
@@ -755,8 +757,11 @@ mutation clears failed-call and repeated-error suppression, allowing the model t
 recheck repaired state. Permission denials and ambiguous effect replay remain
 governed by their owning boundaries; consecutive failed model iterations and the
 run budget bound further repair attempts.
-Provider challenges, missing provider configuration, and other terminal tool
-conditions retain their existing suppression policy.
+Provider challenges and missing provider configuration suppress the affected
+tool, while other available tools may continue the task. Search timeouts and
+rate limits retain their transient classification through provider aggregation
+and use the existing bounded read retries; a challenge is never retried as a
+transient network failure.
 
 There is no `DirectLLMHandler`, `TaskOrchestrator`, `ExploreTaskAgent`, route
 graph, or route-derived handler registry for ordinary turns. A simple chat still
@@ -787,6 +792,14 @@ cannot bypass hard safety or plan-mode restrictions. Tests that need permissive
 execution must inject an explicit test gateway rather than relying on a runtime
 fallback.
 
+Plan mode evaluates the final operation's declared effect, including mixed-action
+tools' read actions, rather than maintaining a second tool-name read allowlist.
+Hard shell denials inspect destructive targets and copy/link write destinations,
+without treating every absolute path or read source as a protected destination.
+Child scan defaults
+skip large dependency trees and lockfiles only for broad scans; explicit targets
+and explicit exclusion lists take precedence while result limits remain bounded.
+
 Tool results become `ToolExecutionEvidence`. The completion gate consumes this
 normalized evidence instead of trusting a model claim that work succeeded.
 Mixed-action tools explicitly declare their read-only actions. Invocation
@@ -808,6 +821,18 @@ without being mistaken for uncertain effects. A replay of the same call identity
 is still blocked; timeouts, cancellation, and execution infrastructure failures
 retain their failure and uncertainty handling.
 
+Native shells separate foreground waiting from process lifetime. After at most
+30 seconds, a continuing command returns an owned `job_id`; `background=true`
+returns after process startup. `shell_job` lists, polls, waits for, or stops jobs
+without reissuing commands. Parent and child agents in the same user conversation
+can share those handles; another user or conversation cannot access them.
+Output tails remain bounded, and completed receipts are retained in memory (the
+latest 64 per scope). The shared runner retains process-tree isolation, explicit
+cancellation, shutdown cleanup, and orphan registration. Session/history deletion
+and plugin shutdown stop the corresponding jobs and erase their receipts. An
+abrupt service restart does not restore job output; persisted orphan records are
+for cleanup, not command replay. These are runtime behaviors, not user settings.
+
 `PreToolUse` hooks run before final invocation authorization. Registry-backed
 agent calls reapply worker guardrails and argument normalization to the hook's
 final parameters, then pass those parameters through the permission gateway.
@@ -825,9 +850,16 @@ It enforces these current invariants:
 
 - an uncertain effect blocks completion until reconciled;
 - every required plan item must be terminal and completed items must cite
-  successful, task-substantive evidence from the current run; permission,
-  discovery, ask, and plan-maintenance calls cannot prove task completion;
-- failed validation must be followed by successful checks of the same targets
+  evidence from the current run. Analysis and writing may cite `user_input` or
+  `final_response` when that material actually exists; these references prove
+  textual delivery, not external execution. Permission, discovery, ask, and
+  plan-maintenance calls cannot prove task completion;
+- a read-only inspection may complete with a failed diagnostic result without
+  changing the inspected file. In mixed checks, each target retains its own
+  outcome: pre-existing failures outside the run's declared mutations do not
+  invalidate a passing check of its changed files. Unscoped effects still
+  require all relevant checks. Failed validation of a mutation must be followed
+  by successful checks of the same targets
   using the same verifier after repair; an unrelated success cannot clear a
   failure, and skipped targets with no available verifier require a real check
   of that target;
@@ -853,19 +885,32 @@ It enforces these current invariants:
   Read inputs and project membership are checked for changes before producing
   passing evidence. Python syntax checks compile in-process without execution
   or bytecode writes, so they also work in the frozen desktop sidecar.
-- local-write and unknown-effect work must have current validation evidence;
-- file write, edit, and rollback results declare their affected paths and
-  content versions. Each latest declared version needs matching verification
-  after its mutation. Capabilities without declared file targets still require
-  a non-empty verification after the effect; this establishes a verification
-  step, not semantic proof of an arbitrary shell command's outcome;
+- file writes and edits require current verification of their final content
+  version. A later mutation may replace an earlier version, but a check must
+  follow that mutation and confirm the same target's stable contents;
+- explicit deletion verification checks absence after a successful mutation;
+  a missing file in an ordinary check never implicitly passes. A rollback's
+  own byte readback proves restoration to its snapshot, even if the restored
+  original would fail a syntax checker;
+- settings mutations verify their saved values by reading them back. Their
+  scoped receipts cannot validate unrelated files or unknown effects;
+- a native command's normal exit proves execution ended, without requiring an
+  unrelated file check. It does not clear declared file obligations or an
+  existing failed mutation check. An automatically continued job requires its
+  matching terminal receipt. A matched execution failure ends the pending wait
+  without proving success; read-only failure can be reported diagnostically,
+  while potentially mutating execution failure remains an uncertain effect.
+  Explicit background startup or stop proves only the requested process-control
+  state, not successful command completion;
+- other local-write and unknown-effect work retains its validation requirements;
 - repair cannot exceed the configured budget.
 
 Every rejected proposal produces a stable completion reason. A repairable
 rejection emits a repair observation for the next model step. If the repair or
 task budget is exhausted, the journal emits `REPAIR_EXHAUSTED` and the run ends
 with the real blocked/unverified state; it does not disappear as a generic
-finalization failure.
+finalization failure. Any partial explanation is retained with an explicit
+unverified-completion marker rather than discarded.
 
 Gate rejection is not a hidden fixed workflow such as “always plan, then act,
 then validate.” Simple conversation skips plans, tools, and validation. The
