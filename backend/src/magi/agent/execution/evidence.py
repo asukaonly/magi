@@ -14,6 +14,15 @@ from uuid import uuid4
 from .contracts import EvidenceRef
 
 
+def text_evidence_ref(reference: str, text: str) -> EvidenceRef:
+    """Identify the current run's supplied input or proposed text deliverable."""
+    return EvidenceRef(
+        evidence_id=reference, kind=reference, source="current_run", status="succeeded",
+        payload_digest=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        created_at_ms=int(time.time() * 1000),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ToolExecutionEvidence:
     """Normalized completion-facing view of one tool invocation."""

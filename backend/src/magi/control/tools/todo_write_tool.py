@@ -32,7 +32,10 @@ class TodoWriteTool(Tool):
                 "and no plan_id. For every later mutation, send the returned "
                 "plan_id and version. Items are patches, not a full replacement. "
                 "A completed item must cite evidence_refs returned by earlier "
-                "tool observations. At most one item may be in_progress."
+                "tool observations, user_input for facts supplied in this run, or "
+                "final_response for a text deliverable in the final answer. Text "
+                "references do not verify external actions or saved files. "
+                "At most one item may be in_progress."
             ),
             category="control",
             effect_class="external_write",

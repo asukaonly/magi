@@ -486,3 +486,22 @@ def test_plan_completion_rejects_failed_and_governance_only_evidence() -> None:
 
     assert decision.outcome is CompletionOutcome.CONTINUE
     assert decision.reason_code == "todo_evidence_missing"
+
+
+@pytest.mark.parametrize("reference,text_argument", [("user_input", "user_input"), ("final_response", "final_response")])
+def test_text_plan_can_reference_actual_current_input_or_answer(reference, text_argument):
+    plan = apply_plan_mutation(
+        None, session_id="session-1", run_id="run-1", plan_id=None,
+        expected_version=0, required=True, status=None,
+        item_mutations=[{"content": "Explain the supplied text", "status": "completed", "evidence_refs": [reference]}],
+    )
+    gate = CompletionGate()
+    arguments = dict(policy=CompletionPolicy(), repair_iterations=0, run_plan=plan)
+    assert gate.evaluate(**arguments, evidence=[]).reason_code == "todo_evidence_missing"
+    accepted = gate.evaluate(**arguments, evidence=[], **{text_argument: "A text deliverable grounded in this run."})
+    assert accepted.outcome is CompletionOutcome.COMPLETE
+    assert accepted.evidence_refs[-1].evidence_id == reference
+    assert accepted.evidence_refs[-1].payload_digest
+    assert gate.evaluate(
+        **arguments, evidence=[_write("a.py")], **{text_argument: "I wrote the file."}
+    ).reason_code == "validation_required"

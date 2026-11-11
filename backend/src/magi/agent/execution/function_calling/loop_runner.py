@@ -433,6 +433,8 @@ class FunctionCallingLoopRunner:
                 evidence=state.tool_evidence,
                 repair_iterations=state.repair_iterations,
                 run_plan=run_plan,
+                user_input=run_input.turn.text,
+                final_response=step_outcome.content,
             )
         logger.info(
             "agent_run.completion_decision",

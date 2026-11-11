@@ -209,3 +209,29 @@ async def test_budget_finalization_preserves_partial_failure_explanation() -> No
     assert result.failure_reason == "repair_budget_unavailable"
     assert "checker is unavailable" in result.content
     assert "completion not verified" in result.content
+
+
+@pytest.mark.asyncio
+async def test_text_only_plan_can_complete_through_loop_without_tool_evidence() -> None:
+    from types import SimpleNamespace
+    from magi.control.run_plan import apply_plan_mutation
+
+    plan = apply_plan_mutation(
+        None, session_id="s1", run_id="r1", plan_id=None, expected_version=0,
+        required=True, status=None, item_mutations=[
+            {"content": "Use the supplied facts", "status": "completed", "evidence_refs": ["user_input"]},
+            {"content": "Write the explanation", "status": "completed", "evidence_refs": ["final_response"]},
+        ],
+    )
+    run_input = AgentRunRequest(
+        turn=UserTurnInput(text="Explain these supplied facts."),
+        system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT, selected_tools=[], user_id="u1",
+        run_plan_reader=SimpleNamespace(current=lambda: plan),
+    )
+    result = await FunctionCallingLoopRunner(object())._evaluate_proposed_final(
+        state=FunctionCallingStepState(messages=[], effective_system_prompt="system", tools=[]),
+        step_outcome=FunctionCallingStepOutcome(status="completed", iteration=1, content="The explanation."),
+        run_input=run_input,
+    )
+    assert result.status == "completed"
+    assert result.content == "The explanation."

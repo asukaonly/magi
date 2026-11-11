@@ -10,10 +10,17 @@ from .evidence import (
     has_inline_validation,
     inconclusive_validation_evidence,
     successful_validation_evidence,
+    text_evidence_ref,
     unresolved_validations,
     validation_checks,
 )
-from magi.control.run_plan import PlanStatus, RunPlan, TodoStatus
+from magi.control.run_plan import (
+    FINAL_RESPONSE_EVIDENCE_REF,
+    USER_INPUT_EVIDENCE_REF,
+    PlanStatus,
+    RunPlan,
+    TodoStatus,
+)
 
 
 class CompletionGate:
@@ -26,8 +33,17 @@ class CompletionGate:
         evidence: list[ToolExecutionEvidence],
         repair_iterations: int,
         run_plan: RunPlan | None = None,
+        user_input: str = "",
+        final_response: str = "",
     ) -> CompletionDecision:
-        refs = tuple(item.to_ref() for item in evidence)
+        text_refs = tuple(
+            text_evidence_ref(reference, text)
+            for reference, text in (
+                (USER_INPUT_EVIDENCE_REF, user_input),
+                (FINAL_RESPONSE_EVIDENCE_REF, final_response),
+            ) if text.strip()
+        )
+        refs = (*tuple(item.to_ref() for item in evidence), *text_refs)
         if policy.require_effect_terminal_state and any(item.uncertain for item in evidence):
             return CompletionDecision(
                 outcome=CompletionOutcome.BLOCKED,
@@ -44,6 +60,7 @@ class CompletionGate:
             repair_iterations=repair_iterations,
             max_repair_iterations=policy.max_repair_iterations,
             refs=refs,
+            text_refs={item.evidence_id for item in text_refs},
         )
         if plan_decision is not None:
             return plan_decision
@@ -255,6 +272,7 @@ def _evaluate_required_plan(
     repair_iterations: int,
     max_repair_iterations: int,
     refs,
+    text_refs: set[str],
 ) -> CompletionDecision | None:
     if plan is None or not plan.required:
         return None
@@ -287,7 +305,7 @@ def _evaluate_required_plan(
             repairable=True,
         )
 
-    available_refs = {
+    available_refs = text_refs | {
         reference
         for item in evidence
         if item.success and item.tool_name not in _PLAN_GOVERNANCE_TOOLS
@@ -313,7 +331,7 @@ def _evaluate_required_plan(
             outcome=CompletionOutcome.CONTINUE,
             reason_code="todo_evidence_missing",
             observations=(
-                "Attach an evidence_ref from this run to every completed required todo.",
+                "Attach a tool evidence_ref, user_input, or final_response from this run to every completed required todo.",
             ),
             evidence_refs=refs,
             repairable=True,
