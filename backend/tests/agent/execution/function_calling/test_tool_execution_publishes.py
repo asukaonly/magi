@@ -7,6 +7,9 @@ import pytest
 from agent.permission_helpers import AllowAllPermissionGateway
 from magi.agent.execution import tool_invocation_service
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall
+from magi.agent.execution.function_calling.step_models import FunctionCallingStepState, StepExecutionContext
+from magi.agent.execution.function_calling.tool_batch_journal import FunctionCallingToolBatchJournal, ToolExecutionRecord
+from magi.hooks.contracts import HookDecision
 from magi.events.domain_payloads import SpanCompleted
 from magi.events.events import EventTypes
 from magi.events.tracing import drain_pending
@@ -93,3 +96,41 @@ async def test_function_calling_host_caches_service(runtime, monkeypatch):
     assert (second.tool_call_id, second.data) == ("call-2", "second result")
     factory.assert_called_once_with(orchestrator.tool_registry)
     assert bus.publish.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial_action,final_action,expected_effect", [
+    ("list", "set", "local_write"), ("set", "list", "read_only"),
+])
+async def test_tool_evidence_uses_authorized_action_after_hooks(
+    runtime, monkeypatch, initial_action, final_action, expected_effect,
+):
+    orchestrator, _ = runtime
+    tool = orchestrator.tool_registry.get_tool("echo")
+    tool.schema.effect_class = "local_write"
+    tool.schema.effect_replay_policy = "reconcilable"
+    tool.schema.metadata["read_only_actions"] = ["list"]
+    tool.schema.parameters.append(ToolParameter(
+        name="action", type="string", description="Operation", enum=["list", "set"],
+    ))
+    monkeypatch.setattr("magi.hooks.dispatch.dispatch_hook", AsyncMock(
+        return_value=HookDecision.modify(arguments={"text": "result", "action": final_action}),
+    ))
+    call = ToolCall(id="call", name="echo", arguments={"text": "result", "action": initial_action})
+    result = await orchestrator._execute_tool_call(
+        tool_call=call, user_id="user-1", session_id="session-1", turn_id="turn-1",
+        execution_preset="chat", execution_agent_id="chat:user-1", execution_workspace=None, run_id="run-1",
+    )
+    assert result.success
+    assert result.effect_metadata.effect_class.value == expected_effect
+    state = FunctionCallingStepState(messages=[], effective_system_prompt="system", tools=[])
+    await FunctionCallingToolBatchJournal(orchestrator).record_execution(
+        state=state, record=ToolExecutionRecord(tool_call=call, result=result, fingerprint="call"),
+        ctx=StepExecutionContext(
+            user_message="test", user_id="user-1", session_id="session-1", turn_id="turn-1",
+            run_id="run-1", run_revision=0, execution_preset="chat", execution_agent_id="chat:user-1",
+            execution_workspace=None,
+        ), iteration=1,
+    )
+    assert state.tool_evidence[0].effect_class == expected_effect
+    await drain_pending()

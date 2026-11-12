@@ -70,12 +70,41 @@ async def test_plan_mode_allows_read_tool() -> None:
 
     decision = await gateway.gate(
         tool_name="file_read",
+        tool_effect_class="read_only",
         tool_is_dangerous=False,
         arguments={"path": "/tmp/x"},
         agent_id="chat",
         session_id="s1",
         origin=ToolOrigin.CHAT,
     )
+    assert decision.outcome is PermissionOutcome.ALLOWED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("effect", ["unknown", "local_write", "external_write", "destructive"])
+async def test_read_tool_name_cannot_override_effect(effect: str) -> None:
+    gateway, store, _ = await _gateway_with_store()
+    await store.enter_plan_mode("s1")
+
+    decision = await gateway.gate(
+        tool_name="file_read", tool_effect_class=effect,
+        arguments={}, agent_id="chat", session_id="s1",
+    )
+
+    assert decision.outcome is PermissionOutcome.DENIED
+    assert decision.source == "plan_mode"
+
+
+@pytest.mark.asyncio
+async def test_planning_controls_remain_allowed() -> None:
+    gateway, store, _ = await _gateway_with_store()
+    await store.enter_plan_mode("s1")
+
+    decision = await gateway.gate(
+        tool_name="todo_write", tool_effect_class="external_write",
+        arguments={}, agent_id="chat", session_id="s1",
+    )
+
     assert decision.outcome is PermissionOutcome.ALLOWED
 
 

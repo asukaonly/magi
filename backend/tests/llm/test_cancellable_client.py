@@ -46,14 +46,17 @@ class _FakeBridge:
         self._chunk_gates = chunk_gates
         self.chat_response_calls = 0
         self.chat_response_stream_calls = 0
+        self.request_kwargs: dict = {}
 
     async def chat_response(self, **kwargs) -> _FakeBridgeResponse:
         self.chat_response_calls += 1
+        self.request_kwargs = kwargs
         await asyncio.sleep(self._delay)
         return _FakeBridgeResponse(content="".join(self._chunks), metadata={})
 
     async def chat_response_stream(self, **kwargs) -> AsyncIterator[LLMStreamEvent]:
         self.chat_response_stream_calls += 1
+        self.request_kwargs = kwargs
         for i, chunk in enumerate(self._chunks):
             if self._chunk_gates is not None and i < len(self._chunk_gates):
                 await self._chunk_gates[i].wait()
@@ -282,3 +285,23 @@ async def test_task_agent_llm_service_without_control_uses_legacy_path() -> None
 
     assert result == "legacy path"
     assert bridge.chat_response_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("controlled", [False, True])
+async def test_direct_chat_service_leaves_generation_budget_to_adapter(streaming, controlled):
+    from magi.agent.task_agents.common.llm_service import TaskAgentLLMService
+
+    service = TaskAgentLLMService(logger_name="test")
+    bridge = _FakeBridge(chunks=["complete"])
+    service._provider_bridge = bridge
+    service._cancellable_client = CancellableLLMClient(bridge=bridge)
+    service._llm = object()
+    control = null_run_control() if controlled else None
+    if streaming:
+        output = [event async for event in service.call_stream(system_prompt="system", messages=[], control=control)]
+        assert "".join(event.text or "" for event in output) == "complete"
+    else:
+        assert await service.call(system_prompt="system", messages=[], control=control) == "complete"
+    assert "max_tokens" not in bridge.request_kwargs

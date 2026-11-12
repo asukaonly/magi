@@ -265,3 +265,24 @@ async def test_external_agent_service_resolves_sdk_adapter_and_cancels(
     result = await asyncio.wait_for(task, 1)
     assert result.cancelled and closed.is_set()
     assert emit.await_args.args[0].kind == "assistant_text"
+
+
+@pytest.mark.asyncio
+async def test_truncated_plugin_stream_never_announces_completed_tool(providers):
+    from magi.llm.output_limit import OutputLimitReached
+
+    registry, _ = providers
+    provider = ModelProvider()
+    provider.result = provider.result.model_copy(update={"finish_reason": "length"})
+    registry.register(plugin_id="test", connection_id="account", kind="model",
+                      provider_id="limited", implementation=provider)
+    adapter = create_llm_adapter(provider_type="limited", api_key="", model="test",
+                                 provider_registry=registry)
+    emitted = []
+    with pytest.raises(OutputLimitReached):
+        async for event in adapter.stream_response(messages=[]):
+            emitted.append(event)
+    assert not any(event.kind in {"tool_call_end", "done"} for event in emitted)
+    assert provider.closed == 1
+    with pytest.raises(OutputLimitReached):
+        await LLMProviderBridge(adapter).chat_response("system", [])

@@ -10,6 +10,8 @@ from typing import Any, Coroutine
 from ....core.logger import get_logger
 from ....utils.model_context_messages import build_working_context_message
 from ...cancel import CancelToken
+from ..tool_effects import ToolEffectReplayPolicy
+from ..tool_metadata import ToolEffectClass
 from magi.runtime_trace.run_events import AgentRunEventType
 from .step_models import (
     FunctionCallingStepOutcome,
@@ -74,10 +76,10 @@ class FunctionCallingToolBatchExecutor:
         if isinstance(draft, str) and draft.strip():
             guidance = build_working_context_message(
                 "Presentation boundary: the assistant text emitted with the preceding tool calls "
-                "was an internal draft. It has NOT been shown to the user. The user sees only "
-                "your final answer. Include the actual requested draft or results in that final "
-                "answer; do not refer to them as 'above' or already shown. A persistent progress "
-                "record stores only the content passed to its tool, not this internal draft. "
+                "may appear as a temporary progress note and be collapsed when you finish. "
+                "Include the actual requested draft, important findings, completed actions, and results "
+                "in the final answer; do not refer to them as 'above' or assume they were read. A persistent progress "
+                "record stores only the content passed to its tool, not the accompanying assistant text. "
                 "If you saved only an announcement or summary instead of the requested draft, "
                 "save the usable draft before replying."
             )
@@ -403,6 +405,13 @@ class FunctionCallingToolBatchExecutor:
             )
         if not result.success:
             self._record_tool_failure(state, record)
+        elif result.effect_metadata is not None and result.effect_metadata.effect_class is not ToolEffectClass.READ_ONLY:
+            # A successful mutation can repair the preconditions of earlier failures.
+            # Authorization and the effect ledger still govern every new invocation.
+            state.failed_tool_call_fingerprints.clear()
+            state.failure_signature_counts.clear()
+            state.suppressed_tool_names.difference_update(state.repeated_blocker_tool_names)
+            state.repeated_blocker_tool_names.clear()
         await self._journal.record_execution(
             state=state,
             record=record,
@@ -699,7 +708,20 @@ class FunctionCallingToolBatchExecutor:
         state: FunctionCallingStepState,
         record: ToolExecutionRecord,
     ) -> None:
-        state.failed_tool_call_fingerprints.add(record.fingerprint)
+        metadata = record.result.effect_metadata
+        error_code = str(record.result.error_code or "").strip().upper()
+        details = record.result.data if isinstance(record.result.data, dict) else {}
+        retryable_read = (
+            error_code in self._driver._TRANSIENT_BLOCKER_ERROR_CODES
+            and error_code != "CANCELLED"
+            and metadata is not None
+            and metadata.effect_class is ToolEffectClass.READ_ONLY
+            and metadata.replay_policy is ToolEffectReplayPolicy.READ_ONLY
+            and details.get("retryable") is not False
+            and details.get("terminal") is not True
+        )
+        if not retryable_read:
+            state.failed_tool_call_fingerprints.add(record.fingerprint)
         state.tool_failures.append(build_tool_failure_summary(record.result))
         terminal_error_code = str(record.result.error_code or "").strip()
         if terminal_error_code in self._driver._SUPPRESS_TOOL_AFTER_ERROR_CODES:

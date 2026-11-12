@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 from openai import AsyncOpenAI
+from magi.runtime_trace.media_usage import openai_media_usage
 
 from ..base import ImageGenerationAdapter
 from ..errors import (
@@ -128,7 +129,8 @@ class OpenAIImagesAdapter(ImageGenerationAdapter):
         return ImageGenerationResponse(
             images=images,
             model=str(payload.get("model") or self._model),
-            raw_metadata={"provider_id": self.provider_id, "request": payload},
+            raw_metadata={"provider_id": self.provider_id, "request": payload,
+                          "usage": openai_media_usage(_model_dump(getattr(response, "usage", None)), output_modality="image")},
         )
 
     def _translate_error(self, exc: Exception) -> ImageGenProviderError:

@@ -4,6 +4,7 @@ Built-in Tools Module
 Contains built-in tools for file operations, web search, weather, system management, etc.
 """
 from .bash_tool import BashTool
+from .shell_job_tool import ShellJobTool
 from .file_read_tool import FileReadTool
 from .file_write_tool import FileWriteTool
 from .file_edit_tool import FileEditTool
@@ -27,6 +28,7 @@ from .trace_query_tool import TraceQueryTool
 
 __all__ = [
     "BashTool",
+    "ShellJobTool",
     "FileReadTool",
     "FileWriteTool",
     "FileEditTool",

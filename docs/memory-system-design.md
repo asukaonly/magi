@@ -1115,6 +1115,16 @@ records, families, routes, conflicts, lifecycle fields, or persistence actions.
 Extraction profiles no longer expose `summary_instructions`; L3 narrative
 generation and its source hooks retain their separate ownership.
 
+Extraction output budgets are purpose limits, not model capacity metadata. L2
+JSON extraction defaults to 32,768 tokens, capped by the selected model. L3
+prose/repair uses 16,384 and structure uses 32,768; L4 strategy extraction uses
+8,192. The provider bridge reserves reasoning allowance when the selected model
+cannot turn thinking off, and rejects truncated responses before persistence.
+Short classifiers otherwise keep their bounded budgets. General context
+summaries use the shared 4,096–32,768 profile, still bounded by destination
+capacity, writer capacity and cumulative-merge space. Raising a ceiling does
+not require the model to consume it or relax source/contract validation.
+
 Literal objects follow the same source-provenance boundary as entity names.
 The complete literal value must occur in the current evidence quote or an
 already validated immediate confirmation/clarification antecedent. A matching

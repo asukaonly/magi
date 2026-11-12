@@ -1,7 +1,7 @@
 """``enter_plan_mode`` and ``exit_plan_mode`` builtin tools.
 
 While plan mode is active the permission gateway's ``plan_mode_guard``
-filters every outgoing tool call against a read-only allowlist, so
+checks each outgoing call's declared effect and planning-control exceptions, so
 the LLM can safely explore and think before committing to actions.
 """
 

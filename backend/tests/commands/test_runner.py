@@ -317,6 +317,7 @@ async def test_dangerous_tool_blocked_by_gateway(_stub_chat_store, resolver):
             turn_id=_stub_chat_store[0].turn_id,
             workspace="/workspace",
             tool_is_dangerous=True,
+            tool_effect_class="unknown",
             tool_risk_level=None,
             tool_risk_authoritative=False,
         )

@@ -8,6 +8,7 @@ import pytest
 from magi.agent.execution.function_calling.orchestrator import FunctionCallingOrchestrator
 from magi.agent.execution.function_calling.step_models import FunctionCallingStepState
 from magi.llm.model_context import ModelContextProfile
+from magi.llm.model_context import ResolvedModel
 
 
 class _ToolRegistry:
@@ -269,3 +270,149 @@ async def test_final_response_budget_ignores_tools_not_sent_to_provider() -> Non
     assert without_tools.fits_input_capacity is True
     assert failure is None
     assert state.selected_tool_names == ["large-tool"]
+
+
+@pytest.mark.asyncio
+async def test_model_switch_takes_effect_next_run_after_capacity_guard(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from magi.agent.execution.function_calling.run_input import AgentRunRequest
+    from magi.agent.turn_input import UserTurnInput
+    from magi.context.prompt_lifecycle import DEFAULT_HEADLESS_SYSTEM_PROMPT
+    from magi.llm.provider_bridge import LLMProviderBridge, ProviderResponse
+
+    large = ResolvedModel(
+        SimpleNamespace(model_name="large", provider_name="test"),
+        ModelContextProfile("test", "large", 128_000, 8_192),
+    )
+    small = ResolvedModel(
+        SimpleNamespace(model_name="small", provider_name="test"),
+        ModelContextProfile("test", "small", 4_000, 1_024),
+    )
+    selected = large
+    host = FunctionCallingOrchestrator(_ToolRegistry({}), active_model_provider=lambda: selected)
+    prepare_context = host._prepare_context_for_model
+    provider_models = []
+
+    async def switch_after_guard(state, **kwargs):
+        nonlocal selected
+        failure = await prepare_context(state, **kwargs)
+        selected = small
+        return failure
+
+    async def chat_with_tools(bridge, **kwargs):
+        provider_models.append(bridge.llm.model_name)
+        return ProviderResponse(content="complete")
+
+    monkeypatch.setattr(host, "_prepare_context_for_model", switch_after_guard)
+    monkeypatch.setattr(LLMProviderBridge, "chat_with_tools", chat_with_tools)
+    for prompt in ("x" * 20_000, "short next request"):
+        outcome = await host.run(AgentRunRequest(
+            turn=UserTurnInput(text=prompt), system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
+            selected_tools=[], user_id="test",
+        ))
+        assert outcome.status == "completed"
+
+    assert provider_models == ["large", "small"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_runs_keep_their_guarded_model_and_compactor(monkeypatch) -> None:
+    import asyncio
+    from types import SimpleNamespace
+
+    from magi.agent.execution.function_calling.run_input import AgentRunRequest
+    from magi.agent.turn_input import UserTurnInput
+    from magi.context.prompt_lifecycle import DEFAULT_HEADLESS_SYSTEM_PROMPT
+    from magi.llm.provider_bridge import LLMProviderBridge, ProviderResponse
+
+    large = ResolvedModel(
+        SimpleNamespace(model_name="large", provider_name="test"),
+        ModelContextProfile("test", "large", 128_000, 8_192),
+    )
+    small = ResolvedModel(
+        SimpleNamespace(model_name="small", provider_name="test"),
+        ModelContextProfile("test", "small", 4_000, 1_024),
+    )
+    selected = large
+    host = FunctionCallingOrchestrator(_ToolRegistry({}), active_model_provider=lambda: selected)
+    large_guarded, resume_large = asyncio.Event(), asyncio.Event()
+    prepare_context = host._prepare_context_for_model
+    compactors, provider_models = {}, []
+
+    async def guard(state, **kwargs):
+        model_id = host._active_model_context.model_id
+        failure = await prepare_context(state, **kwargs)
+        assert failure is None
+        compactors[model_id] = host._context_compactor
+        if model_id == "large":
+            host._context_compactor.record_input_tokens(10_000)
+            large_guarded.set()
+            await resume_large.wait()
+            assert host._active_model_context == large.context
+            assert host._context_compactor.get_usage()["used_tokens"] == 10_000
+        else:
+            assert host._context_compactor.get_usage() is None
+            host._context_compactor.record_input_tokens(1_000)
+        return failure
+
+    async def chat_with_tools(bridge, **kwargs):
+        provider_models.append(bridge.llm.model_name)
+        return ProviderResponse(content="complete")
+
+    def request(text):
+        return AgentRunRequest(
+            turn=UserTurnInput(text=text), system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
+            selected_tools=[], user_id="test",
+        )
+
+    monkeypatch.setattr(host, "_prepare_context_for_model", guard)
+    monkeypatch.setattr(LLMProviderBridge, "chat_with_tools", chat_with_tools)
+    large_run = asyncio.create_task(host.run(request("x" * 20_000)))
+    await asyncio.wait_for(large_guarded.wait(), timeout=5)
+    try:
+        selected = small
+        small_outcome = await host.run(request("short concurrent request"))
+    finally:
+        resume_large.set()
+    large_outcome = await large_run
+
+    assert small_outcome.status == large_outcome.status == "completed"
+    assert provider_models == ["small", "large"]
+    assert compactors["small"] is not compactors["large"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_run_model_scope_restores_after_failure_or_cancellation(monkeypatch, cancelled) -> None:
+    import asyncio
+    from types import SimpleNamespace
+
+    from magi.agent.execution.function_calling.run_input import AgentRunRequest
+    from magi.agent.turn_input import UserTurnInput
+    from magi.context.prompt_lifecycle import DEFAULT_HEADLESS_SYSTEM_PROMPT
+
+    selected = ResolvedModel(
+        SimpleNamespace(model_name="selected", provider_name="test"),
+        ModelContextProfile("test", "selected", 32_000, 4_000),
+    )
+    host = FunctionCallingOrchestrator(_ToolRegistry({}), active_model_provider=lambda: selected)
+    initial_compactor, initial_context = host._context_compactor, host._active_model_context
+    error = asyncio.CancelledError if cancelled else RuntimeError
+
+    async def interrupted_run(*args, **kwargs):
+        host._resolve_llm()
+        assert host.llm is selected.adapter
+        assert host._context_compactor is not initial_compactor
+        raise error("interrupted")
+
+    monkeypatch.setattr(host._loop_runner, "run", interrupted_run)
+    with pytest.raises(error):
+        await host.run(AgentRunRequest(
+            turn=UserTurnInput(text="request"), system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
+            selected_tools=[], user_id="test",
+        ))
+    assert host.llm is None
+    assert host.provider_bridge is None
+    assert host._active_model_context == initial_context
+    assert host._context_compactor is initial_compactor

@@ -16,6 +16,7 @@ criteria tight.
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -76,25 +77,15 @@ def _command_text(arguments: dict[str, Any]) -> str:
     return ""
 
 
-# rm -rf / (or equivalent: rm -rf --no-preserve-root /)
-_RE_RM_ROOT = re.compile(
-    r"""
-    \brm\s+                         # rm
-    (?:-[A-Za-z]*[rRf][A-Za-z]*\s+)+ # one or more flags including -r/-R and -f (any order)
-    (?:--no-preserve-root\s+)?      # optional explicit override
-    (?:/|/\*|/\s*$|/\s*;|~/?\s*$)   # the target: bare root or ~
-    """,
-    re.VERBOSE,
-)
-
-
 def _match_rm_root(args: dict[str, Any]) -> bool:
-    cmd = _command_text(args)
-    if not cmd:
-        return False
-    # Normalise trailing whitespace; add sentinel newline so "/" at EOL matches.
-    probe = cmd.strip() + "\n"
-    return bool(_RE_RM_ROOT.search(probe))
+    for stage in _shell_stages(_command_text(args)):
+        for index, command in enumerate(stage):
+            if command in {"rm", "/bin/rm", "/usr/bin/rm"} and any(
+                target in {"/", "/*", "~", "~/", "~/*"}
+                for target in stage[index + 1:]
+            ):
+                return True
+    return False
 
 
 def _match_remove_item_root(args: dict[str, Any]) -> bool:
@@ -177,20 +168,82 @@ _SYSTEM_PATH_PREFIXES: tuple[str, ...] = (
 )
 
 
+def _shell_stages(command: str) -> list[list[str]]:
+    """Split literal shell stages while preserving quoted paths as operands."""
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>\n")
+        lexer.whitespace = " \t\r"
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return []
+
+    stages: list[list[str]] = []
+    stage: list[str] = []
+    for token in [*tokens, ";"]:
+        if token and all(char in ";&|()\n" for char in token):
+            if stage:
+                stages.append(stage)
+            stage = []
+        else:
+            stage.append(token)
+    return stages
+
+
 def _match_shell_system_write(args: dict[str, Any]) -> bool:
-    cmd = _command_text(args)
-    if not cmd:
-        return False
-    # Only match when a redirect or write command targets a system path.
-    # Accepted indicators: `> /System/...`, `>> /System/...`,
-    # `tee /System/...`, `cp ... /System/...`.
-    if not re.search(r">>?\s*/(?:System|usr/s?bin|sbin|bin)/", cmd):
-        if not re.search(
-            r"\b(?:tee|cp|mv|install|ln)\b[^\n]*?\s/(?:System|usr/s?bin|sbin|bin)/",
-            cmd,
-        ):
-            return False
-    return True
+    return any(_stage_writes_system_path(stage) for stage in _shell_stages(_command_text(args)))
+
+
+def _stage_writes_system_path(tokens: list[str]) -> bool:
+    def protected(path: str) -> bool:
+        return path.startswith(_SYSTEM_PATH_PREFIXES) or path in {
+            prefix.rstrip("/") for prefix in _SYSTEM_PATH_PREFIXES
+        }
+
+    arguments: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token and all(char in "<>" for char in token):
+            target = tokens[index + 1] if index + 1 < len(tokens) else ""
+            if ">" in token and protected(target):
+                return True
+            index += 2
+            continue
+        arguments.append(token)
+        index += 1
+
+    for index, command in enumerate(arguments):
+        if command in {"/bin/rm", "/usr/bin/rm"}:
+            command = "rm"
+        if command not in {"tee", "cp", "mv", "install", "ln", "rm"}:
+            continue
+        operands = arguments[index + 1:]
+        if command in {"tee", "mv", "rm"} or (command == "install" and "-d" in operands):
+            return any(protected(value) for value in operands)
+        for position, value in enumerate(operands):
+            if value in {"-t", "--target-directory"}:
+                return position + 1 < len(operands) and protected(operands[position + 1])
+            if value.startswith("--target-directory="):
+                return protected(value.partition("=")[2])
+            if value.startswith("-t") and len(value) > 2:
+                return protected(value[2:])
+        paths: list[str] = []
+        position = 0
+        while position < len(operands):
+            value = operands[position]
+            if value == "--":
+                paths.extend(operands[position + 1:])
+                break
+            if value in {"-m", "--mode", "-o", "--owner", "-g", "--group", "-S", "--suffix"}:
+                position += 2
+                continue
+            if not value.startswith("-"):
+                paths.append(value)
+            position += 1
+        # Copying or linking an OS-owned source does not mutate that source.
+        return bool(paths) and protected(paths[-1])
+    return False
 
 
 # File-tool predicates: protect system paths for dedicated write / edit tools.

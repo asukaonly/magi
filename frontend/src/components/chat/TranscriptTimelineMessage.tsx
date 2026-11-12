@@ -20,6 +20,7 @@ type TranscriptTimelineMessageProps = {
   headerExtras?: ReactNode;
   bubbleTop?: ReactNode;
   bubbleFooter?: ReactNode;
+  runtimePanel?: ReactNode;
   belowBubble?: ReactNode;
   onContextMenu?: MouseEventHandler<HTMLDivElement>;
 };
@@ -41,6 +42,7 @@ export const TranscriptTimelineMessage = ({
   headerExtras,
   bubbleTop,
   bubbleFooter,
+  runtimePanel,
   belowBubble,
   onContextMenu,
 }: TranscriptTimelineMessageProps) => {
@@ -61,7 +63,8 @@ export const TranscriptTimelineMessage = ({
   const reasoningPreference = isUserMessage
     ? readReasoningPreference(message.payload)
     : null;
-  const showStreamingCaret = Boolean(message.streaming && !String(displayContent || '').trim());
+  const showProgress = Boolean(message.streaming && !String(displayContent || '').trim());
+  const isInterim = message.messageKind === 'assistant_interim' && runtimePanel !== undefined;
   const displayName = isUserMessage ? userNameLabel : assistantName;
   const headerActions = headerExtras ? (
     <span className="pointer-events-none inline-flex items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-focus-within/message:pointer-events-auto group-focus-within/message:opacity-100">
@@ -110,12 +113,13 @@ export const TranscriptTimelineMessage = ({
           {bubbleTop}
           {message.role === 'assistant' ? (
             <div className="max-w-none text-[15px] leading-7 text-current">
-              <AssistantRuntimePanel runtimeStatuses={message.runtimeStatuses} reasoning={message.reasoning} toolCalls={message.toolCalls} streaming={message.streaming} />
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
-                {normalizeAssistantMarkdownContent(displayContent)}
-              </ReactMarkdown>
-              {showStreamingCaret && (
-                <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current opacity-70" />
+              {runtimePanel === undefined ? (
+                <AssistantRuntimePanel runtimeStatuses={message.runtimeStatuses} reasoning={message.reasoning} toolCalls={message.toolCalls} streaming={message.streaming} showProgress={showProgress} shouldReduceMotion={shouldReduceMotion} />
+              ) : runtimePanel}
+              {!isInterim && (
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+                  {normalizeAssistantMarkdownContent(displayContent)}
+                </ReactMarkdown>
               )}
               {bubbleFooter}
             </div>

@@ -69,7 +69,7 @@ def test_shipped_defaults_resolve_into_model_limits_and_usable_budget(provider_i
         budget = build_context_window_budget(resolved.context)
         assert budget.uses_fallback is False
         assert budget.input_capacity + budget.output_reserve == metadata.limits.context_window
-        assert budget.output_reserve == (metadata.limits.max_output_tokens or 8192)
+        assert 0 < budget.output_reserve <= (metadata.limits.max_output_tokens or 8192)
         assert (
             measure_context_window_usage(
                 budget, "", observed_input_tokens=budget.compaction_trigger_tokens - 1

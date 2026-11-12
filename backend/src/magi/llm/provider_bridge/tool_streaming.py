@@ -6,12 +6,16 @@ import json
 from contextlib import aclosing
 
 from ..openai_transport import create_completion
+from ..output_limit import OutputLimitReached
+from ..stream_errors import IncompleteStreamError
+from types import SimpleNamespace
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol, cast
 
 from ..streaming_events import LLMStreamEvent, emit_stream_event
 from .models import ProviderResponse, ProviderToolCall, ToolStreamResult
+from .billing import capture_billing_context
 from .logging import RawProviderResponseLogger
 from .streaming_core import ProviderBridgeStreamingHostProtocol, ThinkTagScrubber
 from ...config.models import ThinkingDepth
@@ -42,6 +46,8 @@ class _AnthropicToolStreamState:
     current_tool_id: str | None = None
     current_tool_name: str | None = None
     current_tool_json_parts: List[str] = field(default_factory=list)
+    stop_reason: str | None = None
+    message_stopped: bool = False
     usage_data: Any = None
 
 
@@ -66,7 +72,7 @@ class ProviderBridgeToolStreamingMixin:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
@@ -113,7 +119,7 @@ class ProviderBridgeToolStreamingMixin:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
@@ -130,6 +136,7 @@ class ProviderBridgeToolStreamingMixin:
             thinking_depth=thinking_depth,
             timeout_seconds=timeout_seconds,
         )
+        capture_billing_context(event_context, anthropic_kwargs)
         stream = await host.llm._client.messages.create(**anthropic_kwargs)
         state = _AnthropicToolStreamState()
         raw_logger = RawProviderResponseLogger(host.llm, event_context)
@@ -147,7 +154,7 @@ class ProviderBridgeToolStreamingMixin:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
@@ -179,11 +186,17 @@ class ProviderBridgeToolStreamingMixin:
         elif event_type == "content_block_stop":
             await self._handle_anthropic_tool_block_stop(state)
         elif event_type == "message_delta":
-            state.usage_data = getattr(event, "usage", state.usage_data)
+            state.stop_reason = getattr(getattr(event, "delta", None), "stop_reason", None) or state.stop_reason
+            delta_usage = getattr(event, "usage", None)
+            if delta_usage is not None:
+                previous = vars(state.usage_data) if state.usage_data is not None else {}
+                state.usage_data = SimpleNamespace(**{**previous, **{key: value for key, value in vars(delta_usage).items() if value is not None}})
         elif event_type == "message_start":
             message = getattr(event, "message", None)
             if message is not None:
                 state.usage_data = getattr(message, "usage", state.usage_data)
+        elif event_type == "message_stop":
+            state.message_stopped = True
 
     async def _handle_anthropic_tool_block_start(
         self,
@@ -319,14 +332,6 @@ class ProviderBridgeToolStreamingMixin:
                 "input": arguments,
             }
         )
-        await emit_stream_event(
-            LLMStreamEvent(
-                kind="tool_call_end",
-                tool_call_id=state.current_tool_id,
-                tool_name=state.current_tool_name,
-                tool_arguments=arguments,
-            )
-        )
         state.current_tool_id = None
         state.current_tool_name = None
         state.current_tool_json_parts = []
@@ -364,6 +369,15 @@ class ProviderBridgeToolStreamingMixin:
             state.assistant_blocks.insert(0, thinking_block)
 
         usage = host._extract_anthropic_stream_usage(stream, state.usage_data)
+        if state.stop_reason == "max_tokens":
+            raise OutputLimitReached(usage)
+        if not state.message_stopped or state.stop_reason is None:
+            raise IncompleteStreamError("Anthropic stream ended before completion")
+        for call in state.tool_calls:
+            await emit_stream_event(LLMStreamEvent(
+                kind="tool_call_end", tool_call_id=call.id,
+                tool_name=call.name, tool_arguments=call.arguments,
+            ))
         usage_payload = host._anthropic_usage_to_wire(state.usage_data)
         if usage_payload is not None:
             await emit_stream_event(LLMStreamEvent(kind="usage", usage=usage_payload))
@@ -393,7 +407,7 @@ class ProviderBridgeToolStreamingMixin:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
@@ -411,6 +425,7 @@ class ProviderBridgeToolStreamingMixin:
             timeout_seconds=timeout_seconds,
             event_context=event_context,
         )
+        capture_billing_context(event_context, kwargs)
         stream = await create_completion(host.llm._client,**kwargs)
         state = _OpenAIToolStreamState()
         raw_logger = RawProviderResponseLogger(host.llm, event_context)
@@ -430,7 +445,7 @@ class ProviderBridgeToolStreamingMixin:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
@@ -569,12 +584,15 @@ class ProviderBridgeToolStreamingMixin:
         delta: Any,
         state: _OpenAIToolStreamState,
     ) -> None:
-        if not (hasattr(delta, "content") and delta.content):
+        content = (getattr(delta, "content", None) or "") + (
+            getattr(delta, "refusal", None) or ""
+        )
+        if not content:
             return
         if state.has_tool_calls:
-            state.content_parts.append(delta.content)
+            state.content_parts.append(content)
             return
-        visible, reasoning_leak = state.scrubber.feed(delta.content)
+        visible, reasoning_leak = state.scrubber.feed(content)
         if reasoning_leak:
             await emit_stream_event(
                 LLMStreamEvent(kind="reasoning_delta", text=reasoning_leak)

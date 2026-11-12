@@ -4,21 +4,14 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
+from magi_plugin_sdk.storage_models.chat_client import (
+    ClientModel,
+    TurnSnapshot,
+)
 
-class ClientModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
-class TurnSnapshot(ClientModel):
-    session_id: str
-    turn_id: str
-    acceptance: Literal["accepted", "absent", "retired"]
-    state: Literal["queued", "running", "cancelling", "detaching", "completed", "failed", "cancelled", "blocked", "interrupted", "merged", "discarded", "superseded"] | None
-    terminal: bool
-    response_complete: bool
-    presentation_ends_at_ms: int | None
-    can_resubmit: bool
-    revision: str
+
 
 
 class TurnConfirmationRequest(ClientModel):

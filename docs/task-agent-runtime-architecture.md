@@ -333,6 +333,7 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 1. `subprocess_orphan_cleanup`
 2. `runtime_core_dependencies`
 3. `runtime_initialization_state`
+   - `runtime_storage_plugins` (early selected-provider runtime, before restore)
 4. `runtime_memory_restore_recovery`
 5. `runtime_database_migrations`
 6. `runtime_personal_tasks`
@@ -645,9 +646,11 @@ provider call.
 If the first surface is insufficient, the model may use the resident,
 bounded `find-relevant-tools` capability during the loop. Metadata retrieval and
 L4 advisory reranking happen only inside that explicit discovery step. The
-runtime admits at most three expansions per turn, each adding at most two
-capabilities. It reserves one of those slots for `verify` when a discovered capability has a local-write or
-unknown effect, and records `CAPABILITIES_EXPANDED`; it does not restart semantic
+runtime admits expansions within the model's schema capacity and the shared task
+budget, without a separate fixed expansion count. Discovery defaults to two
+recommendations but accepts larger requests. It adds `verify` alongside discovered
+local-write or unknown-effect capabilities without displacing a requested tool,
+and records `CAPABILITIES_EXPANDED`; it does not restart semantic
 routing. This intentionally changes the tool-schema prefix only for a run that
 has produced evidence that its stable initial surface is insufficient.
 Each expansion preserves previously admitted tools and checks the active model's
@@ -749,10 +752,16 @@ inside a web page. The exact model observation is still journaled for replay.
 An `INVALID_PARAMETERS` result rejects that invocation, not the tool for the
 whole run. Corrected arguments remain eligible even when several calls in one
 model response fail validation before the model can see the errors. Identical
-failed calls are still blocked by their argument fingerprints; consecutive
-failed model iterations and the run budget bound further repair attempts.
-Provider challenges, missing provider configuration, and other terminal tool
-conditions retain their existing suppression policy.
+failed calls are blocked while their preconditions remain unchanged. A successful
+mutation clears failed-call and repeated-error suppression, allowing the model to
+recheck repaired state. Permission denials and ambiguous effect replay remain
+governed by their owning boundaries; consecutive failed model iterations and the
+run budget bound further repair attempts.
+Provider challenges and missing provider configuration suppress the affected
+tool, while other available tools may continue the task. Search timeouts and
+rate limits retain their transient classification through provider aggregation
+and use the existing bounded read retries; a challenge is never retried as a
+transient network failure.
 
 There is no `DirectLLMHandler`, `TaskOrchestrator`, `ExploreTaskAgent`, route
 graph, or route-derived handler registry for ordinary turns. A simple chat still
@@ -783,8 +792,46 @@ cannot bypass hard safety or plan-mode restrictions. Tests that need permissive
 execution must inject an explicit test gateway rather than relying on a runtime
 fallback.
 
+Plan mode evaluates the final operation's declared effect, including mixed-action
+tools' read actions, rather than maintaining a second tool-name read allowlist.
+Hard shell denials inspect destructive targets and copy/link write destinations,
+without treating every absolute path or read source as a protected destination.
+Child scan defaults
+skip large dependency trees and lockfiles only for broad scans; explicit targets
+and explicit exclusion lists take precedence while result limits remain bounded.
+
 Tool results become `ToolExecutionEvidence`. The completion gate consumes this
 normalized evidence instead of trusting a model claim that work succeeded.
+Mixed-action tools explicitly declare their read-only actions. Invocation
+authorization, effect admission, and completion evidence use the final executed
+arguments after hooks: reading settings, listing stickers, or inspecting
+schedules does not create a write-validation obligation, while mutations retain
+their declared effect and replay restrictions.
+Exact failed-call suppression exempts transient failures only when the executed
+operation is explicitly read-only and safely replayable. Terminal/non-retryable
+results, writes, unknown effects, and invalid arguments retain suppression until
+a successful mutation changes the execution state. The
+failed-iteration and task budgets still bound read retries; execution guidance
+uses the same distinction.
+
+Native shell commands with a normal exit return a successful tool observation
+containing `return_code` and `command_succeeded`, including nonzero exits. Test
+failures are therefore available for diagnosis and a new invocation after repair,
+without being mistaken for uncertain effects. A replay of the same call identity
+is still blocked; timeouts, cancellation, and execution infrastructure failures
+retain their failure and uncertainty handling.
+
+Native shells separate foreground waiting from process lifetime. After at most
+30 seconds, a continuing command returns an owned `job_id`; `background=true`
+returns after process startup. `shell_job` lists, polls, waits for, or stops jobs
+without reissuing commands. Parent and child agents in the same user conversation
+can share those handles; another user or conversation cannot access them.
+Output tails remain bounded, and completed receipts are retained in memory (the
+latest 64 per scope). The shared runner retains process-tree isolation, explicit
+cancellation, shutdown cleanup, and orphan registration. Session/history deletion
+and plugin shutdown stop the corresponding jobs and erase their receipts. An
+abrupt service restart does not restore job output; persisted orphan records are
+for cleanup, not command replay. These are runtime behaviors, not user settings.
 
 `PreToolUse` hooks run before final invocation authorization. Registry-backed
 agent calls reapply worker guardrails and argument normalization to the hook's
@@ -803,9 +850,16 @@ It enforces these current invariants:
 
 - an uncertain effect blocks completion until reconciled;
 - every required plan item must be terminal and completed items must cite
-  successful, task-substantive evidence from the current run; permission,
-  discovery, ask, and plan-maintenance calls cannot prove task completion;
-- failed validation must be followed by successful checks of the same targets
+  evidence from the current run. Analysis and writing may cite `user_input` or
+  `final_response` when that material actually exists; these references prove
+  textual delivery, not external execution. Permission, discovery, ask, and
+  plan-maintenance calls cannot prove task completion;
+- a read-only inspection may complete with a failed diagnostic result without
+  changing the inspected file. In mixed checks, each target retains its own
+  outcome: pre-existing failures outside the run's declared mutations do not
+  invalidate a passing check of its changed files. Unscoped effects still
+  require all relevant checks. Failed validation of a mutation must be followed
+  by successful checks of the same targets
   using the same verifier after repair; an unrelated success cannot clear a
   failure, and skipped targets with no available verifier require a real check
   of that target;
@@ -815,6 +869,11 @@ It enforces these current invariants:
 - empty or malformed validation results are inconclusive. A successful file
   check identifies its path, verifier, and SHA-256 content version; a file
   changed during verification cannot produce passing evidence;
+- verification follows the artifact type: code retains compile/parse/type checks,
+  YAML and CSV use safe format parsers, and Markdown/plain documents use complete
+  byte readback matched to the written content version. Document readback proves
+  persistence and integrity, not syntax or semantic correctness; it can satisfy
+  a document-save task without a code syntax checker;
 - `verify` explicitly declares read-only effect and replay metadata, so the
   validation call itself does not introduce another effect requiring validation;
 - TypeScript and JSX verification uses the installed project compiler, its
@@ -826,19 +885,32 @@ It enforces these current invariants:
   Read inputs and project membership are checked for changes before producing
   passing evidence. Python syntax checks compile in-process without execution
   or bytecode writes, so they also work in the frozen desktop sidecar.
-- local-write and unknown-effect work must have current validation evidence;
-- file write, edit, and rollback results declare their affected paths and
-  content versions. Each latest declared version needs matching verification
-  after its mutation. Capabilities without declared file targets still require
-  a non-empty verification after the effect; this establishes a verification
-  step, not semantic proof of an arbitrary shell command's outcome;
+- file writes and edits require current verification of their final content
+  version. A later mutation may replace an earlier version, but a check must
+  follow that mutation and confirm the same target's stable contents;
+- explicit deletion verification checks absence after a successful mutation;
+  a missing file in an ordinary check never implicitly passes. A rollback's
+  own byte readback proves restoration to its snapshot, even if the restored
+  original would fail a syntax checker;
+- settings mutations verify their saved values by reading them back. Their
+  scoped receipts cannot validate unrelated files or unknown effects;
+- a native command's normal exit proves execution ended, without requiring an
+  unrelated file check. It does not clear declared file obligations or an
+  existing failed mutation check. An automatically continued job requires its
+  matching terminal receipt. A matched execution failure ends the pending wait
+  without proving success; read-only failure can be reported diagnostically,
+  while potentially mutating execution failure remains an uncertain effect.
+  Explicit background startup or stop proves only the requested process-control
+  state, not successful command completion;
+- other local-write and unknown-effect work retains its validation requirements;
 - repair cannot exceed the configured budget.
 
 Every rejected proposal produces a stable completion reason. A repairable
 rejection emits a repair observation for the next model step. If the repair or
 task budget is exhausted, the journal emits `REPAIR_EXHAUSTED` and the run ends
 with the real blocked/unverified state; it does not disappear as a generic
-finalization failure.
+finalization failure. Any partial explanation is retained with an explicit
+unverified-completion marker rather than discarded.
 
 Gate rejection is not a hidden fixed workflow such as “always plan, then act,
 then validate.” Simple conversation skips plans, tools, and validation. The
@@ -1164,6 +1236,11 @@ assembly.
 
 ## Durable Run Journal And Trace Projection
 
+Synchronous iteration and tool diagnostic projections are best-effort: a trace
+write failure is logged without discarding a valid model or tool result. This
+does not relax durable run journals, effect ledgers, model-context commits, or
+terminal chat transactions; those remain required for consistent execution.
+
 `runtime_trace.db` contains:
 
 - `agent_run_manifests` — insert-once prompt, message, tool-schema, and
@@ -1254,6 +1331,49 @@ identity are the only execution ownership seams.
 
 ## Prompt History And Context Capacity
 
+Model capacity metadata travels with the scenario-resolved adapter. Main-loop
+calls leave `max_tokens` unset; required fields belong to the provider adapter.
+The resolved model and capacity are pinned for one run, including its retries
+and final response. Model configuration changes take effect at the next run so
+the capacity guard and actual provider request cannot use different models.
+Each concurrent run binds its own adapter, bridge, capacity and compactor through
+a run-local context; successful completion, errors and cancellation all restore
+the caller's binding without serializing other runs.
+Context planning reserves up to 65,536 generation tokens, bounded by the model's
+output capability and one quarter of its context window (8,192 when output
+capability is unknown). This is planning headroom, not an output request or a
+claim about the provider's default. Input compaction still measures the complete
+provider prompt, including system instructions, tools and images.
+
+A provider output-limit stop (`length`, `max_tokens`, or Responses
+`max_output_tokens`) raises a typed failure before any partial tool call is
+returned. The main loop retries only that model generation at most twice with
+an expanded explicit cap, clamped by model capacity and remaining prompt space
+with a 1,024-token estimation margin. Each retry checks cancellation, consumes
+another task LLM call and gets a fresh trace request ID. Streaming preview text
+and pending tool previews are reset before regeneration. A streamed tool call
+is announced as complete only after the provider finishes successfully; this
+prevents an incomplete question tool from opening a dialog. Previous tool results
+stay in the unchanged request history. Truncated attempts retain usage in failed trace spans. Other
+provider errors are not treated as output exhaustion, and exhausted recovery
+must not be accepted as a completed answer.
+
+Generation recovery also retries interrupted stream reads at most twice and
+rate limits with bounded 1/2/4/8-second backoff. All retries share task accounting,
+new request IDs and preview resets; backoff checks cancellation. Generic HTTP
+and connection failures already handled by SDK request retries are not retried
+again here. Tool-generation retries reserve additional capacity without spending
+the prepaid final-answer call. If no retry capacity remains, the run uses that
+reserved call for a no-tools final response instead of executing another tool
+decision with no capacity left to explain its result.
+
+Stream completion must be explicit: Chat Completions requires a finish reason,
+Anthropic requires its stop reason and message-stop event, and Responses requires
+the completed response event. EOF alone is an incomplete-stream failure; no tool
+from that generation may execute. Provider refusal text remains a valid visible
+response in streaming and non-streaming calls instead of becoming an empty-response
+execution error.
+
 Chat prompt assembly combines:
 
 - the active run's ordered Working Surface when it exists, otherwise the
@@ -1292,7 +1412,10 @@ attachment extraction, parent launch snapshots, and other run-local material
 are not.
 
 Agent-run terminal status is preserved across the chat turn, delivery control,
-and canonical trace. A visible failure or blocked message is a presentation
+and canonical trace, including exceptions caught by the outer chat executor
+before a structured loop outcome is available. Those exceptions return an
+explicit failed outcome rather than the default completed result. A visible
+failure or blocked message is a presentation
 surface, not an accepted assistant answer: failed and blocked turns create no
 assistant-memory projection and promote an explicit runtime outcome instead.
 Cancellation and delivery recovery use the same canonical terminal-outcome
@@ -1757,8 +1880,9 @@ selection plus logical transfer ports. `runtime_chat_storage_exports` publishes
 the selected chat writer and reader before `runtime_chat_store` assembles the
 conversation log, workspace claims and delivery services. These early exports are
 process-critical. `runtime_memory` receives the preselected event repository.
-The shared MySQL write pool and bounded chat read pool outlive their consumers;
-shutdown unpublishes bindings and releases pools only after consumer shutdown.
+The early storage plugin runtime outlives these consumers and owns selected workers.
+Shutdown unpublishes repositories, closes provider sessions, then stops workers.
+Normal plugin activation adopts the same storage instances; it never duplicates them.
 
 Native chat requests may supply explicit `delivery_targets`. Omission uses the
 configured additional destinations; an empty list selects no additional targets.

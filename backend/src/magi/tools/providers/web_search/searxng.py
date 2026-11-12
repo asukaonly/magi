@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 import aiohttp
 
 from ..base import Provider, ProviderConfig
+from ..http_errors import ProviderRateLimitError, parse_retry_after_seconds
 
 
 class SearXNGSearchProvider(Provider):
@@ -54,6 +55,13 @@ class SearXNGSearchProvider(Provider):
                 headers=headers,
                 proxy=proxy_url,
             ) as response:
+                if response.status == 429:
+                    raise ProviderRateLimitError(
+                        "SearXNG search rate limit exceeded",
+                        retry_after_seconds=parse_retry_after_seconds(
+                            response.headers.get("Retry-After")
+                        ),
+                    )
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"SearXNG API error: {response.status} - {error_text}")

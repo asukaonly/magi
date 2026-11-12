@@ -103,6 +103,7 @@ class _Invocation:
     bootstrap: bool = False
     progress: Any = None
     tool_context: Any = None
+    storage_handler: Any = None
 
 
 @dataclass(eq=False)
@@ -417,6 +418,7 @@ class ProcessPluginProxy(Plugin):
         allow_drain: bool = False,
         progress: Any = None,
         tool_context: Any = None,
+        storage_handler: Any = None,
     ) -> tuple[str, Future[Any]]:
         identity = identity or self._identity()
         if (
@@ -435,7 +437,7 @@ class ProcessPluginProxy(Plugin):
             if len(self._pending) + len(self._cancelled) >= self.limits.max_inflight:
                 raise PluginProcessError("Plugin worker request capacity exhausted")
             self._pending[identifier] = _Invocation(
-                future, identity, loop, time.monotonic() + timeout, bootstrap, progress, tool_context
+                future, identity, loop, time.monotonic() + timeout, bootstrap, progress, tool_context, storage_handler
             )
             try:
                 self._outbox.put_nowait(data)
@@ -451,10 +453,11 @@ class ProcessPluginProxy(Plugin):
         *,
         timeout: float | None = None,
         bootstrap: bool = False,
+        storage_handler: Any = None,
     ) -> Any:
         duration = timeout or self.limits.request_timeout
         identifier, future = self._begin(
-            method, payload, timeout=duration, identity=None, loop=None, bootstrap=bootstrap
+            method, payload, timeout=duration, identity=None, loop=None, bootstrap=bootstrap, storage_handler=storage_handler
         )
         try:
             return future.result(timeout=duration)
@@ -490,6 +493,7 @@ class ProcessPluginProxy(Plugin):
         allow_drain: bool = False,
         progress: Any = None,
         tool_context: Any = None,
+        storage_handler: Any = None,
     ) -> Any:
         duration = timeout or self.limits.request_timeout
         identifier, future = self._begin(
@@ -501,6 +505,7 @@ class ProcessPluginProxy(Plugin):
             allow_drain=allow_drain,
             progress=progress,
             tool_context=tool_context,
+            storage_handler=storage_handler,
         )
         wrapped = asyncio.wrap_future(future)
         try:
@@ -528,6 +533,7 @@ class ProcessPluginProxy(Plugin):
         *args: Any,
         identity: InvocationIdentity | None = None,
         timeout: float | None = None,
+        storage_handler: Any = None,
         **kwargs: Any,
     ) -> Any:
         from magi_plugin_sdk.tools import ToolExecutionContext
@@ -560,9 +566,10 @@ class ProcessPluginProxy(Plugin):
             timeout=timeout,
             progress=progress,
             tool_context=tool_context,
+            storage_handler=storage_handler,
         )
 
-    def invoke_sync(self, target: str, method: str, *args: Any, **kwargs: Any) -> Any:
+    def invoke_sync(self, target: str, method: str, *args: Any, storage_handler: Any = None, **kwargs: Any) -> Any:
         return self._request_sync(
             "invoke",
             {
@@ -571,6 +578,7 @@ class ProcessPluginProxy(Plugin):
                 "args": self._safe_args(args),
                 "kwargs": self._safe_args(kwargs),
             },
+            storage_handler=storage_handler,
         )
 
     async def iter_stream(
@@ -879,6 +887,12 @@ class ProcessPluginProxy(Plugin):
             return self._source_callback(frame.get("parent"), payload)
         if call is None or call.deadline <= time.monotonic() or call.future.done():
             raise CapabilityDenied("Worker callback has no active invocation")
+        if kind == "storage":
+            if call.bootstrap or not callable(call.storage_handler) or set(payload) != {"method", "arguments"}:
+                raise CapabilityDenied("Storage host access requires the originating repository invocation")
+            if not isinstance(payload["method"], str) or not isinstance(payload["arguments"], dict):
+                raise CapabilityDenied("Invalid storage host request")
+            return call.storage_handler(payload["method"], payload["arguments"])
         if kind == "host_service":
             from .host_services import dispatch_host_service
 
@@ -1203,6 +1217,15 @@ class ProcessPluginProxy(Plugin):
                 ),
             )
             for item in self._catalog["get_providers"]
+        ]
+
+    def get_storage_providers(self) -> list[Any]:
+        from magi_plugin_sdk.storage import StorageProviderSpec
+        from .storage_proxy import StorageProviderProxy
+
+        return [
+            (StorageProviderSpec.model_validate(item["spec"]), StorageProviderProxy(self, item["target"]))
+            for item in self._catalog["get_storage_providers"]
         ]
 
     async def invoke_operation(

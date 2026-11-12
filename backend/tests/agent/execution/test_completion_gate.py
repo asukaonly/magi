@@ -71,24 +71,24 @@ def test_empty_or_unidentified_validation_is_inconclusive(result) -> None:
     "later", [_validation("b.py"), _validation("a.py", verifier="other_check")]
 )
 def test_unrelated_success_cannot_clear_failed_check(later) -> None:
-    assert _evaluate([_validation("a.py", "fail"), later]).reason_code == "validation_failed"
+    assert _evaluate([_write("a.py"), _validation("a.py", "fail"), later]).reason_code == "validation_failed"
 
 
 def test_failures_are_resolved_per_target_across_separate_calls() -> None:
-    evidence = [_validation("a.py", "fail"), _validation("b.py", "fail"), _validation("b.py")]
+    evidence = [_write("a.py"), _write("b.py"), _validation("a.py", "fail"), _validation("b.py", "fail"), _validation("b.py")]
     assert _evaluate(evidence).reason_code == "validation_failed"
     assert _evaluate([*evidence, _validation("a.py")]).outcome is CompletionOutcome.COMPLETE
 
 
 def test_timeout_cannot_erase_a_failed_check() -> None:
     assert (
-        _evaluate([_validation("a.py", "fail"), _validation("a.py", "timeout")]).reason_code
+        _evaluate([_write("a.py"), _validation("a.py", "fail"), _validation("a.py", "timeout")]).reason_code
         == "validation_failed"
     )
 
 
 def test_unknown_verifier_can_be_replaced_by_real_check_of_same_path() -> None:
-    evidence = [_validation("a.py", "skipped", verifier="(none)")]
+    evidence = [_write("a.py"), _validation("a.py", "skipped", verifier="(none)")]
     assert _evaluate([*evidence, _validation("b.py")]).reason_code == "validation_inconclusive"
     assert _evaluate([*evidence, _validation("a.py")]).outcome is CompletionOutcome.COMPLETE
 
@@ -114,8 +114,8 @@ def test_unidentified_pass_cannot_be_repaired_by_another_target() -> None:
         tool_name="verify", success=True, effect_class="read_only", replay_policy="read_only",
         result={"results": [{"path": "a.py", "status": "pass", "verifier": "py_compile"}]},
     )
-    assert _evaluate([unidentified, _validation("b.py")]).reason_code == "validation_inconclusive"
-    assert _evaluate([unidentified, _validation("a.py")]).outcome is CompletionOutcome.COMPLETE
+    assert _evaluate([_write("a.py"), unidentified, _validation("b.py")]).reason_code == "validation_inconclusive"
+    assert _evaluate([_write("a.py"), unidentified, _validation("a.py")]).outcome is CompletionOutcome.COMPLETE
 
 
 def test_unknown_effect_requires_rechecking_declared_files() -> None:
@@ -151,6 +151,37 @@ def test_chat_without_effects_completes() -> None:
 
     assert decision.outcome is CompletionOutcome.COMPLETE
     assert decision.reason_code == "evidence_satisfied"
+
+
+@pytest.mark.parametrize("status", ["fail", "skipped", "timeout"])
+def test_read_only_diagnostic_can_report_unsuccessful_checks(status) -> None:
+    decision = _evaluate([_validation("a.py", status)])
+    assert decision.outcome is CompletionOutcome.COMPLETE
+
+
+@pytest.mark.parametrize("code", [0, 1])
+def test_normal_command_exit_can_be_reported_without_file_verification(code) -> None:
+    command = ToolExecutionEvidence(
+        tool_name="bash", success=True, effect_class="unknown", replay_policy="unknown",
+        result={"return_code": code, "command_succeeded": code == 0, "timed_out": False},
+    )
+    assert _evaluate([command]).outcome is CompletionOutcome.COMPLETE
+    assert _evaluate([_write("a.py"), _validation("a.py"), command]).reason_code == "validation_required"
+    assert _evaluate([_write("a.py"), command, _validation("a.py")]).outcome is CompletionOutcome.COMPLETE
+
+
+@pytest.mark.parametrize("tool,result", [
+    ("plugin", {"return_code": 0, "command_succeeded": True, "timed_out": False}),
+    ("bash", {"return_code": 0, "command_succeeded": True, "timed_out": True}),
+    ("bash", {"return_code": 1, "command_succeeded": True, "timed_out": False}),
+    ("bash", {"return_code": False, "command_succeeded": True, "timed_out": False}),
+    ("bash", {"status": "running"}),
+])
+def test_unknown_effect_without_trusted_terminal_receipt_still_requires_validation(tool, result) -> None:
+    command = ToolExecutionEvidence(
+        tool_name=tool, success=True, effect_class="unknown", replay_policy="unknown", result=result,
+    )
+    assert _evaluate([command]).reason_code == "validation_required"
 
 
 def test_local_write_requires_validation() -> None:
@@ -218,6 +249,7 @@ def test_unsuccessful_validation_requests_repair(status, reason_code, reasoning_
     decision = CompletionGate().evaluate(
         policy=CompletionPolicy(),
         evidence=[
+            _write("/workspace/a.py"),
             ToolExecutionEvidence(
                 tool_name="verify",
                 success=True,
@@ -455,3 +487,87 @@ def test_plan_completion_rejects_failed_and_governance_only_evidence() -> None:
 
     assert decision.outcome is CompletionOutcome.CONTINUE
     assert decision.reason_code == "todo_evidence_missing"
+
+
+@pytest.mark.parametrize("reference,text_argument", [("user_input", "user_input"), ("final_response", "final_response")])
+def test_text_plan_can_reference_actual_current_input_or_answer(reference, text_argument):
+    plan = apply_plan_mutation(
+        None, session_id="session-1", run_id="run-1", plan_id=None,
+        expected_version=0, required=True, status=None,
+        item_mutations=[{"content": "Explain the supplied text", "status": "completed", "evidence_refs": [reference]}],
+    )
+    gate = CompletionGate()
+    arguments = dict(policy=CompletionPolicy(), repair_iterations=0, run_plan=plan)
+    assert gate.evaluate(**arguments, evidence=[]).reason_code == "todo_evidence_missing"
+    accepted = gate.evaluate(**arguments, evidence=[], **{text_argument: "A text deliverable grounded in this run."})
+    assert accepted.outcome is CompletionOutcome.COMPLETE
+    assert accepted.evidence_refs[-1].evidence_id == reference
+    assert accepted.evidence_refs[-1].payload_digest
+    assert gate.evaluate(
+        **arguments, evidence=[_write("a.py")], **{text_argument: "I wrote the file."}
+    ).reason_code == "validation_required"
+
+
+def _shell_job(tool="bash", *, job_id="job-1", status="running", background=False, action=None, code=None, risk="mutating"):
+    result = {
+        "job_id": job_id, "shell_tool": "bash", "status": status,
+        "background_requested": background, "return_code": code,
+        "command_succeeded": code == 0, "timed_out": False, "risk_level": risk,
+    }
+    if action:
+        result["action"] = action
+    if action == "stop" and status == "cancelled":
+        result["stopped"] = True
+    return ToolExecutionEvidence(
+        tool_name=tool, success=True, effect_class="unknown" if tool == "bash" else "read_only",
+        replay_policy="unknown", result=result,
+    )
+
+
+def test_foreground_job_requires_matching_terminal_observation_not_file_check():
+    pending = _shell_job()
+    assert _evaluate([pending, _validation("a.py")]).reason_code == "shell_job_pending"
+    assert _evaluate([pending, _shell_job("shell_job", job_id="other", status="completed", code=0)]).reason_code == "shell_job_pending"
+    assert _evaluate([pending, _shell_job("shell_job", status="cancelled")]).reason_code == "shell_job_pending"
+    assert _evaluate([pending, _shell_job("shell_job", status="completed", code=1)]).outcome is CompletionOutcome.COMPLETE
+
+
+def test_explicit_background_start_and_stop_are_observable_completed_goals():
+    assert _evaluate([_shell_job(background=True)]).outcome is CompletionOutcome.COMPLETE
+    stopped = _shell_job("shell_job", action="stop", status="cancelled")
+    assert _evaluate([_shell_job(), stopped]).outcome is CompletionOutcome.COMPLETE
+    assert _evaluate([_write("a.py"), _shell_job(), _validation("a.py"), stopped]).reason_code == "validation_required"
+    assert _evaluate([_write("a.py"), _shell_job(), stopped, _validation("a.py")]).outcome is CompletionOutcome.COMPLETE
+
+
+def test_formatter_can_replace_written_version_only_with_stable_validation_after_exit():
+    start = _shell_job()
+    finished = _shell_job("shell_job", status="completed", code=0)
+    assert _evaluate([_write("a.py"), start, _validation("a.py", digest="b"), finished]).reason_code == "validation_required"
+    assert _evaluate([_write("a.py"), start, finished, _validation("a.py", digest="b")]).outcome is CompletionOutcome.COMPLETE
+    assert _evaluate([_write("a.py"), _validation("a.py", digest="b")]).reason_code == "validation_required"
+    read_only = _shell_job(status="completed", code=0, risk="read_only")
+    assert _evaluate([_write("a.py"), read_only, _validation("a.py", digest="b")]).reason_code == "validation_required"
+    assert _evaluate([_write("a.py"), _validation("a.py"), read_only]).outcome is CompletionOutcome.COMPLETE
+
+
+@pytest.mark.parametrize("status,reason", [("fail", "validation_failed"), ("skipped", "validation_inconclusive")])
+def test_known_command_exit_does_not_hide_failed_post_mutation_validation(status, reason):
+    command = _shell_job(status="completed", code=0)
+    assert _evaluate([command, _validation("a.py", status)]).reason_code == reason
+    assert _evaluate([_shell_job(status="completed", code=0, risk="read_only"), _validation("a.py", status)]).outcome is CompletionOutcome.COMPLETE
+
+
+def test_malformed_mutation_targets_cannot_replace_a_written_version():
+    malformed = ToolExecutionEvidence(
+        tool_name="plugin", success=True, effect_class="unknown", replay_policy="unknown",
+        result={"validation_targets": 42},
+    )
+    assert _evaluate([_write("a.py"), malformed, _validation("a.py", digest="b")]).reason_code == "validation_required"
+
+
+def test_long_read_only_command_does_not_introduce_mutation_obligations():
+    start = _shell_job(risk="read_only")
+    finished = _shell_job("shell_job", status="completed", code=0, risk="read_only")
+    assert _evaluate([start, finished, _validation("a.py", "fail")]).outcome is CompletionOutcome.COMPLETE
+    assert _evaluate([_write("a.py"), start, finished, _validation("a.py", digest="b")]).reason_code == "validation_required"

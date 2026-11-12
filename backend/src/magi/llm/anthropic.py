@@ -8,7 +8,7 @@ from contextlib import aclosing
 from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 from .reasoning_dialect import anthropic_thinking_is_adaptive_only
 from .base import LLMAdapter
-from ..config.constants import DEFAULT_MAX_TOKENS
+from .model_context import automatic_output_reserve, unknown_model_context
 
 
 class AnthropicAdapter(LLMAdapter):
@@ -99,7 +99,9 @@ class AnthropicAdapter(LLMAdapter):
         kwargs = self._sampling_options(temperature, kwargs)
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
+            max_tokens=max_tokens if max_tokens is not None else automatic_output_reserve(
+                self.model_context or unknown_model_context(self)
+            ),
             messages=messages,
             **kwargs,
         )
@@ -128,7 +130,9 @@ class AnthropicAdapter(LLMAdapter):
         kwargs = self._sampling_options(temperature, kwargs)
         stream = await self._client.messages.create(
             model=self._model,
-            max_tokens=max_tokens or DEFAULT_MAX_TOKENS,
+            max_tokens=max_tokens if max_tokens is not None else automatic_output_reserve(
+                self.model_context or unknown_model_context(self)
+            ),
             messages=messages,
             stream=True,
             **kwargs,

@@ -21,6 +21,7 @@ from .recommender import ToolRecommender, ScenarioType
 
 # Import built-in tools
 from .builtin.bash_tool import BashTool
+from .builtin.shell_job_tool import ShellJobTool
 from .builtin.file_read_tool import FileReadTool
 from .builtin.file_write_tool import FileWriteTool
 from .builtin.file_edit_tool import FileEditTool
@@ -78,6 +79,7 @@ __all__ = [
 
     # Built-in tools
     "BashTool",
+    "ShellJobTool",
     "FileReadTool",
     "FileWriteTool",
     "FileEditTool",

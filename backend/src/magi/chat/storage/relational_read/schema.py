@@ -1,31 +1,28 @@
-"""Relational table names for chat read storage.
+"""Chat-owned exports of shared relational persistence workflows."""
 
-Schemas are owned by the chat and mysql_chat migration chains; this module
-only re-exports table names referenced by query code.
-"""
-from __future__ import annotations
-
-CHAT_SESSIONS_TABLE = "chat_sessions"
-CHAT_SESSION_CREATION_REQUESTS_TABLE = "chat_session_creation_requests"
-CHAT_TURNS_TABLE = "chat_turns"
-CHAT_MESSAGES_TABLE = "chat_messages"
-CHAT_MODEL_CONTEXT_HEADS_TABLE = "chat_model_context_heads"
-CHAT_MODEL_CONTEXT_EVENTS_TABLE = "chat_model_context_events"
-CHAT_MODEL_CONTEXT_REVISIONS_TABLE = "chat_model_context_revisions"
-CHAT_MODEL_CONTEXT_SURFACE_NODES_TABLE = "chat_model_context_surface_nodes"
-CHAT_MODEL_CONTEXT_RUN_HEADS_TABLE = "chat_model_context_run_heads"
-CHAT_MODEL_CONTEXT_EPOCHS_TABLE = "chat_model_context_epochs"
-CHAT_MODEL_CONTEXT_BOUNDARIES_TABLE = "chat_model_context_boundaries"
-CHAT_ATTACHMENTS_TABLE = "chat_attachments"
-CHAT_MESSAGE_ASSET_REFS_TABLE = "chat_message_asset_refs"
-CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE = "chat_message_code_delegation_refs"
-CHAT_CODE_DELEGATION_ARTIFACTS_TABLE = "chat_code_delegation_artifacts"
-CHAT_CONTEXT_SUMMARIES_TABLE = "chat_context_summaries"
-CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE = "chat_context_usage_snapshots"
-CHAT_RUN_CONSUMED_EVENTS_TABLE = "chat_run_consumed_events"
-CHAT_USER_TURN_DELIVERY_TABLE = "chat_user_turn_delivery"
-CHAT_ASSISTANT_MEMORY_OUTBOX_TABLE = "chat_assistant_memory_outbox"
-CHAT_GLOBAL_CLEAR_INTENT_TABLE = "chat_global_clear_intent"
-CHAT_WORKSPACE_SESSION_CLEANUP_TABLE = "chat_workspace_session_cleanup"
-CHAT_CLEARED_SESSION_SCOPES_TABLE = "chat_cleared_session_scopes"
-CHAT_CLEARED_MESSAGE_SCOPES_TABLE = "chat_cleared_message_scopes"
+from magi_plugin_sdk.storage_chat.relational_read.schema import (
+    CHAT_SESSIONS_TABLE,
+    CHAT_SESSION_CREATION_REQUESTS_TABLE,
+    CHAT_TURNS_TABLE,
+    CHAT_MESSAGES_TABLE,
+    CHAT_MODEL_CONTEXT_HEADS_TABLE,
+    CHAT_MODEL_CONTEXT_EVENTS_TABLE,
+    CHAT_MODEL_CONTEXT_REVISIONS_TABLE,
+    CHAT_MODEL_CONTEXT_SURFACE_NODES_TABLE,
+    CHAT_MODEL_CONTEXT_RUN_HEADS_TABLE,
+    CHAT_MODEL_CONTEXT_EPOCHS_TABLE,
+    CHAT_MODEL_CONTEXT_BOUNDARIES_TABLE,
+    CHAT_ATTACHMENTS_TABLE,
+    CHAT_MESSAGE_ASSET_REFS_TABLE,
+    CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE,
+    CHAT_CODE_DELEGATION_ARTIFACTS_TABLE,
+    CHAT_CONTEXT_SUMMARIES_TABLE,
+    CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE,
+    CHAT_RUN_CONSUMED_EVENTS_TABLE,
+    CHAT_USER_TURN_DELIVERY_TABLE,
+    CHAT_ASSISTANT_MEMORY_OUTBOX_TABLE,
+    CHAT_GLOBAL_CLEAR_INTENT_TABLE,
+    CHAT_WORKSPACE_SESSION_CLEANUP_TABLE,
+    CHAT_CLEARED_SESSION_SCOPES_TABLE,
+    CHAT_CLEARED_MESSAGE_SCOPES_TABLE,
+)

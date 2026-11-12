@@ -176,6 +176,50 @@ def test_child_guardrail_clamps_max_results_for_grep() -> None:
     assert "dist" in guarded_args["exclude"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["glob", "grep"])
+@pytest.mark.parametrize("pattern", ["package-lock.json", "**/package-lock.json"])
+@pytest.mark.parametrize("exclusions", [None, [], ["unrelated.json"]])
+async def test_child_scans_keep_explicit_lockfile_targets(
+    tmp_path, tool_name, pattern, exclusions
+) -> None:
+    from magi.tools.builtin.glob_tool import GlobTool
+    from magi.tools.builtin.grep_tool import GrepTool
+    from magi.tools.schema import ToolExecutionContext
+
+    target = tmp_path / "package-lock.json"
+    target.write_text('{"dependency": "1.0"}\n', encoding="utf-8")
+    arguments = {"path": str(tmp_path), "pattern": pattern}
+    if tool_name == "grep":
+        arguments.update(pattern="dependency", glob=pattern)
+    if exclusions is not None:
+        arguments["exclude"] = exclusions
+    guarded, error = _executor()._apply_execution_guardrails(
+        "child_read_only", tool_name, arguments, str(tmp_path)
+    )
+    assert error is None
+    tool = GlobTool() if tool_name == "glob" else GrepTool()
+    result = await tool.execute(
+        guarded, ToolExecutionContext(agent_id="child", workspace=str(tmp_path))
+    )
+    assert result.success, result.error
+    assert len(result.data["matches"]) == 1
+
+
+def test_child_scan_defaults_and_explicit_exclusions_remain_distinct() -> None:
+    executor = _executor()
+    for extra, expected in [(None, True), ([], False), (["package-lock.json"], True)]:
+        arguments = {"pattern": "**/*.json"}
+        if extra is not None:
+            arguments["exclude"] = extra
+        guarded, error = executor._apply_execution_guardrails(
+            "child_read_only", "glob", arguments
+        )
+        assert error is None
+        assert ("package-lock.json" in guarded["exclude"]) is expected
+        assert guarded["max_results"] == 200
+
+
 def test_workspace_write_child_guardrail_rewrites_root_recursive_glob() -> None:
     executor = _executor()
     guarded_args, error = executor._apply_execution_guardrails(

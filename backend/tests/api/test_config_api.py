@@ -691,8 +691,8 @@ def test_build_update_paths_applies_builtin_provider_defaults_before_save():
     assert updates["llm.providers"]["glm"]["provider_type"] == "glm"
     assert updates["llm.providers"]["glm"]["display_name"] == "Z.ai"
     assert updates["llm.providers"]["glm"]["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
-    assert updates["llm.selections"]["auxiliary"]["model"] == "glm-4.7-flash"
-    assert updates["llm.selections"]["core"]["model"] == "glm-5.2"
+    assert updates["llm.selections"]["auxiliary"]["model"] == "glm-5.3-flash"
+    assert updates["llm.selections"]["core"]["model"] == "glm-5.3"
     assert updates["llm.selections"]["embedding"]["model"] == "embedding-3"
     assert updates["llm.selections"]["embedding"]["embedding_dimension"] == 1024
 
@@ -874,7 +874,7 @@ def test_selected_plan_drives_resolver_catalog_defaults_and_pricing(provider_id,
             "glm-5": "glm",
             "glm-4.7": "glm",
             "MiniMax-M2.5": "minimax",
-        }.get(result.id, "generic" if provider_id == "xiaomimimo" else provider_id)
+        }.get(result.id, provider_id)
         assert result.vendor.value == expected_vendor
         assert result.cost == source.cost
         assert result.cost is not None
@@ -916,8 +916,8 @@ def test_update_paths_apply_provider_plan_defaults():
     assert persisted_provider["provider_type"] == "glm"
     assert persisted_provider["provider_plan"] == "codeplan"
     assert persisted_provider["base_url"] == "https://open.bigmodel.cn/api/coding/paas/v4"
-    assert updates["llm.selections"]["auxiliary"]["model"] == "glm-4.7"
-    assert updates["llm.selections"]["core"]["model"] == "glm-5.2"
+    assert updates["llm.selections"]["auxiliary"]["model"] == "glm-5.3-flash"
+    assert updates["llm.selections"]["core"]["model"] == "glm-5.3"
 
 
 def test_provider_plan_pricing_does_not_inherit_pay_as_you_go_rates():
@@ -939,7 +939,7 @@ def test_provider_plan_pricing_does_not_inherit_pay_as_you_go_rates():
         registry=registry,
     )
 
-    assert standard_amount == pytest.approx(5.8)
+    assert standard_amount == pytest.approx(36)
     assert plan_amount is None
     assert currency is None
 

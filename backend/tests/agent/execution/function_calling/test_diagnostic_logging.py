@@ -26,6 +26,7 @@ def test_tool_logs_omit_arguments_and_errors_when_content_logging_is_off(
     secret_argument = "private search phrase"
     secret_error = "private remote error"
     host = SimpleNamespace(
+        tool_registry=SimpleNamespace(get_tool=lambda _name: None),
         _FILE_SCAN_TOOLS=set(),
         _SLOW_SCAN_WARNING_SECONDS=10.0,
     )

@@ -9,6 +9,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Dict, TypeVar, cast
 from ..anthropic import AnthropicAdapter
 from ..openai_transport import uses_responses_api, responses_effort
 from ..base import LLMAdapter
+from ..model_context import automatic_output_reserve, unknown_model_context
 from ..cache_observability import build_cache_observation
 from .cache_routing import (
     cache_routing_request_kwargs,
@@ -224,6 +225,12 @@ class ProviderBridgeOptionsMixin:
         max_tokens = kwargs.get("max_tokens")
         if isinstance(max_tokens, int) and budget >= max_tokens:
             kwargs["max_tokens"] = budget + DEFAULT_MAX_TOKENS
+        profile = getattr(self.llm, "model_context", None)
+        if profile is not None and profile.max_output_tokens:
+            kwargs["max_tokens"] = min(kwargs["max_tokens"], profile.max_output_tokens)
+            if kwargs["max_tokens"] <= 1_024:
+                raise ValueError("Model output capacity cannot fit the minimum thinking budget")
+            budget = min(budget, max(1_024, kwargs["max_tokens"] - DEFAULT_MAX_TOKENS))
         kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
         return kwargs
 
@@ -233,6 +240,20 @@ class ProviderBridgeOptionsMixin:
         thinking_depth: ThinkingDepth,
     ) -> Dict[str, Any]:
         """Inject vendor-specific reasoning parameters into LLM request kwargs."""
+        profile = getattr(self.llm, "model_context", None) or unknown_model_context(self.llm)
+        tokens = kwargs.get("max_tokens")
+        if (tokens is not None and thinking_depth is ThinkingDepth.NONE
+                and self.resolve_effective_reasoning_depth(thinking_depth) is not ThinkingDepth.NONE):
+            # Mandatory reasoning shares the output allowance even for short classifications.
+            tokens = max(tokens, min(16_384, automatic_output_reserve(profile)))
+            kwargs["max_tokens"] = tokens
+        if tokens is None:
+            if self.is_anthropic():
+                kwargs["max_tokens"] = automatic_output_reserve(profile)
+            else:
+                kwargs.pop("max_tokens", None)
+        elif profile.max_output_tokens:
+            kwargs["max_tokens"] = min(tokens, profile.max_output_tokens)
         dialect = self._resolve_reasoning_dialect()
 
         # Anthropic budget is special-cased ahead of the generic builder:
@@ -377,10 +398,16 @@ class ProviderBridgeOptionsMixin:
         lifecycle = getattr(config, "lifecycle", None)
         llm_usage = getattr(lifecycle, "llm_usage", None)
         settings = getattr(llm_usage, "cache_observability", None)
-        if settings is not None and not bool(getattr(settings, "enabled", True)):
-            return event_context
-
         context: Dict[str, Any] = dict(event_context or {})
+        provider_id = getattr(self.llm, "provider_instance_id", None) or self._provider_name()
+        provider_settings = config.llm.providers.get(provider_id)
+        if provider_settings is not None:
+            override = provider_settings.model_metadata_overrides.get(self.llm.model_name)
+            if override is not None and override.cost is not None:
+                context["cost_override"] = override.cost.model_dump(mode="json", exclude_unset=True)
+        if settings is not None and not bool(getattr(settings, "enabled", True)):
+            return context
+
         store_tool_names = True
         if settings is not None:
             store_tool_names = bool(getattr(settings, "store_tool_names", True))

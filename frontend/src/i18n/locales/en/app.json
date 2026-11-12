@@ -1256,9 +1256,10 @@
       "preparing": "{{name}} is on the way…"
     },
     "runtime": {
-      "label": "Runtime activity",
-      "expand": "Expand runtime activity",
-      "collapse": "Collapse runtime activity",
+      "preparing": "Preparing a response",
+      "label": "View activity",
+      "expand": "Expand activity details",
+      "collapse": "Collapse activity details",
       "status": "Process updates"
     },
     "toolCalls": {
@@ -2619,6 +2620,8 @@
         "noFailureData": "No failure data"
       },
       "llm": {
+        "estimatedCost": "Estimated cost",
+        "estimatedCostUnpriced": "Estimated cost ({{count}} unpriced calls)",
         "tabs": {
           "models": "By model",
           "providers": "By provider",
@@ -2706,6 +2709,7 @@
           "providerConnectivity": "Provider connectivity test",
           "memoryAnswering": "Memory answer synthesis",
           "imageGeneration": "Image generation",
+          "speechGeneration": "Speech generation",
           "embedding": "Embedding"
         }
       },
@@ -3056,13 +3060,15 @@
         "source": "Source",
         "tool": "Tool",
         "action": "Action",
-        "channel": "Channel"
+        "channel": "Channel",
+        "storage": "Storage"
       },
       "contributionType": {
         "source": "Source",
         "tool": "Tool",
         "action": "Action",
-        "channel": "Channel"
+        "channel": "Channel",
+        "storage": "Storage"
       },
       "consent": {
         "title": {
@@ -6049,6 +6055,8 @@
       "reinstall": "Reinstall this package before authorizing it."
     },
     "connections": {
+      "storageConnectionId": "Storage connection ID",
+      "storageSelectionHint": "Select this connection in the server storage configuration. Changing an active database requires stopping the service and transferring its data.",
       "selectConnection": "Select {{name}}",
       "choose": "Account or folder",
       "title": "Connected sources",

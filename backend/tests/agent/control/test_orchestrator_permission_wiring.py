@@ -16,11 +16,16 @@ from magi.control.permission.gateway import (
 )
 from magi.control.permission.rules import PermissionRuleStore
 from magi.control.settings import ControlSettings, PermissionMode
+from magi.control.session_store import ControlSessionStore
 from magi.agent.execution.function_calling import (
     FunctionCallingOrchestrator,
     ToolCall,
 )
 from magi.tools.schema import ToolErrorCode, ToolResult
+from magi.tools.builtin.file_info_tool import FileInfoTool
+from magi.tools.builtin.file_list_tool import FileListTool
+from magi.tools.builtin.system_settings_tool import SystemSettingsTool
+from magi.tools.builtin.chat_stickers_tool import ChatStickersTool
 from magi.skills.active_restrictions import skill_preapproval
 from magi.skills.allowed_tools_rules import parse_allowed_tools
 from magi.hooks.contracts import HookDecision, HookOutcome
@@ -48,6 +53,7 @@ async def _make_gateway(
     *,
     mode: PermissionMode,
     prompter: Any = None,
+    plan_mode_guard: Any = None,
 ) -> PermissionGateway:
     rules = PermissionRuleStore(db_path=None)
     await rules.initialize()
@@ -58,6 +64,7 @@ async def _make_gateway(
         settings_provider=lambda: ControlSettings(permission_mode=mode),
         prompter=prompter,
         prompt_timeout_seconds=1.0,
+        plan_mode_guard=plan_mode_guard,
     )
 
 
@@ -73,6 +80,65 @@ def _orchestrator(
         permission_gateway=gateway,
         permission_gateway_provider=gateway_provider,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_class,arguments,allowed", [
+    (FileListTool, {}, True),
+    (FileInfoTool, {}, True),
+    (SystemSettingsTool, {"action": "list"}, True),
+    (SystemSettingsTool, {"action": "get"}, True),
+    (SystemSettingsTool, {"action": "set"}, False),
+    (ChatStickersTool, {"action": "list"}, True),
+    (ChatStickersTool, {"action": "send"}, False),
+])
+async def test_plan_mode_uses_registered_invocation_effects(tool_class, arguments, allowed):
+    tool = tool_class()
+
+    class Registry(_FakeToolRegistry):
+        def get_tool(self, _name):
+            return tool
+
+    registry = Registry()
+    store = ControlSessionStore()
+    await store.enter_plan_mode("s")
+    gateway = await _make_gateway(mode=PermissionMode.OFF, plan_mode_guard=store.plan_allows)
+    result = await _orchestrator(registry=registry, gateway=gateway)._execute_tool_call(
+        tool_call=ToolCall(id="c1", name=tool.schema.name, arguments=arguments),
+        user_id="u", session_id="s", turn_id="t", execution_preset="chat",
+        execution_agent_id="a", execution_workspace=None, run_id="run-1",
+    )
+
+    assert result.success is allowed
+    assert registry.executed == ([(tool.schema.name, arguments)] if allowed else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("final_action,allowed", [("get", True), ("set", False)])
+async def test_plan_mode_authorizes_effect_after_hook_changes(monkeypatch, final_action, allowed):
+    tool = SystemSettingsTool()
+
+    class Registry(_FakeToolRegistry):
+        def get_tool(self, _name):
+            return tool
+
+    registry = Registry()
+    store = ControlSessionStore()
+    await store.enter_plan_mode("s")
+    gateway = await _make_gateway(mode=PermissionMode.OFF, plan_mode_guard=store.plan_allows)
+    changed = {"action": final_action}
+    monkeypatch.setattr("magi.hooks.dispatch.dispatch_hook", AsyncMock(
+        return_value=HookDecision.modify(arguments=changed),
+    ))
+
+    result = await _orchestrator(registry=registry, gateway=gateway)._execute_tool_call(
+        tool_call=ToolCall(id="c1", name=tool.schema.name, arguments={"action": "list"}),
+        user_id="u", session_id="s", turn_id="t", execution_preset="chat",
+        execution_agent_id="a", execution_workspace=None, run_id="run-1",
+    )
+
+    assert result.success is allowed
+    assert registry.executed == ([(tool.schema.name, changed)] if allowed else [])
 
 
 @pytest.mark.asyncio

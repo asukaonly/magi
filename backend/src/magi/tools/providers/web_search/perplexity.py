@@ -7,6 +7,7 @@ import aiohttp
 from typing import Dict, Any, List
 
 from ..base import Provider, ProviderConfig
+from ..http_errors import ProviderRateLimitError, parse_retry_after_seconds
 
 
 class PerplexitySearchProvider(Provider):
@@ -68,6 +69,13 @@ class PerplexitySearchProvider(Provider):
 
         async with aiohttp.ClientSession(trust_env=False) as session:
             async with session.post(url, headers=headers, json=payload, proxy=proxy_url) as response:
+                if response.status == 429:
+                    raise ProviderRateLimitError(
+                        "Perplexity search rate limit exceeded",
+                        retry_after_seconds=parse_retry_after_seconds(
+                            response.headers.get("Retry-After")
+                        ),
+                    )
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"Perplexity API error: {response.status} - {error_text}")

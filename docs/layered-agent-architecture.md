@@ -126,6 +126,9 @@ Notes:
 - bootstrap order and ownership layer are not the same thing
 - `runtime_trace/` stores durable execution facts and observability data; it is
   not semantic memory and does not participate in L7 recall
+- `runtime_trace/` also owns shared model-usage span publication and media-counter
+  normalization. Speech, image generation and embeddings call this lower-layer
+  boundary; pricing rules and usage aggregation remain owned by `llm/`.
 - workspace storage is an infrastructure facade: `core` owns workspace identity, path safety, generated directory creation, and state manifests; upper layers receive scoped paths instead of constructing `<workspace>/.magi` paths directly
 - code-delegation path validation and exact filesystem/git cleanup are shared
   infrastructure, but chat owns the durable artifact registry and decides when
@@ -697,8 +700,9 @@ still requires the process supervisor; cancellation cannot undo external effects
 clear admission boundary. It receives `ChannelSessionRepository`; it never
 opens databases or converts driver rows. `channels/persistence/session_mappings.py`
 implements that port for SQLite, including row mapping and durable erasure.
-`StructuredStorageModule` selects SQLite or MySQL and exports typed channel and
-outreach repository bundles. It also owns the external connection lifecycle and
+`StructuredStorageModule` selects storage plugin contributions and exports typed
+channel and outreach repository bundles. The early plugin runtime owns connection
+lifetimes; structured storage owns repository sessions and
 checks the durable storage selection before channel startup. Binding settings,
 delivery receipts and proactive delivery state share that selection and clear
 transaction boundary. Logical transfer contracts include this complete lifecycle
@@ -757,3 +761,13 @@ reference/MIME conversion and physical persistence; the manual-entry lifecycle
 selects the adapter. Application operations invoke repository I/O through the
 cancellation-draining `asset_io` runner, while memory and timeline retain authority
 over whether an asset reference is currently visible.
+
+
+Storage plugin contracts live in `magi_plugin_sdk.storage_ports` and
+`storage_models`; domain services import their public values without importing a
+plugin implementation. The SDK also holds shared driver-free chat relational
+workflows. SQLite native adapters are assembled by the composition root for the
+bundled contribution; external MySQL adapters and migrations belong to the
+companion plugin repository. Neither storage implementation owns agent policy,
+message delivery, memory cognition or host filesystem access. Scoped chat callbacks
+retain attachment/workspace validation and trace enrichment in host owners.

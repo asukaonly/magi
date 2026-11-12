@@ -474,6 +474,31 @@ async def test_real_worker_exit_fails_its_connection_and_allows_replacement(
 
 
 @pytest.mark.asyncio
+async def test_worker_unload_reaps_resources_without_per_tool_rpc(setup_runtime, monkeypatch):
+    runtime = setup_runtime
+    connection = runtime.manager.update_connection(
+        runtime.connection.connection_id,
+        expected_revision=runtime.connection.revision,
+        enabled=True,
+    )
+    worker = runtime.manager.get_connection_plugin(connection.connection_id)
+    tools = runtime.tools.owned_tool_instances(connection.connection_id)
+    assert tools
+    cleanups = []
+    for tool in tools:
+        cleanup = AsyncMock(side_effect=AssertionError("Worker tools are released by worker shutdown"))
+        monkeypatch.setattr(tool, "clear_user_content", cleanup)
+        cleanups.append(cleanup)
+
+    await runtime.manager.unload_connection_async(connection.connection_id)
+
+    assert not worker.diagnostics["healthy"]
+    assert worker._process.poll() is not None
+    for cleanup in cleanups:
+        cleanup.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_runtime_builder_binds_early_hooks_and_configures_setup_and_active_workers(
     setup_runtime, monkeypatch
 ):

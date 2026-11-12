@@ -120,6 +120,7 @@ class SystemSettingsTool(SystemSettingsPathMixin, SystemSettingsActionsMixin, To
             effect_replay_policy="reconcilable",
             tags=["system", "config", "settings"],
             metadata={
+                "read_only_actions": ["list", "get"],
                 "task_intents": ["inspect_config", "apply_change", "inspect_runtime_state"],
                 "domains": ["config", "runtime"],
                 "operations": ["inspect", "edit"],

@@ -2,21 +2,32 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from typing import Any, Dict, List, NamedTuple, Optional, Protocol, cast
+from dataclasses import dataclass, replace
+from typing import Any, Dict, List, NamedTuple, Optional, Protocol, TypeVar, cast
+
+import httpx
 
 from ....config.models import ThinkingDepth
 from ....llm.base import LLMAdapter
+from ....llm.model_context import automatic_output_reserve, unknown_model_context
+from ....llm.output_limit import OutputLimitReached
+from ....llm.error_classifier import is_rate_limit_exception
+from ....llm.stream_errors import IncompleteStreamError
+from ....llm.streaming_events import LLMStreamEvent, emit_stream_event
+from ....context.window_budget import build_context_window_budget, measure_provider_prompt_usage
+from ....core.logger import get_logger
+
 from ....llm.cancellable_client import (
     CancellationRaised,
     RetractRaised,
 )
 from ....llm.provider_bridge import LLMProviderBridge
 from ..context_compactor import ContextCompactor
-from ..task_budget import consume_task_llm_calls
+from ..task_budget import consume_task_llm_calls, reserve_task_llm_calls
 from magi.control.run_control import RunControl
 from .llm_invocation import (
     FinalProviderCallResult,
@@ -39,19 +50,17 @@ from .llm_logging import (
 )
 from .llm_payloads import build_llm_response_payload, build_llm_trace
 
+_Result = TypeVar("_Result")
+logger = get_logger(__name__)
+
 
 class _LlmHostProtocol(Protocol):
+    llm: LLMAdapter | None
     provider_bridge: LLMProviderBridge
     _context_compactor: ContextCompactor
+    _RATE_LIMIT_BACKOFF_SECONDS: tuple[float, ...]
 
     def _resolve_llm(self) -> LLMAdapter: ...
-
-    async def _invoke_with_rate_limit_backoff(
-        self,
-        factory: Callable[[], Awaitable[Any]],
-        *,
-        label: str,
-    ) -> Any: ...
 
 
 class _PreparedLlmCall(NamedTuple):
@@ -186,7 +195,8 @@ async def _prepare_llm_call(
 ) -> _PreparedLlmCall:
     await pre_poll_run_control(control)
     host = cast(_LlmHostProtocol, owner)
-    llm = host._resolve_llm()
+    # The run's model must stay paired with the capacity checked before this call.
+    llm = getattr(host, "llm", None) or host._resolve_llm()
     await consume_task_llm_calls()
     return _PreparedLlmCall(
         host=host,
@@ -213,10 +223,11 @@ async def _call_llm_with_tools_params(
     )
 
     try:
-        call_result = await call_provider_with_tools(
-            cast(LlmInvocationHostProtocol, prepared.host),
-            request,
-            tools=params.tools,
+        call_result = await _call_with_generation_recovery(
+            prepared, request, control=params.control, tools=params.tools,
+            invoke=lambda attempt: call_provider_with_tools(
+                cast(LlmInvocationHostProtocol, prepared.host), attempt, tools=params.tools,
+            ),
         )
         duration_ms = _elapsed_ms(prepared.start_time)
         result = _build_tools_result(
@@ -259,11 +270,12 @@ async def _call_llm_without_tools_params(
     )
 
     try:
-        call_result = await call_provider_without_tools(
-            cast(LlmInvocationHostProtocol, prepared.host),
-            request,
-            json_mode=params.json_mode,
-            control=params.control,
+        call_result = await _call_with_generation_recovery(
+            prepared, request, control=params.control, tools=[],
+            invoke=lambda attempt: call_provider_without_tools(
+                cast(LlmInvocationHostProtocol, prepared.host), attempt,
+                json_mode=params.json_mode, control=params.control,
+            ),
         )
         duration_ms = _elapsed_ms(prepared.start_time)
         log_final_llm_success(
@@ -288,6 +300,84 @@ async def _call_llm_without_tools_params(
             duration_ms=duration_ms,
         )
         raise
+
+
+async def _call_with_generation_recovery(
+    prepared: _PreparedLlmCall,
+    request: FunctionCallingLlmRequest,
+    *,
+    control: RunControl | None,
+    tools: list[dict[str, Any]],
+    invoke: Callable[[FunctionCallingLlmRequest], Awaitable[_Result]],
+) -> _Result:
+    profile = getattr(prepared.host, "_active_model_context", None) or unknown_model_context(prepared.llm)
+    budget = build_context_window_budget(profile)
+    delays = getattr(prepared.host, "_RATE_LIMIT_BACKOFF_SECONDS", (1.0, 2.0, 4.0, 8.0))
+    for attempt in range(max(2, len(delays)) + 1):
+        try:
+            return await invoke(request)
+        except Exception as exc:
+            next_limit = request.max_tokens
+            delay = 0.0
+            if isinstance(exc, OutputLimitReached):
+                if attempt >= 2:
+                    raise
+                used = max(request.max_tokens or 0, exc.token_count("completion_tokens"))
+                reserve = automatic_output_reserve(profile)
+                next_limit = max(reserve, used * 2) if used else (profile.max_output_tokens or reserve * 2)
+                usage = measure_provider_prompt_usage(
+                    budget, request.messages,
+                    prompt_overhead={"system_prompt": request.system_prompt, "tools": tools},
+                    observed_input_tokens=exc.token_count("prompt_tokens"),
+                )
+                next_limit = min(
+                    next_limit, profile.max_output_tokens or next_limit,
+                    budget.context_window - usage.estimated_tokens - 1_024,
+                )
+                if next_limit <= (used or reserve):
+                    raise
+                retry_reason = "output_limit_retry"
+            elif is_rate_limit_exception(exc):
+                if attempt >= len(delays):
+                    raise
+                delay = delays[attempt]
+                retry_reason = "rate_limit_retry"
+            elif isinstance(
+                exc,
+                (IncompleteStreamError, httpx.ReadError, httpx.ReadTimeout, httpx.RemoteProtocolError),
+            ):
+                # SDK request retries do not cover failures while consuming an open stream.
+                if attempt >= 2:
+                    raise
+                delay = (1.0, 2.0)[attempt]
+                retry_reason = "stream_retry"
+            else:
+                raise
+
+            await _wait_for_generation_retry(delay, control)
+            if request.request_kind == "function_calling:final_response":
+                await consume_task_llm_calls()
+            else:
+                # Tool decisions must leave the prepaid final-answer call untouched.
+                await reserve_task_llm_calls()
+            logger.warning(
+                "Retrying model generation",
+                request_id=request.request_id, attempt=attempt + 1,
+                max_tokens=next_limit, reason=retry_reason,
+            )
+            # Regenerate only this model step; no partial tool call enters execution/history.
+            await emit_stream_event(LLMStreamEvent(kind="text_reset", step_label=retry_reason))
+            request = replace(request, request_id=str(uuid.uuid4())[:8], max_tokens=next_limit)
+    raise AssertionError("Generation recovery loop exited without a result")
+
+
+async def _wait_for_generation_retry(delay: float, control: RunControl | None) -> None:
+    await pre_poll_run_control(control)
+    while delay > 0:
+        interval = min(delay, 0.1) if control is not None else delay
+        await asyncio.sleep(interval)
+        delay -= interval
+        await pre_poll_run_control(control)
 
 
 def _build_tools_request(

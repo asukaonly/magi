@@ -486,6 +486,18 @@ describe('chat trace state helpers', () => {
     });
   });
 
+  it.each(['queued', 'running', 'cancelling', 'detaching'])(
+    'keeps the execution indicator animated while %s', (state) => {
+      const presentation = projectExecutionProgressPresentation({
+        id: 'pending', role: 'assistant', kind: 'status', content: '',
+        timestamp: 1000, turnId: 'pending-turn', runState: { state },
+      }, {
+        variant: 'card', executionControlByTurnId: {}, cancellingTurnIds: [], detachingTurnIds: [],
+      });
+      expect(presentation).toMatchObject({ indicator: 'progress', showSpinningIndicator: true });
+    },
+  );
+
   it('projects execution action state for running, cancelling, and detaching turns', () => {
     const runningMessage: ChatTimelineMessage = {
       id: 'msg-running',
@@ -554,6 +566,19 @@ describe('chat trace state helpers', () => {
       showCancelButton: false,
       showDetachButton: false,
     });
+  });
+
+  it('does not present a finished reply as running when no trace state is available', () => {
+    const message: ChatTimelineMessage = {
+      id: 'reply', role: 'assistant', kind: 'assistant', content: 'Finished reply',
+      timestamp: 1000, turnId: 'turn-reply', messageKind: 'assistant_final',
+    };
+    const execution = { executionControlByTurnId: {}, cancellingTurnIds: [], detachingTurnIds: [] };
+    expect(getExecutionActionState(message, execution)).toMatchObject({
+      executionState: 'completed', showCancelButton: false, showDetachButton: false,
+    });
+    expect(getExecutionActionState({ ...message, streaming: true }, execution).executionState).toBe('running');
+    expect(getExecutionActionState({ ...message, messageKind: 'assistant_interim' }, execution).executionState).toBe('running');
   });
 
   it('uses restored backend run state to suppress execution controls', () => {

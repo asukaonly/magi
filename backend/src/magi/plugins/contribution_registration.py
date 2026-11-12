@@ -28,6 +28,7 @@ class PluginContributionRegistrar:
         skill_registrar: Any | None = None,
         operation_registrar: Any | None = None,
         provider_registrar: Any | None = None,
+        storage_registrar: Any | None = None,
         ingress_registry: Any | None = None,
         source_ingress_factory: Callable[..., Any] | None = None,
         get_ingress_epoch: Callable[[str], str] | None = None,
@@ -39,6 +40,7 @@ class PluginContributionRegistrar:
         self._skill_registrar = skill_registrar
         self._operation_registrar = operation_registrar
         self._provider_registrar = provider_registrar
+        self._storage_registrar = storage_registrar
         self._ingress_registry = ingress_registry
         self._source_ingress_factory = source_ingress_factory
         self._get_ingress_epoch = get_ingress_epoch
@@ -73,12 +75,14 @@ class PluginContributionRegistrar:
             skills = list(plugin_instance.get_skills())
             operations = list(plugin_instance.get_operations())
             providers = list(plugin_instance.get_providers())
+            storage_providers = list(plugin_instance.get_storage_providers())
             actual = {
                 kind
                 for kind, values in (
                     (ContributionType.TOOL, tools),
                     (ContributionType.OPERATION, operations),
                     (ContributionType.PROVIDER, providers),
+                    (ContributionType.STORAGE, storage_providers),
                     (ContributionType.SOURCE, sources),
                     (ContributionType.HISTORY_IMPORTER, importers),
                     (ContributionType.CHANNEL, channel is not None),
@@ -208,6 +212,18 @@ class PluginContributionRegistrar:
                             implementation=implementation,
                         )
                     )
+                for spec, provider in storage_providers:
+                    record(
+                        ContributionType.STORAGE, spec.provider_id,
+                        display_name=spec.provider_id, surface="extensions",
+                        metadata={"domains": list(spec.domains), "contract_version": spec.contract_version},
+                    )
+                    if self._storage_registrar is None:
+                        raise RuntimeError("Plugin storage registry is unavailable")
+                    disposers.append(self._storage_registrar.register(
+                        plugin_id=plugin_id, connection_id=connection_id,
+                        spec=spec, provider=provider,
+                    ))
                 for source_id, source, spec in sources:
                     if source_id != spec.source_id:
                         raise ValueError("Source tuple id must match its spec")

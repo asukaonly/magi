@@ -103,7 +103,9 @@ class FunctionCallingGuardrailsMixin:
                 safe_args.get("max_results"),
                 cap=200,
             )
-            safe_args["exclude"] = self._merge_exclude_patterns(safe_args.get("exclude"))
+            safe_args["exclude"] = self._merge_exclude_patterns(
+                safe_args.get("exclude"), target_pattern=pattern, scan_path=safe_args.get("path")
+            )
             return safe_args, None
 
         if tool_name == "grep":
@@ -122,7 +124,9 @@ class FunctionCallingGuardrailsMixin:
                 safe_args.get("max_results"),
                 cap=200,
             )
-            safe_args["exclude"] = self._merge_exclude_patterns(safe_args.get("exclude"))
+            safe_args["exclude"] = self._merge_exclude_patterns(
+                safe_args.get("exclude"), target_pattern=file_glob, scan_path=path_value
+            )
             return safe_args, None
 
         return safe_args, None
@@ -183,15 +187,19 @@ class FunctionCallingGuardrailsMixin:
             parsed = cap
         return max(1, min(parsed, cap))
 
-    def _merge_exclude_patterns(self, extra: Any) -> list[str]:
-        """Merge caller exclude patterns with explore defaults."""
-        merged: list[str] = []
+    def _merge_exclude_patterns(
+        self, extra: Any, *, target_pattern: str, scan_path: Any
+    ) -> list[str]:
+        """Use scan defaults only when the caller has not selected exclusions."""
         if isinstance(extra, list):
+            merged: list[str] = []
             for item in extra:
                 value = str(item).strip()
                 if value and value not in merged:
                     merged.append(value)
-        for pattern in self._EXPLORE_EXCLUDE_PATTERNS:
-            if pattern not in merged:
-                merged.append(pattern)
-        return merged
+            return merged
+
+        # A literal path component is an explicit target, even inside a glob.
+        targets = set(target_pattern.replace("\\", "/").split("/"))
+        targets.update(str(scan_path or "").replace("\\", "/").split("/"))
+        return [pattern for pattern in self._EXPLORE_EXCLUDE_PATTERNS if pattern not in targets]

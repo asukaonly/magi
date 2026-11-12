@@ -265,6 +265,12 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
                       actions={plugin.manifest.settings_actions}
                       blocks={plugin.manifest.settings_ui_blocks}
                       canEnable={plugin.trusted}
+                      renderConnection={plugin.manifest.contribution_types.includes('storage') ? (connection) => (
+                        <div className="space-y-2 text-sm">
+                          <p>{t('plugins.connections.storageConnectionId')}: <code className="select-all break-all">{connection.connection_id}</code></p>
+                          <p className="text-muted-foreground">{t('plugins.connections.storageSelectionHint')}</p>
+                        </div>
+                      ) : undefined}
                     />
                     </div>
                   ))}

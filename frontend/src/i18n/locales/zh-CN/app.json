@@ -1256,9 +1256,10 @@
       "preparing": "{{name}}正在赶来…"
     },
     "runtime": {
-      "label": "运行态详情",
-      "expand": "展开运行态详情",
-      "collapse": "收起运行态详情",
+      "preparing": "正在准备回复",
+      "label": "查看过程",
+      "expand": "展开过程详情",
+      "collapse": "收起过程详情",
       "status": "过程状态"
     },
     "toolCalls": {
@@ -2618,6 +2619,8 @@
         "noFailureData": "暂无失败数据"
       },
       "llm": {
+        "estimatedCost": "估算费用",
+        "estimatedCostUnpriced": "估算费用（{{count}} 次调用未计价）",
         "tabs": {
           "models": "按模型",
           "providers": "按提供商",
@@ -2705,6 +2708,7 @@
           "providerConnectivity": "供应商连通性测试",
           "memoryAnswering": "记忆问答合成",
           "imageGeneration": "图片生成",
+          "speechGeneration": "语音合成",
           "embedding": "Embedding"
         }
       },
@@ -3055,13 +3059,15 @@
         "source": "数据来源",
         "tool": "工具",
         "action": "执行器",
-        "channel": "消息渠道"
+        "channel": "消息渠道",
+        "storage": "数据存储"
       },
       "contributionType": {
         "source": "数据来源",
         "tool": "工具",
         "action": "执行器",
-        "channel": "消息渠道"
+        "channel": "消息渠道",
+        "storage": "数据存储"
       },
       "consent": {
         "title": {
@@ -6047,6 +6053,8 @@
       "reinstall": "请重新安装此插件，再授权运行。"
     },
     "connections": {
+      "storageConnectionId": "存储连接 ID",
+      "storageSelectionHint": "在服务端存储配置中选择这个连接。更换正在使用的数据库，需要先停止服务并迁移数据。",
       "selectConnection": "选择 {{name}}",
       "choose": "选择账号或文件夹",
       "title": "已接入",

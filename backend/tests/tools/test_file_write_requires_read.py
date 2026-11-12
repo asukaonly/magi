@@ -30,13 +30,18 @@ async def test_overwrite_existing_blocked_without_read(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_overwrite_existing_allowed_after_read(tmp_path: Path) -> None:
+@pytest.mark.parametrize("initial_content", ["old content", ""])
+async def test_overwrite_existing_allowed_after_read(
+    tmp_path: Path, initial_content: str
+) -> None:
     target = tmp_path / "f.txt"
-    target.write_text("old content")
+    target.write_text(initial_content)
     ctx = _ctx(tmp_path)
     read = FileReadTool()
     write = FileWriteTool()
-    await read.execute({"path": str(target)}, ctx)
+    read_result = await read.execute({"path": str(target)}, ctx)
+    assert read_result.success, read_result.error
+    assert read_result.data["content"] == initial_content
     res = await write.execute(
         {"path": str(target), "content": "new content"},
         ctx,

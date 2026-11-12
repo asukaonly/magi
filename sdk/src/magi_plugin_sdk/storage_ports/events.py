@@ -1,0 +1,341 @@
+"""Complete atomic event storage operation contract."""
+
+from __future__ import annotations
+from typing import Any, Literal, Protocol, List, Dict, Optional, TypedDict, Tuple
+from ..storage_models.events import MemoryEvent
+from ..storage_models.event_records import EventEvidence, EventAppend, EventAppendResult, EventDeletionPlan, EventVisibility, MemoryEventRecord, EventQuery, EventEvidenceReference, EventSourceIdentity
+from ..storage_models.event_maintenance import EvidenceAnnotationUpdate, EvidenceBackfillQuery, EventClearState, EventScanItem
+from ..storage_models.event_embeddings import EventChunkRecord, EventEmbeddingPublication, EventEmbeddingSource
+from ..storage_models.event_overview import EventOverview, EventOverviewQuery
+from ..storage_models.evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
+from ..storage_models.source_facets import SourceFacet
+
+class EventStorageOperations(Protocol):
+    async def append(self, command: EventAppend) -> EventAppendResult:
+        """Atomically deduplicate, allocate sequence, and persist all side rows."""
+        ...
+
+    async def find_by_idempotency(
+        self, *, source: str, event_type: str, idempotency_key: str,
+    ) -> str | None: ...
+
+    async def get(
+        self, event_id: str, *, visibility: EventVisibility = "raw",
+    ) -> MemoryEventRecord | None: ...
+
+    async def query_events(self, query: EventQuery) -> list[MemoryEventRecord]: ...
+
+    async def read_event_overview(self, query: EventOverviewQuery) -> EventOverview: ...
+
+    async def get_event_timestamps(self, event_ids: list[str]) -> dict[str, float]: ...
+
+    async def get_evidence_records(self, event_ids: list[str]) -> dict[str, EventEvidenceReference]: ...
+
+    async def get_raw_event_turn_ids(self, event_ids: list[str]) -> dict[str, str]: ...
+
+    async def get_raw_event_source_identities(self, event_ids: list[str]) -> dict[str, EventSourceIdentity]: ...
+
+    async def fetch_events(
+        self,
+        event_ids: List[str],
+        *,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        event_types: Optional[List[str]] = None,
+        source_filters: Optional[List[str]] = None,
+        domain_filters: Optional[List[str]] = None,
+        exclude_domain: Optional[str] = None,
+        time_start: Optional[float] = None,
+        time_end: Optional[float] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
+    ) -> list[MemoryEventRecord]: ...
+
+    async def query_session_event_window(
+        self,
+        *,
+        session_id: str,
+        center_session_seq: int,
+        window: int,
+        user_id: Optional[str] = None,
+        limit: int | None = None,
+        include_metadata_json: bool = True,
+    ) -> list[MemoryEventRecord]: ...
+
+    async def summarize_event_sources(
+        self,
+        *,
+        source_filters: Optional[List[str]] = None,
+        cognition_eligible: Optional[bool] = None,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        exclude_memory_domain: Optional[str] = None,
+        exclude_retention_class: Optional[str] = None,
+    ) -> List[Dict[str, Any]]: ...
+
+    async def count_events(
+        self,
+        *,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        event_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        exclude_event_types: Optional[List[str]] = None,
+        query: Optional[str] = None,
+        source_filters: Optional[List[str]] = None,
+        source_item_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
+    ) -> int: ...
+
+    async def list_compressible_event_page(
+        self,
+        *,
+        older_than: float,
+        limit: int = 1000,
+        after: tuple[float, str] | None = None,
+    ) -> list[tuple[float, str]]: ...
+
+    async def list_source_facets(
+        self,
+        *,
+        event_id: str | None = None,
+        source: str | None = None,
+        sources: list[str] | None = None,
+        facet_names: list[str] | None = None,
+        normalized_text_values: list[str] | None = None,
+        limit: int = 1000,
+    ) -> list[SourceFacet]: ...
+
+    async def count_source_facets(
+        self,
+        *,
+        source: str | None = None,
+        sources: list[str] | None = None,
+        facet_names: list[str] | None = None,
+    ) -> int: ...
+
+    async def find_events_by_source_facets(
+        self,
+        *,
+        source: str | None = None,
+        sources: list[str] | None = None,
+        facet_names: list[str],
+        normalized_text_values: list[str],
+        user_id: str | None = None,
+        time_start: float | None = None,
+        time_end: float | None = None,
+        limit: int = 1000,
+    ) -> list[MemoryEventRecord]: ...
+
+    async def rebuild_source_facets(
+        self,
+        *,
+        source_filter: str | None = None,
+        batch_size: int = 500,
+        limit: int | None = None,
+    ) -> dict[str, int]: ...
+
+    async def prepare_event_deletion(
+        self, event_ids: list[str], *, only_deleted: bool = False,
+    ) -> EventDeletionPlan: ...
+
+    async def soft_delete_events(self, event_ids: list[str], *, deleted_at: float) -> int: ...
+
+    async def purge_deleted_events(self, event_ids: list[str]) -> int: ...
+
+    async def list_active_event_ids_by_entity(
+        self,
+        entity_id: str,
+        *,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_raw_event_ids_by_entity(
+        self,
+        entity_id: str,
+        *,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_active_event_ids_by_time_range(
+        self,
+        *,
+        start: float,
+        end: float,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_raw_event_ids_by_time_range(
+        self,
+        *,
+        start: float,
+        end: float,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_active_event_ids_by_chat_sources(
+        self,
+        *,
+        user_id: str,
+        session_id: str | None = None,
+        turn_ids: list[str] | tuple[str, ...] = (),
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_raw_event_ids_by_chat_sources(
+        self,
+        *,
+        user_id: str,
+        session_id: str | None = None,
+        turn_ids: list[str] | tuple[str, ...] = (),
+        message_ids: list[str] | tuple[str, ...] = (),
+        include_session: bool = True,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_active_event_ids_by_chat_message(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_raw_event_ids_by_chat_message(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def get_pinned_payloads(self, event_ids: list[str]) -> dict[str, str]: ...
+
+    async def prune_pinned_payloads(self, *, retention_seconds: float, now: float) -> int: ...
+
+    async def list_ready_cognition_handoffs(self, *, now: float, limit: int = 100) -> list[str]: ...
+
+    async def complete_cognition_handoff(self, event_id: str) -> None: ...
+
+    async def retry_cognition_handoff(self, event_id: str, *, error: str, now: float) -> None: ...
+
+
+    async def write_event_entities(
+        self,
+        mappings: List[Tuple[str, str, Optional[str], Optional[float]]],
+    ) -> int: ...
+
+    async def replace_projected_event_entities_batch(
+        self,
+        *,
+        projections: List[
+            Tuple[
+                str,
+                int,
+                str,
+                int,
+                int,
+                List[Tuple[str, Optional[str], Optional[float]]],
+            ]
+        ],
+    ) -> bool: ...
+
+    async def align_entity_link_projection_clear_generation(
+        self,
+        clear_generation: int,
+    ) -> int: ...
+
+    async def get_entity_event_ids(
+        self,
+        entity_ids: List[str],
+        *,
+        limit_per_entity: int = 20,
+    ) -> Dict[str, List[str]]: ...
+
+    async def get_event_entity_ids(
+        self,
+        event_ids: List[str],
+    ) -> Dict[str, List[str]]: ...
+
+    async def expand_by_entities(
+        self,
+        seed_event_ids: List[str],
+        *,
+        limit: int = 30,
+        exclude_event_ids: Optional[List[str]] = None,
+    ) -> List[str]: ...
+
+    async def resolve_event_entities(self, event_ids: List[str]) -> List[str]: ...
+
+    async def find_events_by_entities(
+        self,
+        entity_ids: List[str],
+        *,
+        exclude_event_ids: Optional[List[str]] = None,
+        limit: int = 30,
+    ) -> List[Tuple[str, int]]: ...
+
+    async def filter_ids_by_user(self, event_ids: List[str], user_id: str) -> List[str]: ...
+
+
+    async def bm25_search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        user_id: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
+        strict: bool = False,
+        l1_retrieval_scopes: list[str] | None = None,
+    ) -> List[Tuple[str, float]]: ...
+
+    async def backfill_fts(self, *, batch_size: int = 500) -> int: ...
+
+    async def count_pending_embeddings(self) -> int: ...
+
+    async def event_scan_high_water(self) -> int: ...
+
+    async def embedding_rebuild_page(
+        self, *, after: int, through: int, limit: int,
+    ) -> list[tuple[int, MemoryEvent]]: ...
+
+    async def get_embedding_sources(self, event_ids: list[str]) -> list[MemoryEvent]: ...
+
+    async def publish_event_embeddings(self, publications: list[EventEmbeddingPublication]) -> set[str]: ...
+
+    async def remove_event_embedding_chunks(self, sources: list[EventEmbeddingSource]) -> list[str]: ...
+
+    async def fetch_embedding_chunks(self, chunk_ids: list[str]) -> list[EventChunkRecord]: ...
+
+    async def visible_embedding_chunk_ids(self, chunk_ids: list[str]) -> set[str]: ...
+
+    async def initialize(self) -> None: ...
+
+    async def rebuild_chat_session_projection(self, session_id: str) -> None: ...
+
+    async def retire_chat_session_projection(self, session_id: str, *, deleted_at: float) -> None: ...
+
+    async def count_evidence_backfill(self, query: EvidenceBackfillQuery, *, through: int) -> int: ...
+
+    async def scan_evidence_backfill(
+        self, query: EvidenceBackfillQuery, *, after: int, through: int, limit: int,
+    ) -> list[EventScanItem]: ...
+
+    async def apply_evidence_annotations(self, updates: list[EvidenceAnnotationUpdate]) -> int: ...
+
+    async def get_clear_state(self) -> EventClearState: ...
+
+    async def clear_events(self, *, entity_link_clear_generation: int | None = None) -> int: ...

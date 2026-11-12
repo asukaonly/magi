@@ -45,9 +45,4 @@ def build_source_activity_snapshot(
     }
 
 
-def activity_snapshot_from_metadata(metadata: Mapping[str, Any] | None) -> Mapping[str, Any]:
-    """Return the neutral activity snapshot embedded in memory metadata."""
-    if not isinstance(metadata, Mapping):
-        return {}
-    snapshot = metadata.get(ACTIVITY_SNAPSHOT_METADATA_KEY)
-    return snapshot if isinstance(snapshot, Mapping) else {}
+from magi_plugin_sdk.storage_models.activity_snapshot import activity_snapshot_from_metadata

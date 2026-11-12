@@ -70,6 +70,7 @@ const REQUEST_KIND_DISPLAY_KEYS: Record<string, { scenario: string; stage: strin
   'config:provider_test': { scenario: 'configurationTest', stage: 'providerConnectivity' },
   'eval:memory_answering': { scenario: 'evaluationTool', stage: 'memoryAnswering' },
   image_generation: { scenario: 'multimodalGeneration', stage: 'imageGeneration' },
+  tts: { scenario: 'multimodalGeneration', stage: 'speechGeneration' },
   embedding: { scenario: 'embeddingModel', stage: 'embedding' },
 };
 
@@ -327,7 +328,10 @@ const LLMStatisticsSectionInner: FC = () => {
           <>
             <SignalItem label={t('settings.usage.cards.totalTokens')} value={formatCompactNumber(totals.total_tokens)} />
             <SignalItem label={t('settings.usage.cards.cacheHitRate')} value={formatPercent(totals.cache_hit_rate || 0)} />
-            <SignalItem label={t('settings.statistics.shared.totalCost')} value={formatTotalCost(totals.cost_by_currency) || unavailableLabel} />
+            <SignalItem label={totals.unpriced_calls
+              ? t('settings.statistics.llm.estimatedCostUnpriced', { count: totals.unpriced_calls })
+              : t('settings.statistics.llm.estimatedCost')}
+              value={formatTotalCost(totals.cost_by_currency) || unavailableLabel} />
             <SignalItem label={t('settings.usage.cards.avgLatency')} value={formatLatency(totals.avg_latency_ms) || unavailableLabel} />
             <SignalItem label={t('settings.statistics.shared.avgTTFT')} value={formatLatency(totals.avg_ttft_ms) || unavailableLabel} />
             <SignalItem label={t('settings.usage.cards.successRate', { value: Math.round(successRate) })} value={formatPercent(successRate)} />
@@ -354,7 +358,12 @@ const LLMStatisticsSectionInner: FC = () => {
                   <YAxis yAxisId="cost" orientation="right" tickLine={false} axisLine={false} width={48} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
                   <Tooltip />
                   <Area yAxisId="tokens" type="monotone" dataKey="total_tokens" stroke="hsl(var(--primary))" fill="url(#llm-statistics-tokens)" strokeWidth={2} />
-                  <Line yAxisId="cost" type="monotone" dataKey="cost_usd" stroke="hsl(var(--accent))" strokeWidth={2} dot={false} />
+                  {(totals.cost_by_currency ?? []).map(({ currency }, index) => (
+                    <Line key={currency} yAxisId="cost" type="monotone"
+                      name={`${t('settings.statistics.shared.totalCost')} (${currency})`}
+                      dataKey={(point: LLMUsageTimeseriesPoint) => point.cost_by_currency?.find((entry) => entry.currency === currency)?.amount ?? null}
+                      stroke={index % 2 === 0 ? 'hsl(var(--accent))' : 'hsl(var(--primary))'} strokeWidth={2} dot={false} />
+                  ))}
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -427,7 +436,7 @@ const LLMStatisticsSectionInner: FC = () => {
                         <TableCell>{formatInteger(item.completion_tokens)}</TableCell>
                         <TableCell>{formatPercent(item.cache_hit_rate || 0)}</TableCell>
                         <TableCell>{formatInteger(item.cache_read_tokens)}</TableCell>
-                        <TableCell>{item.cost_currency == null ? unavailableLabel : (formatCurrency(item.cost_usd, item.cost_currency) || unavailableLabel)}</TableCell>
+                        <TableCell>{formatTotalCost(item.cost_by_currency) || unavailableLabel}</TableCell>
                         <TableCell>{formatLatency(item.avg_latency_ms) || unavailableLabel}</TableCell>
                         <TableCell>{formatLatency(item.avg_ttft_ms) || unavailableLabel}</TableCell>
                       </tr>

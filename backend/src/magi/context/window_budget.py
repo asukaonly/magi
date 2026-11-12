@@ -7,10 +7,9 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from magi.llm.model_context import ModelContextProfile
+from magi.llm.model_context import ModelContextProfile, automatic_output_reserve
 
 FALLBACK_CONTEXT_WINDOW = 128_000
-FALLBACK_OUTPUT_RESERVE = 8_192
 SMALL_CONTEXT_WINDOW_LIMIT = 512_000
 SMALL_CONTEXT_TRIGGER_RATIO = 0.75
 LARGE_CONTEXT_TRIGGER_RATIO = 0.50
@@ -64,13 +63,13 @@ class SummaryOutputProfile:
 
 GENERAL_SUMMARY_OUTPUT_PROFILE = SummaryOutputProfile(
     input_capacity_ratio=GENERAL_SUMMARY_OUTPUT_RATIO,
-    min_tokens=1_024,
-    max_tokens=16_384,
+    min_tokens=4_096,
+    max_tokens=32_768,
 )
 PERSONA_SUMMARY_OUTPUT_PROFILE = SummaryOutputProfile(
     input_capacity_ratio=PERSONA_SUMMARY_OUTPUT_RATIO,
-    min_tokens=512,
-    max_tokens=4_096,
+    min_tokens=1_024,
+    max_tokens=8_192,
 )
 
 
@@ -80,13 +79,7 @@ def build_context_window_budget(profile: ModelContextProfile) -> ContextWindowBu
     uses_fallback = configured_window is None or configured_window <= 0
     context_window = FALLBACK_CONTEXT_WINDOW if uses_fallback else configured_window
 
-    configured_output = profile.max_output_tokens
-    output_reserve = (
-        configured_output
-        if configured_output is not None and configured_output > 0
-        else FALLBACK_OUTPUT_RESERVE
-    )
-    output_reserve = min(output_reserve, max(0, context_window - 1))
+    output_reserve = min(automatic_output_reserve(profile), max(0, context_window - 1))
     input_capacity = max(1, context_window - output_reserve)
     trigger_ratio = (
         SMALL_CONTEXT_TRIGGER_RATIO

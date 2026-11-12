@@ -64,6 +64,7 @@ async def test_set_app_path_uses_save_config_with_type_conversion(monkeypatch):
 
     def fake_save_config(updates):
         captured.update(updates)
+        fake_config.llm.timeout = updates["llm.timeout"]
         return True
 
     monkeypatch.setattr("magi.tools.builtin.system_settings_tool.get_config", fake_get_config)
@@ -81,6 +82,7 @@ async def test_set_app_path_uses_save_config_with_type_conversion(monkeypatch):
     assert result.success is True
     assert captured == {"llm.timeout": 120}
     assert refreshed == [fake_config]
+    assert result.data["results"][0]["status"] == "pass"
 
 
 def _local_embedding_settings_config(*, model_id: str = "model-a"):
@@ -294,3 +296,76 @@ def test_public_tool_schema_excludes_configuration_and_secrets(tool_class):
     parameters = {item.name for item in tool_class().get_schema().parameters}
     assert parameters
     assert parameters.isdisjoint({"action", "config_action", "api_key"})
+
+
+def _gate_for_setting(result, earlier=()):
+    from magi.agent.execution.completion_gate import CompletionGate
+    from magi.agent.execution.completion_policy import CompletionPolicy
+    from magi.agent.execution.evidence import ToolExecutionEvidence
+
+    return CompletionGate().evaluate(
+        policy=CompletionPolicy(), repair_iterations=0,
+        evidence=[*earlier, ToolExecutionEvidence(
+            tool_name="system-settings", success=result.success, effect_class="local_write",
+            replay_policy="reconcilable", result=result.data,
+        )],
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path,value", [
+    ("app.diagnostics.full_content_logging_enabled", "false"),
+    ("tool.web-fetch.default_provider", "browser"),
+    ("tool.web-search.providers.brave.api_key", "secret-setting-readback-canary"),
+])
+async def test_real_settings_save_readback_satisfies_only_its_own_completion(path, value):
+    from magi.agent.execution.contracts import CompletionOutcome
+    from magi.agent.execution.evidence import ToolExecutionEvidence
+
+    _ensure_tool_registered("web-fetch", WebFetchTool)
+    _ensure_tool_registered("web-search", WebSearchTool)
+    tool = SystemSettingsTool()
+    result = await tool.execute({"action": "set", "path": path, "value": value}, _context())
+    assert result.success, result.error
+    assert result.data["results"][0]["status"] == "pass"
+    assert _gate_for_setting(result).outcome is CompletionOutcome.COMPLETE
+    assert "secret-setting-readback-canary" not in str(result)
+    unknown = ToolExecutionEvidence(
+        tool_name="unknown_plugin", success=True, effect_class="unknown", replay_policy="unknown"
+    )
+    assert _gate_for_setting(result, [unknown]).reason_code == "validation_required"
+    file_write = ToolExecutionEvidence(
+        tool_name="file_write", success=True, effect_class="local_write", replay_policy="reconcilable",
+        result={"validation_targets": [{"path": "/workspace/a.py", "content_sha256": "a" * 64}]},
+    )
+    assert _gate_for_setting(result, [file_write]).reason_code == "validation_required"
+
+
+@pytest.mark.asyncio
+async def test_save_acknowledgement_without_matching_readback_cannot_complete(monkeypatch):
+    config = SimpleNamespace(llm=SimpleNamespace(timeout=60))
+    monkeypatch.setattr("magi.tools.builtin.system_settings_tool.get_config", lambda: config)
+    monkeypatch.setattr("magi.tools.builtin.system_settings_tool.save_config", lambda _: True)
+    monkeypatch.setattr("magi.tools.builtin.system_settings_tool.refresh_runtime_llm_config", lambda _: None)
+    result = await SystemSettingsTool().execute(
+        {"action": "set", "path": "app.llm.timeout", "value": "120"}, _context()
+    )
+    assert result.success
+    assert result.data["results"][0]["status"] == "fail"
+    assert _gate_for_setting(result).reason_code == "validation_failed"
+
+
+@pytest.mark.asyncio
+async def test_tool_owned_typed_value_is_compared_without_reconverting(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    target = SimpleNamespace(
+        update_config=AsyncMock(return_value=ToolResult(success=True, data={"value": True})),
+        get_config_value=AsyncMock(return_value=ToolResult(success=True, data=True)),
+    )
+    monkeypatch.setattr(tool_registry, "get_tool", lambda name: target)
+    result = await SystemSettingsTool().execute(
+        {"action": "set", "path": "tool.example.enabled", "value": "true"}, _context()
+    )
+    assert result.success
+    assert result.data["results"][0]["status"] == "pass"

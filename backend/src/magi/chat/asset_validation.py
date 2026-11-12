@@ -14,33 +14,13 @@ from magi.core.chat_assets.io import (
 from magi.core.chat_assets.paths import is_safe_chat_asset_component
 
 
-class ChatAssetOwnershipError(ValueError):
-    """Raised when a message cannot safely claim all referenced asset files."""
+from magi_plugin_sdk.storage_models.chat_asset_errors import ChatAssetOwnershipError
 
 
-def has_managed_asset_payloads(value: object) -> bool:
-    """Return whether a payload list can add managed filesystem ownership."""
-
-    if not isinstance(value, list):
-        return False
-    return any(
-        isinstance(item, dict) and str(item.get("kind") or "").strip() != "mcp_resource"
-        for item in value
-    )
 
 
-def has_explicit_asset_payloads(value: object) -> bool:
-    """Return whether a caller explicitly requested attachment replacement."""
-
-    return value is not None
 
 
-def has_explicit_asset_payload_map(value: object) -> bool:
-    """Return whether a message map contains any explicit replacement list."""
-
-    if not isinstance(value, dict):
-        return False
-    return any(item is not None for item in value.values())
 
 
 def validate_message_asset_payloads(
@@ -179,3 +159,5 @@ __all__ = [
     "has_managed_asset_payloads",
     "validate_message_asset_payloads",
 ]
+
+from magi_plugin_sdk.storage_models.chat_attachments import has_explicit_asset_payload_map, has_explicit_asset_payloads, has_managed_asset_payloads

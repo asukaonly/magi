@@ -6,6 +6,9 @@ import time
 from contextlib import aclosing
 
 from ..openai_transport import create_completion
+from ..output_limit import OutputLimitReached
+from ..stream_errors import IncompleteStreamError
+from types import SimpleNamespace
 
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional, cast
@@ -14,8 +17,8 @@ from ..streaming_events import LLMStreamEvent, emit_stream_event
 from ..concurrency_limiter import LLMRequestPriority
 from .streaming_core import ProviderBridgeStreamingHostProtocol, ThinkTagScrubber
 from .tool_streaming import ProviderBridgeToolStreamingMixin
+from .billing import capture_billing_context
 from .logging import RawProviderResponseLogger
-from ...config.constants import DEFAULT_THINKING_TOKENS
 from ...config.models import ThinkingDepth
 from ...runtime_trace import enrich_event_context_with_turn_trace
 
@@ -39,6 +42,8 @@ def _build_request_preview(messages: List[Dict[str, Any]]) -> str:
 @dataclass
 class _ChatStreamState:
     started_at: float
+    stop_reason: str | None = None
+    message_stopped: bool = False
     usage_data: Any = None
     usage_payload: dict[str, int] | None = None
     usage_for_trace: Any = None
@@ -52,7 +57,7 @@ class ProviderBridgeChatStreamingMixin:
         self,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int = DEFAULT_THINKING_TOKENS,
+        max_tokens: int | None = None,
         temperature: float = 0.7,
         json_mode: bool = False,
         timeout_seconds: Optional[float] = None,
@@ -139,7 +144,7 @@ class ProviderBridgeChatStreamingMixin:
         *,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         timeout_seconds: Optional[float],
         thinking_depth: ThinkingDepth,
@@ -155,6 +160,7 @@ class ProviderBridgeChatStreamingMixin:
             timeout_seconds=timeout_seconds,
             thinking_depth=thinking_depth,
         )
+        capture_billing_context(event_context, anthropic_kwargs)
         stream = await host.llm._client.messages.create(**anthropic_kwargs)
         in_thinking = False
         raw_logger = RawProviderResponseLogger(host.llm, event_context)
@@ -172,6 +178,10 @@ class ProviderBridgeChatStreamingMixin:
         state.usage_for_trace = host._extract_anthropic_stream_usage(
             stream, state.usage_data
         )
+        if state.stop_reason == "max_tokens":
+            raise OutputLimitReached(state.usage_for_trace)
+        if not state.message_stopped or state.stop_reason is None:
+            raise IncompleteStreamError("Anthropic stream ended before completion")
         state.usage_payload = host._anthropic_usage_to_wire(state.usage_data)
         if state.usage_payload is not None:
             usage_event = LLMStreamEvent(kind="usage", usage=state.usage_payload)
@@ -184,7 +194,7 @@ class ProviderBridgeChatStreamingMixin:
         *,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         timeout_seconds: Optional[float],
         thinking_depth: ThinkingDepth,
@@ -223,12 +233,18 @@ class ProviderBridgeChatStreamingMixin:
         if event_type == "content_block_stop":
             return None, False
         if event_type == "message_delta":
-            state.usage_data = getattr(event, "usage", state.usage_data)
+            state.stop_reason = getattr(getattr(event, "delta", None), "stop_reason", None) or state.stop_reason
+            delta_usage = getattr(event, "usage", None)
+            if delta_usage is not None:
+                previous = vars(state.usage_data) if state.usage_data is not None else {}
+                state.usage_data = SimpleNamespace(**{**previous, **{key: value for key, value in vars(delta_usage).items() if value is not None}})
             return None, in_thinking
         if event_type == "message_start":
             message = getattr(event, "message", None)
             if message is not None:
                 state.usage_data = getattr(message, "usage", state.usage_data)
+        if event_type == "message_stop":
+            state.message_stopped = True
         return None, in_thinking
 
     async def _stream_openai_chat_response(
@@ -237,7 +253,7 @@ class ProviderBridgeChatStreamingMixin:
         *,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         json_mode: bool,
         timeout_seconds: Optional[float],
@@ -275,7 +291,7 @@ class ProviderBridgeChatStreamingMixin:
         *,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         json_mode: bool,
         timeout_seconds: Optional[float],
@@ -309,6 +325,7 @@ class ProviderBridgeChatStreamingMixin:
         *,
         event_context: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[LLMStreamEvent]:
+        capture_billing_context(event_context, chat_kwargs)
         stream = await create_completion(host.llm._client,**chat_kwargs)
         scrubber = ThinkTagScrubber()
         raw_logger = RawProviderResponseLogger(host.llm, event_context)
@@ -347,7 +364,9 @@ class ProviderBridgeChatStreamingMixin:
             return []
 
         events = _openai_reasoning_payloads(delta)
-        content = getattr(delta, "content", None)
+        content = (getattr(delta, "content", None) or "") + (
+            getattr(delta, "refusal", None) or ""
+        )
         if content:
             events.extend(_openai_visible_content_payloads(content, state, scrubber))
         if hasattr(chunk, "usage") and chunk.usage is not None:

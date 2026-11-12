@@ -61,3 +61,25 @@ async def test_file_read_allows_absolute_path_after_permission_gate(tmp_path: Pa
 
     assert result.success is True
     assert result.data["content"] == "do not leak\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["", "hello"])
+async def test_file_read_at_end_returns_empty_content(tmp_path: Path, content: str) -> None:
+    target = tmp_path / "file.txt"
+    target.write_text(content, encoding="utf-8")
+    tool = FileReadTool()
+
+    result = await tool.execute(
+        {"path": str(target), "offset": len(content)}, _context(str(tmp_path))
+    )
+
+    assert result.success
+    assert result.data["content"] == ""
+    assert result.data["is_complete"] is True
+
+    beyond_end = await tool.execute(
+        {"path": str(target), "offset": len(content) + 1}, _context(str(tmp_path))
+    )
+    assert not beyond_end.success
+    assert beyond_end.error_code == "OFFSET_OUT_OF_RANGE"

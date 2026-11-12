@@ -33,9 +33,10 @@ class GovernorVerdict(str, Enum):
     DROP = "drop"
 
 
-class OutreachIntentConflictError(ValueError):
-    """Raised when one logical outreach identity is reused with new content."""
-
+from magi_plugin_sdk.storage_models.channels import (
+    OutreachIntentConflictError,
+    OutboxEnqueueResult,
+)
 
 @dataclass(frozen=True, slots=True)
 class OutreachIntent:
@@ -108,12 +109,3 @@ class ResolvedTargets:
 
     desktop_session_id: str | None = None
     external: ChannelTarget | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class OutboxEnqueueResult:
-    """Result of atomically creating or reusing one logical outbox row."""
-
-    row_id: int
-    status: str
-    created: bool

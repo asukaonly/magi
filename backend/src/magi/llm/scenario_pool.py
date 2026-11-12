@@ -59,61 +59,63 @@ class ScenarioLLMPool:
             self._cache.clear()
             self._last_provider_revision = revision
         if scenario not in self._cache:
-            self._cache[scenario] = self._build_adapter(scenario)
+            adapter = self._build_adapter(scenario)
+            setattr(adapter, "model_context", self._context_for_scenario(scenario))
+            self._cache[scenario] = adapter
         return self._cache[scenario]
 
     def resolve(self, scenario: LLMScenario) -> ResolvedModel:
         """Resolve an adapter together with the limits of its selected model."""
+        return ResolvedModel(adapter=self.get(scenario), context=self._context_for_scenario(scenario))
+
+    def _context_for_scenario(self, scenario: LLMScenario) -> ModelContextProfile:
         selection = self._selection_for_scenario(scenario)
         if selection is None:
             raise ValueError(f"Missing LLM selection for scenario '{scenario.value}'")
         limits = getattr(selection, "limits", None)
         context_window = getattr(limits, "context_window", None)
         max_output_tokens = getattr(limits, "max_output_tokens", None)
-        return ResolvedModel(
-            adapter=self.get(scenario),
-            context=ModelContextProfile(
-                provider_id=str(getattr(selection, "provider_id", "") or ""),
-                model_id=str(getattr(selection, "model", "") or ""),
-                context_window=(
-                    context_window
-                    if isinstance(context_window, int) and context_window > 0
-                    else None
-                ),
-                max_output_tokens=(
-                    max_output_tokens
-                    if isinstance(max_output_tokens, int) and max_output_tokens > 0
-                    else None
-                ),
-                supports_images=bool(
-                    getattr(getattr(selection, "capabilities", None), "vision", False)
-                ),
-                supports_tool_calls=bool(
-                    getattr(
-                        getattr(selection, "capabilities", None), "tool_calling", True
-                    )
-                ),
-                supports_images_with_tools=bool(
-                    getattr(getattr(selection, "capabilities", None), "vision", False)
-                    and getattr(
-                        getattr(selection, "capabilities", None),
-                        "tool_calling",
-                        True,
-                    )
-                ),
-                supports_parallel_tools=False,
-                max_tool_schemas=(
-                    getattr(limits, "max_tool_schemas", None)
-                    if isinstance(getattr(limits, "max_tool_schemas", None), int)
-                    and getattr(limits, "max_tool_schemas", 0) > 0
-                    else None
-                ),
-                max_schema_tokens=(
-                    getattr(limits, "max_schema_tokens", None)
-                    if isinstance(getattr(limits, "max_schema_tokens", None), int)
-                    and getattr(limits, "max_schema_tokens", 0) > 0
-                    else None
-                ),
+        return ModelContextProfile(
+            provider_id=str(getattr(selection, "provider_id", "") or ""),
+            model_id=str(getattr(selection, "model", "") or ""),
+            context_window=(
+                context_window
+                if isinstance(context_window, int) and context_window > 0
+                else None
+            ),
+            max_output_tokens=(
+                max_output_tokens
+                if isinstance(max_output_tokens, int) and max_output_tokens > 0
+                else None
+            ),
+            supports_images=bool(
+                getattr(getattr(selection, "capabilities", None), "vision", False)
+            ),
+            supports_tool_calls=bool(
+                getattr(
+                    getattr(selection, "capabilities", None), "tool_calling", True
+                )
+            ),
+            supports_images_with_tools=bool(
+                getattr(getattr(selection, "capabilities", None), "vision", False)
+                and getattr(
+                    getattr(selection, "capabilities", None),
+                    "tool_calling",
+                    True,
+                )
+            ),
+            supports_parallel_tools=False,
+            max_tool_schemas=(
+                getattr(limits, "max_tool_schemas", None)
+                if isinstance(getattr(limits, "max_tool_schemas", None), int)
+                and getattr(limits, "max_tool_schemas", 0) > 0
+                else None
+            ),
+            max_schema_tokens=(
+                getattr(limits, "max_schema_tokens", None)
+                if isinstance(getattr(limits, "max_schema_tokens", None), int)
+                and getattr(limits, "max_schema_tokens", 0) > 0
+                else None
             ),
         )
 

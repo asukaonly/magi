@@ -191,8 +191,8 @@ async def test_persona_summary_output_budget_tracks_active_model_capacity() -> N
         summary = await summarizer._generate(summary_input)
 
     assert summary == "neutral summary"
-    assert bridge.chat.await_args.kwargs["max_tokens"] == 512
-    assert "within 512 tokens" in bridge.chat.await_args.kwargs["system_prompt"]
+    assert bridge.chat.await_args.kwargs["max_tokens"] == 1024
+    assert "within 1024 tokens" in bridge.chat.await_args.kwargs["system_prompt"]
 
 
 @pytest.mark.asyncio

@@ -5,16 +5,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from math import isfinite
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from magi.core.operation_barrier import AsyncOperationBarrier
+from magi.config.pricing_models import LLMModelCostModel
 from magi.events.events import Event, EventTypes, published_memory_epoch
 from magi.events.domain_payloads import SpanCompleted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
 from magi.llm.pricing import (
     calculate_chat_cost,
+    calculate_audio_cost,
     calculate_embedding_cost,
     calculate_image_generation_cost,
 )
@@ -193,9 +196,23 @@ class LLMUsageSubscriber:
         # which the stats UI renders as an em dash instead of a fake $0.00.
         explicit_cost = attrs.get("cost_usd")
         if explicit_cost is not None:
-            return float(explicit_cost), "USD"
+            amount = float(explicit_cost)
+            return (amount, "USD") if isfinite(amount) and amount >= 0 else (None, None)
 
         provider_plan = str(attrs.get("provider_plan") or "").strip() or None
+        if not attrs.get("usage_available") and not attrs.get("image_count"):
+            return None, None
+        billing = attrs.get("billing") or {}
+        if attrs.get("request_kind") == "image_generation":
+            return self._resolve_non_chat_cost(attrs=attrs, payload=payload, provider=provider,
+                provider_plan=provider_plan, model=model, prompt_tokens=prompt_tokens)
+        if attrs.get("request_kind") == "tts":
+            if provider_plan:
+                return None, None
+            return calculate_audio_cost(provider=provider, model=model, usage=billing.get("media_usage"),
+                characters=billing.get("characters"), endpoint_host=billing.get("endpoint_host") or "",
+                requested_at=billing.get("requested_at"),
+                cost_override=LLMModelCostModel.model_validate(attrs["cost_override"]) if attrs.get("cost_override") else None)
         cost_amount, cost_currency = calculate_chat_cost(
             provider=provider,
             provider_plan=provider_plan,
@@ -205,6 +222,14 @@ class LLMUsageSubscriber:
             cache_read_tokens=int(attrs.get("cache_read_tokens", 0)),
             cache_write_tokens=int(attrs.get("cache_write_tokens", 0)),
             cache_write_1h_tokens=int(attrs.get("cache_write_1h_tokens", 0)),
+            cache_write_12h_tokens=int(attrs.get("cache_write_12h_tokens", 0)),
+            requested_at=billing.get("requested_at", float(payload.started_at_ms) / 1000),
+            endpoint_host=billing.get("endpoint_host"),
+            service_tier=billing.get("service_tier", "default"),
+            thinking=billing.get("thinking"),
+            cache_mode=billing.get("cache_mode", "implicit"),
+            inference_geo=billing.get("inference_geo", "global"),
+            cost_override=LLMModelCostModel.model_validate(attrs["cost_override"]) if attrs.get("cost_override") is not None else None,
         )
         if cost_amount is not None:
             return cost_amount, cost_currency
@@ -244,6 +269,12 @@ class LLMUsageSubscriber:
             provider_plan=provider_plan,
             model=str(attrs.get("model") or payload.name),
             image_count=image_count,
+            usage=(attrs.get("billing") or {}).get("media_usage"),
+            input_image_count=(attrs.get("billing") or {}).get("input_image_count", 0),
+            image_size=(attrs.get("billing") or {}).get("image_size", ""),
+            endpoint_host=(attrs.get("billing") or {}).get("endpoint_host"),
+            requested_at=(attrs.get("billing") or {}).get("requested_at"),
+            cost_override=LLMModelCostModel.model_validate(attrs["cost_override"]) if attrs.get("cost_override") else None,
         )
 
     def _build_cache_observation_payload(

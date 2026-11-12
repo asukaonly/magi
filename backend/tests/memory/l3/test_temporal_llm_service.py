@@ -487,7 +487,7 @@ async def test_period_and_timeout_override_reach_both_model_requests(
     ]
     for call in calls:
         assert call["timeout_seconds"] == (default_timeout if override is None else override)
-        assert call["max_tokens"] == (8192 if call["json_mode"] else 4096)
+        assert call["max_tokens"] == (32_768 if call["json_mode"] else 16_384)
         assert call["disable_thinking"] is disable_thinking
         assert call["cache_system"] is True
         assert call["priority"] is LLMRequestPriority.LOW

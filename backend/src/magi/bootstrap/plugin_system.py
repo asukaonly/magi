@@ -165,6 +165,7 @@ class PluginSystemModule(LifecycleModule):
             tool_registry=self._tool_registry,
             request_source_schedule_refresh=request_source_schedule_refresh,
             activate_enabled=False,
+            storage_runtime=self._context.plugins.storage_runtime,
             skill_registrar=skills,
             operation_registrar=operations,
             provider_registrar=providers,

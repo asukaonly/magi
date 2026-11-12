@@ -264,6 +264,7 @@ export const applyStreamTextReset = (
   nextMessages[existingIndex] = {
     ...existing,
     content: '',
+    toolCalls: existing.toolCalls?.filter((call) => call.status === 'completed'),
     personaId: personaId ?? existing.personaId ?? null,
     streaming: true,
   };

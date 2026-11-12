@@ -17,7 +17,7 @@ from magi.chat.assistant_memory_projection import (
     ChatAssistantMemoryProjectionService,
 )
 from magi.chat.memory_projection_clear import ChatMemoryProjectionClearLifecycle
-from magi.chat.storage import assistant_memory_outbox
+from magi_plugin_sdk.storage_chat import assistant_memory_outbox
 
 
 class _FakeL1:

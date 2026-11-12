@@ -335,6 +335,9 @@ class SystemSettingsActionsMixin:
                         config_path=parsed.target_path,
                         value_type=type(converted_value).__name__,
                     )
+                    found, saved_value, _ = _get_nested_value(
+                        config_api.get_config(), parsed.target_path
+                    )
                     return ToolResult(
                         success=True,
                         data={
@@ -346,6 +349,9 @@ class SystemSettingsActionsMixin:
                             "config_file": str(config_api.get_config_file_path()),
                             "message": f"Saved to {config_api.get_config_file_path()}",
                             "scope": "app",
+                            **_settings_validation(
+                                parsed.normalized_path, found and saved_value == converted_value
+                            ),
                         },
                     )
 
@@ -426,6 +432,21 @@ class SystemSettingsActionsMixin:
             ),
         )
 
+        if _is_sensitive_field(parsed.normalized_path):
+            config_path = f"tools.{str(parsed.tool_name).replace('-', '_')}.{parsed.target_path}"
+            found, saved_value, _ = _get_nested_value(_facade_config_api().get_config(), config_path)
+        else:
+            readback = await tool.get_config_value(parsed.target_path, context)
+            found, saved_value = readback.success, readback.data
+        expected = value
+        if isinstance(update_result.data, dict):
+            field = parsed.target_path.rsplit(".", 1)[-1]
+            expected = update_result.data.get("value", update_result.data.get(field, value))
+        try:
+            if saved_value is not None and not isinstance(expected, type(saved_value)):
+                expected = self._convert_value(expected, saved_value)
+        except (TypeError, ValueError, AttributeError):
+            found = False
         return ToolResult(
             success=True,
             data={
@@ -433,6 +454,7 @@ class SystemSettingsActionsMixin:
                 "scope": "tool",
                 "tool": parsed.tool_name,
                 "result": _serialize_value(update_result.data, mask_secrets=True),
+                **_settings_validation(parsed.normalized_path, found and saved_value == expected),
             },
         )
 
@@ -466,6 +488,21 @@ class SystemSettingsActionsMixin:
                 return [item.strip() for item in value.split(",")]
 
         return value
+
+
+def _settings_validation(path: str, matched: bool) -> dict[str, Any]:
+    """Report a save/readback comparison without exposing secret values or hashes."""
+    target = f"settings://{path}"
+    return {
+        "validation_targets": [{"path": target, "expected_state": "saved"}],
+        "results": [{
+            "path": target,
+            "verifier": "settings.readback",
+            "check_kind": "settings",
+            "status": "pass" if matched else "fail",
+            "matched": matched,
+        }],
+    }
 
 
 __all__ = ["SystemSettingsActionsMixin"]

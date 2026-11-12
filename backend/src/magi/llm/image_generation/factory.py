@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Optional
+from urllib.parse import urlsplit
 
 from ...config.llm_registry_model_resolution import (
     find_image_generation_model_meta,
@@ -194,7 +195,7 @@ def create_image_generation_adapter(
 
     base_url = image_generation.base_url or provider_settings.base_url
     effective_timeout = int(image_generation.timeout or timeout)
-    return adapter_class(
+    adapter = adapter_class(
         provider_id=provider_id,
         api_key=api_key,
         model=model,
@@ -203,6 +204,15 @@ def create_image_generation_adapter(
         proxy_url=proxy_url,
         capability=_capability_from_meta(meta),
     )
+    override = provider_settings.model_metadata_overrides.get(model)
+    actual_url = getattr(adapter, "_base_url", None) or getattr(getattr(adapter, "_client", None), "base_url", None) or base_url
+    adapter.billing_context = {
+        "provider": _coerce_provider_type(provider_settings),
+        "provider_plan": provider_settings.provider_plan,
+        "endpoint_host": urlsplit(str(actual_url or "")).hostname,
+        "cost_override": override.cost.model_dump(mode="json") if override and override.cost else None,
+    }
+    return adapter
 
 
 __all__ = [

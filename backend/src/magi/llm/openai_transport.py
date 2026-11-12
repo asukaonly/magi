@@ -5,6 +5,10 @@ from __future__ import annotations
 import json
 import re
 from typing import Any, AsyncIterator
+from types import SimpleNamespace
+
+from .output_limit import OutputLimitReached
+from .stream_errors import IncompleteStreamError
 
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
@@ -82,13 +86,22 @@ def _response_usage(response: Any) -> dict[str, Any] | None:
     usage = response.usage
     if usage is None:
         return None
+    details = usage.input_tokens_details
+    writes = getattr(details, "cache_write_tokens_details", None)
+    if hasattr(writes, "model_dump"):
+        writes = writes.model_dump()
     return {"prompt_tokens": usage.input_tokens, "completion_tokens": usage.output_tokens,
             "total_tokens": usage.total_tokens,
-            "prompt_tokens_details": {"cached_tokens": getattr(usage.input_tokens_details, "cached_tokens", 0)},
+            "service_tier": getattr(response, "service_tier", None),
+            "prompt_tokens_details": {"cached_tokens": getattr(details, "cached_tokens", 0),
+                                      "cache_write_tokens": getattr(details, "cache_write_tokens", 0),
+                                      "cache_write_tokens_details": writes},
             "completion_tokens_details": {"reasoning_tokens": getattr(usage.output_tokens_details, "reasoning_tokens", 0)}}
 
 
 def _completion_from_response(response: Any) -> ChatCompletion:
+    if response.status == "incomplete" and getattr(getattr(response, "incomplete_details", None), "reason", None) == "max_output_tokens":
+        raise OutputLimitReached(SimpleNamespace(**(_response_usage(response) or {})), usage_format="openai")
     if response.status != "completed":
         # Partial tool arguments must never be executed after truncation or failure.
         raise RuntimeError(f"Responses request did not complete: {response.status}")
@@ -155,7 +168,10 @@ async def _response_chunks(stream: Any, model: str) -> AsyncIterator[ChatComplet
             usage = completion.usage.model_dump() if completion.usage else None
             finish_reason = choice.finish_reason
             terminal = True
-        elif event.type in {"response.failed", "response.incomplete", "error"}:
+        elif event.type == "response.incomplete":
+            _completion_from_response(event.response)
+            raise RuntimeError("Responses stream ended with an incomplete response")
+        elif event.type in {"response.failed", "error"}:
             raise RuntimeError(f"Responses stream failed: {event.type}")
         else:
             continue
@@ -164,7 +180,7 @@ async def _response_chunks(stream: Any, model: str) -> AsyncIterator[ChatComplet
             "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}], "usage": usage,
         })
     if not terminal:
-        raise RuntimeError("Responses stream ended before completion")
+        raise IncompleteStreamError("Responses stream ended before completion")
 
 
 async def _completion_chunks(stream: Any, model: str, *, responses: bool) -> AsyncIterator[Any]:
@@ -173,8 +189,21 @@ async def _completion_chunks(stream: Any, model: str, *, responses: bool) -> Asy
             async for chunk in _response_chunks(stream, model):
                 yield chunk
         else:
+            service_tier = None
+            finish_reason = None
+            usage = None
             async for chunk in stream:
+                service_tier = getattr(chunk, "service_tier", None) or service_tier
+                if getattr(chunk, "usage", None) is not None:
+                    chunk.usage.service_tier = service_tier
+                    usage = chunk.usage
+                if getattr(chunk, "choices", None):
+                    finish_reason = getattr(chunk.choices[0], "finish_reason", None) or finish_reason
                 yield chunk
+            if finish_reason == "length":
+                raise OutputLimitReached(usage, usage_format="openai")
+            if finish_reason is None:
+                raise IncompleteStreamError("Chat completion stream ended before completion")
     finally:
         if hasattr(stream, "close"):
             await stream.close()
@@ -184,6 +213,8 @@ async def _completion_chunks(stream: Any, model: str, *, responses: bool) -> Asy
 
 async def create_completion(client: Any, **kwargs: Any) -> Any:
     """Select the native endpoint and keep one internal completion shape."""
+    if kwargs.get("max_tokens") is None:
+        kwargs.pop("max_tokens", None)
     model = kwargs["model"].lower()
     if model.startswith(("kimi-k3.1", "minimax-m3.1-flash")):
         for key in ("temperature", "top_p", "n", "presence_penalty", "frequency_penalty"):
@@ -204,4 +235,8 @@ async def create_completion(client: Any, **kwargs: Any) -> Any:
         result = await client.chat.completions.create(**kwargs)
     if kwargs.get("stream"):
         return _completion_chunks(result, kwargs["model"], responses=responses)
-    return _completion_from_response(result) if responses else result
+    if responses:
+        return _completion_from_response(result)
+    if getattr(result, "choices", None) and getattr(result.choices[0], "finish_reason", None) == "length":
+        raise OutputLimitReached(getattr(result, "usage", None), usage_format="openai")
+    return result

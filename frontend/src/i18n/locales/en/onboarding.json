@@ -894,7 +894,8 @@
       "hidden": "Hidden",
       "preferred": "Preferred",
       "contextWindow": "Context Window",
-      "maxOutputTokens": "Max Output",
+      "maxOutputTokens": "Model output capacity",
+      "maxOutputTokensHelp": "The model’s supported generation limit, including reasoning tokens; not the per-call budget.",
       "vendor": "Model Vendor",
       "vendorHint": {
         "default": "Decides how reasoning / thinking params are sent. Set this explicitly for OneAPI/NewAPI relay models.",

@@ -35,12 +35,15 @@ class VerifyTool(Tool):
             name="verify",
             description=(
                 "Run a file or project sanity check (compile / parse / "
-                "typecheck) on one or more files. TypeScript and JSX use the "
+                "typecheck), or read back plain documents and confirm their content identity. "
+                "YAML and CSV receive format checks; Markdown and plain text receive "
+                "readback checks, not syntax or semantic validation. TypeScript and JSX use the "
                 "project configuration and installed local compiler. This "
                 "does not run package scripts, builds, tests, or visual checks. Use after a file_edit or "
-                "file_write to confirm the change still parses before "
+                "file_write to confirm the saved content and applicable syntax before "
                 "claiming the task is done. mode=changed verifies every file "
-                "edited in this session; mode=paths verifies an explicit list."
+                "edited in this session; mode=paths verifies an explicit list. "
+                "For intentional deletion, use mode=paths with expected_state=absent."
             ),
             category="file",
             version="1.0.0",
@@ -71,6 +74,14 @@ class VerifyTool(Tool):
                 array_item_type=ParameterType.STRING,
                 description="Files to verify. Required when mode=paths.",
                 required=False,
+            ),
+            ToolParameter(
+                name="expected_state",
+                type=ParameterType.STRING,
+                description="Expected final file state. absent requires explicit mode=paths and checks deletion.",
+                required=False,
+                default="present",
+                enum=["present", "absent"],
             ),
             ToolParameter(
                 name="timeout_s",
@@ -105,6 +116,14 @@ class VerifyTool(Tool):
     ) -> ToolResult:
         mode = str(parameters.get("mode") or "changed").strip()
         timeout_s = int(parameters.get("timeout_s", 30))
+        expected_state = str(parameters.get("expected_state") or "present")
+
+        if expected_state not in {"present", "absent"} or (expected_state == "absent" and mode != self.MODE_PATHS):
+            return ToolResult(
+                success=False,
+                error="expected_state=absent requires mode=paths; expected_state must be present or absent",
+                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+            )
 
         if mode not in self._MODES:
             return ToolResult(
@@ -123,6 +142,7 @@ class VerifyTool(Tool):
             paths=paths_result,
             workspace_root=workspace_root,
             timeout_s=timeout_s,
+            expected_state=expected_state,
         )
         self._append_verify_log(sc=sc, outcomes=outcomes)
         return ToolResult(
@@ -159,9 +179,32 @@ class VerifyTool(Tool):
         paths: list[str],
         workspace_root: Path,
         timeout_s: int,
+        expected_state: str = "present",
     ) -> list[VerifyOutcome]:
         outcomes: list[VerifyOutcome] = []
         resolved = [(raw, self._resolve_absolute(raw, workspace_root)) for raw in paths]
+        if expected_state == "absent":
+            for raw in paths:
+                # Resolve the parent only so a dangling symlink still counts as present.
+                candidate = Path(raw)
+                candidate = candidate if candidate.is_absolute() else workspace_root / candidate
+                absolute = candidate.parent.resolve() / candidate.name
+                if not absolute.is_relative_to(workspace_root):
+                    outcomes.append(self._outside_workspace_outcome(raw))
+                    continue
+                status, reason = "fail", "Path still exists"
+                try:
+                    absolute.lstat()
+                except FileNotFoundError:
+                    status, reason = "pass", None
+                except OSError as exc:
+                    status, reason = "skipped", f"Cannot determine path state: {exc}"
+                outcomes.append(VerifyOutcome(
+                    path=str(absolute), verifier="filesystem.absence", status=status,
+                    exit_code=0 if status == "pass" else 1, stdout="", stderr="",
+                    reason=reason, duration_ms=0, check_kind="absence", expected_state="absent",
+                ))
+            return outcomes
         project_paths = list(dict.fromkeys(
             absolute for _, absolute in resolved
             if absolute is not None and absolute.is_file() and absolute.suffix.lower() in {".ts", ".tsx", ".jsx"}

@@ -88,20 +88,7 @@ class _SessionEntry:
 
 
 DEFAULT_PLAN_MODE_ALLOWED_TOOLS: tuple[str, ...] = (
-    # Read-only / scan-only / think-only.
-    "file_read",
-    "glob",
-    "grep",
-    "web-search",
-    "web-fetch",
-    "memory_query",
-    "get-capabilities",
-    "find-relevant-tools",
-    "current_time",
-    "environment_query",
-    "task_query",
-    "trace_query",
-    # The plan-mode tools themselves must stay callable.
+    # Planning controls remain callable independently of their state effects.
     "enter_plan_mode",
     "exit_plan_mode",
     "todo_write",
@@ -249,12 +236,11 @@ class ControlSessionStore:
         entry = self._entries.get(session_id)
         return entry.plan if entry else PlanModeState()
 
-    def plan_allows(self, session_id: str, tool_name: str) -> bool:
-        """Return True when ``tool_name`` is callable under the current plan state.
+    def plan_allows(self, session_id: str | None, tool_name: str, tool_effect_class: str) -> bool:
+        """Allow declared read operations and planning controls in plan mode.
 
         If plan mode is off, every tool is allowed. If plan mode is on,
-        only tools in the session allowlist (or the store default if
-        no session allowlist was set) are allowed.
+        other tools need a read-only effect resolved from their final arguments.
         """
         if self._clear_request_count > 0:
             return False
@@ -262,7 +248,7 @@ class ControlSessionStore:
         if not state.active:
             return True
         allowlist: tuple[str, ...] = state.allowed_tools or self._default_plan_mode_allowed_tools
-        return tool_name in allowlist
+        return tool_effect_class == "read_only" or tool_name in allowlist
 
     # ------------------------------------------------------------------
     # Run plan

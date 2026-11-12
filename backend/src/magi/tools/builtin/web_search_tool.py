@@ -412,12 +412,12 @@ class WebSearchTool(MultiProviderTool):
             ),
             error_code=ToolErrorCode.NO_PROVIDERS_CONFIGURED.value,
             data={
-                "next_action": "ask_user_to_configure_api_key",
+                "next_action": "use_available_alternative_tools",
                 "retryable": False,
                 "terminal": True,
                 "llm_guidance": t(
                     "tools.web_search.no_providers.llm_guidance",
-                    fallback="Do not retry web search until at least one search provider is available. Ask the user to confirm tool configuration or restore a supported provider.",
+                    fallback="Web search is unavailable until a search provider is configured. Continue with other available tools when they can complete the task, such as fetching a known URL. Ask the user to configure search only if it is still needed.",
                 ),
                 "user_message_template": t(
                     "tools.web_search.no_providers.user_message",
@@ -787,10 +787,20 @@ class WebSearchTool(MultiProviderTool):
         date_range_applied: Dict[str, str] | None,
     ) -> ToolResult:
         attempted = [a["provider"] for a in attempts]
+        transient_codes = {
+            attempt["error_code"] for attempt in attempts
+            if attempt.get("error_code") in {ToolErrorCode.TIMEOUT.value, ToolErrorCode.RATE_LIMITED.value}
+        }
+        retryable = bool(transient_codes)
+        error_code = (
+            ToolErrorCode.RATE_LIMITED.value
+            if ToolErrorCode.RATE_LIMITED.value in transient_codes
+            else ToolErrorCode.TIMEOUT.value if retryable else ToolErrorCode.PROVIDER_ERROR.value
+        )
         data: Dict[str, Any] = {
-            "next_action": "ask_user_to_check_search_providers",
-            "retryable": False,
-            "terminal": True,
+            "next_action": "retry_search" if retryable else "use_available_alternative_tools",
+            "retryable": retryable,
+            "terminal": not retryable,
             "query": query,
             "configured_provider": configured_provider,
             "attempted_providers": attempted,
@@ -814,6 +824,22 @@ class WebSearchTool(MultiProviderTool):
             ),
             "config_tool": "system-settings",
         }
+        if retryable:
+            data["llm_guidance"] = t(
+                "tools.web_search.temporary_provider_failure.llm_guidance",
+                fallback="Search failed because a provider timed out or was rate limited. A bounded retry is allowed; respect any retry delay. Other available tools may also complete the task.",
+            )
+            data["user_message_template"] = t(
+                "tools.web_search.temporary_provider_failure.user_message",
+                fallback="Search is temporarily unavailable ({providers}). I can retry or use another available tool.",
+                providers=", ".join(attempted),
+            )
+            retry_delays = [
+                attempt["retry_after_seconds"] for attempt in attempts
+                if isinstance(attempt.get("retry_after_seconds"), (int, float))
+            ]
+            if retry_delays:
+                data["retry_after_seconds"] = max(retry_delays)
         if date_range_applied is not None:
             data["date_range_applied"] = date_range_applied
         return ToolResult(
@@ -823,7 +849,7 @@ class WebSearchTool(MultiProviderTool):
                 fallback="All configured web search providers failed: {providers}.",
                 providers=", ".join(attempted) or configured_provider,
             ),
-            error_code=ToolErrorCode.PROVIDER_ERROR.value,
+            error_code=error_code,
             data=data,
         )
 
@@ -861,12 +887,12 @@ class WebSearchTool(MultiProviderTool):
             name for name in self.get_all_provider_names() if name != "duckduckgo"
         ]
         guidance_data: Dict[str, Any] = {
-            "next_action": "ask_user_to_configure_search_provider",
+            "next_action": "use_available_alternative_tools",
             "retryable": False,
             "terminal": True,
             "llm_guidance": t(
                 "tools.web_search.duckduckgo_challenge.llm_guidance",
-                fallback="DuckDuckGo is currently blocked by an anti-bot challenge for this search. Ask the user to configure Brave, Perplexity, or Tavily via system-settings before retrying. Do not keep retrying DuckDuckGo for the same request.",
+                fallback="DuckDuckGo is blocked by an anti-bot challenge. Do not retry it for this request. Continue with other available tools when they can complete the task, such as fetching a known URL. Ask the user to configure another search provider only if search is still needed.",
             ),
             "user_message_template": t(
                 "tools.web_search.duckduckgo_challenge.user_message",

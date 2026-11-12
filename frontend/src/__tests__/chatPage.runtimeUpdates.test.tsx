@@ -671,6 +671,9 @@ defineChatPageSuite('ChatPage runtime updates', () => {
     await waitFor(() => {
       expect(screen.getByText('稍等我查一下')).toBeInTheDocument();
     });
+    await userEvent.click(screen.getByRole('button', { name: 'chat.runtime.expand' }));
+    expect(screen.getAllByText('稍等我查一下')).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'chat.runtime.collapse' }));
     expect(
       useConversationStore.getState().messagesBySession['session-1']?.find((message) => message.turnId === 'turn-2' && message.kind === 'assistant')?.id
     ).toBe('msg-interim-1');
@@ -693,6 +696,8 @@ defineChatPageSuite('ChatPage runtime updates', () => {
     await waitFor(() => {
       expect(screen.getByText('已经查好了')).toBeInTheDocument();
     });
+    expect(screen.queryByText('稍等我查一下')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'chat.runtime.expand' }));
     expect(screen.getByText('稍等我查一下')).toBeInTheDocument();
   });
 
@@ -896,7 +901,9 @@ defineChatPageSuite('ChatPage runtime updates', () => {
     render(<ChatPage />);
 
     const panels = await screen.findAllByTestId('chat-assistant-runtime-panel');
-    const panel = panels.find((candidate) => within(candidate).queryByText('web-search'));
+    const panel = panels[0];
+    expect(screen.queryByText('web-search')).not.toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole('button', { name: 'chat.runtime.expand' }));
     expect(panel).toBeDefined();
     if (!panel) {
       throw new Error('Expected a runtime panel containing the tool-call details.');
@@ -946,7 +953,8 @@ defineChatPageSuite('ChatPage runtime updates', () => {
     if (!panel) {
       throw new Error('Expected a runtime panel containing assistant narration.');
     }
-    expect(within(panel).getByText('chat.runtime.status')).toBeInTheDocument();
+    expect(within(panel).queryByText('chat.runtime.status')).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('status', { name: 'chat.runtime.preparing' })).not.toBeInTheDocument();
     expect(within(panel).getByText('工作区是空的，附件解析也失败了。我先试试提取它们。')).toBeInTheDocument();
   });
 
@@ -983,13 +991,16 @@ defineChatPageSuite('ChatPage runtime updates', () => {
     render(<ChatPage />);
 
     const panels = await screen.findAllByTestId('chat-assistant-runtime-panel');
-    const panel = panels.find((candidate) => within(candidate).queryByText('Inspecting the execution path'));
+    const panel = panels[0];
+    expect(screen.queryByText('Inspecting the execution path')).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('status')).not.toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole('button', { name: 'chat.runtime.expand' }));
     expect(panel).toBeDefined();
     if (!panel) {
       throw new Error('Expected a runtime panel containing the reasoning details.');
     }
     expect(within(panel).getByText('chat.runtime.label')).toBeInTheDocument();
-    expect(within(panel).getByText('chat.thinking.label')).toBeInTheDocument();
+    expect(within(panel).getByText('chat.trace.thinkingContent')).toBeInTheDocument();
     expect(within(panel).getByText('Inspecting the execution path')).toBeInTheDocument();
     expect(screen.getByText('先看一下代码路径。')).toBeInTheDocument();
   });
@@ -1098,7 +1109,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('正在分析项目')).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: 'chat.runtime.preparing' })).toBeInTheDocument();
     });
 
     const runningPanel = screen.getByTestId('chat-execution-panel-turn-running');
@@ -1148,7 +1159,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('正在分析项目')).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: 'chat.runtime.preparing' })).toBeInTheDocument();
     });
 
     const runningPanel = screen.getByTestId('chat-execution-panel-turn-running');
@@ -1425,10 +1436,12 @@ defineChatPageSuite('ChatPage runtime updates', () => {
 
     await waitFor(() => {
       const runningPanel = screen.getByTestId('chat-execution-panel-turn-plan-preview');
-      expect(within(runningPanel).getByText('梳理现有文档和范围')).toBeInTheDocument();
+      expect(within(runningPanel).getByRole('status', { name: 'chat.runtime.preparing' })).toBeInTheDocument();
     });
 
     const runningPanel = screen.getByTestId('chat-execution-panel-turn-plan-preview');
+    expect(within(runningPanel).queryByText('盘点代码结构与运行方式')).not.toBeInTheDocument();
+    await userEvent.click(within(runningPanel).getByRole('button', { name: 'chat.runtime.expand' }));
     expect(within(runningPanel).getByText('盘点代码结构与运行方式')).toBeInTheDocument();
     expect(within(runningPanel).getByText('整理 MVP 验收清单')).toBeInTheDocument();
     expect(within(runningPanel).getByText('chat.trace.plan.stage.runningParallel')).toBeInTheDocument();

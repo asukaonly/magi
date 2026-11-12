@@ -1,9 +1,5 @@
-"""Driver-independent persistence failures exposed by repository ports."""
+"""Canonical failures shared by storage providers and their consumers."""
 
+from magi_plugin_sdk.persistence_errors import PersistenceConflictError, PersistenceUnavailableError
 
-class PersistenceUnavailableError(RuntimeError):
-    """Storage did not confirm the operation; callers must not assume rollback."""
-
-
-class PersistenceConflictError(RuntimeError):
-    """A database constraint rejected the proposed write."""
+__all__ = ["PersistenceConflictError", "PersistenceUnavailableError"]

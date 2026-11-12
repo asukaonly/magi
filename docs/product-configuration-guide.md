@@ -734,6 +734,7 @@ Current product expectations:
 - desktop chat history thumbnails should open a larger local preview when clicked
 - chat thumbnails, timeline images, and user-uploaded avatars should keep stable resource identities in product state and obtain short-lived read access only while rendering; expired access should renew transparently without changing history or requiring the user to reload
 - parsed text and PDF attachments should be injected into the chat prompt as active attachment context for the current turn
+- parsed text and PDF attachments retain their complete derived text. Prompt previews and individual reads stay bounded; `read_chat_attachment` can page through the remainder with `offset`, and cached reads preserve extraction/truncation metadata. A preview limit must not make the attachment tail inaccessible or report an incomplete extraction as complete.
 - image attachments on vision-capable core models should be delivered as multimodal message blocks and routed through direct LLM execution
 - conversation preferences should default to allowing the assistant to inspect prepared image attachments for grounded replies when needed; media grounding must remain disabled unless the selected core model exposes vision capability
 - conversation rhythm is controlled by one boolean preference and may split a conversational assistant turn into several natural chat bubbles when enabled; it takes precedence over streaming output for that turn, must remain presentation-only, preserve one canonical answer for memory and trace, keep technical or structured content intact, and fall back to a single message when segmentation is unavailable or invalid
@@ -872,6 +873,34 @@ Current product expectations:
 - Magi does not run a separate long-task classifier or expose an automatic-routing threshold; the active agent may request typed detach during execution when the task, remaining budget, and available background runtime justify it
 - users can move an eligible active task to the background manually from the chat surface; both model-requested and user-requested detach pass through the same deterministic governance path
 
+### Chat progress and activity details
+
+Sending a message returns the chat to the bottom. While the reader stays there,
+the viewport follows the waiting indicator, growing replies and composer size
+changes. Scrolling up pauses this following until the reader returns to the
+bottom or sends another message; loading older history preserves its visible row.
+
+An active assistant turn has one lightweight progress surface. Before reply text
+arrives it shows three dots, or the latest user-facing note supplied with the
+main model's tool calls. Reasoning output never becomes a progress note just
+because it contains text. Reasoning, prior progress notes, tool arguments,
+execution plans and trace statistics are collapsed behind **View activity**;
+new events do not reopen the details. No additional model request generates
+status copy. The chat prompt encourages occasional concise, evidence-based
+updates in the user's language, followed by continued execution.
+
+Once reply text starts, the progress summary disappears. Completing a turn
+collapses its details and removes interim announcements from the main transcript;
+those announcements remain available in the reply's activity details. The final
+answer must include important findings, completed actions, deliverables and
+unresolved problems. Questions, permissions, attachments and background results
+retain their own surfaces. Failed, cancelled, blocked and interrupted outcomes
+remain explicit; available stop and background actions stay reachable while a
+turn is active. Activity display is independent of the reasoning preference.
+Live reasoning/tool narration follows the existing in-session stream retention;
+reopening a conversation uses persisted interim messages and the retained trace,
+not a new promise to persist every streamed reasoning fragment.
+
 ## Code Agent Settings
 
 The code agent settings area controls whether Magi may hand larger code changes to installed external coding CLIs.
@@ -941,14 +970,26 @@ Current product expectations:
 - catalog refreshes update available models and template defaults, not saved selections; retired models must be reselected explicitly. Coding-plan catalogs are verified independently of their providers’ standard API catalogs
 - unverified or time-dependent prices remain unset with a source note; published base, regional, promotional, and long-context rates are estimates under the documented conditions, not provider invoices
 - each selected model can expose a capability profile such as vision, reasoning, tool calling, and embedding support
+- the editable maximum output value describes model capability (including reasoning tokens), not the token budget sent on every request; it does not force longer answers
+- main chat omits output-token limits by default. Adapters supply a capacity-bounded internal default when the API requires one; no additional user configuration is exposed
+- auxiliary limits remain purpose-specific: general summaries target 4,096–32,768 tokens, persona summaries 1,024–8,192, L2 extraction 32,768, L3 prose 16,384 / structure 32,768, and strategy/interaction batch extraction 8,192; model capacity and summary destination/merge space still cap these allowances. Short classifications retain smaller limits when thinking can be disabled; required-thinking models receive a 16,384-token generation floor, bounded by context-planning headroom and model capability. These are ceilings, not requested answer lengths
+- context planning reserves practical generation headroom, not the entire advertised output capacity. Output-limit termination is a distinct failure: the runtime may regenerate the current model step at a larger budget up to twice, bounded by remaining context, model capacity, cancellation and task call limits. Truncated tool arguments never execute, completed tools never replay, and exhausted recovery remains an explicit failure
 - reasoning settings are translated by model generation: adaptive-only Anthropic models receive effort controls without token budgets or sampling parameters; models that require thinking use their lowest effort when off is requested; GLM 5.3 and Kimi K3.1 use low/high/max effort; MiniMax M3.1 uses low through max effort; MiMo V2.6 uses its native thinking toggle and `max_completion_tokens`
 - assistant reasoning returned alongside tool calls is retained in model history for the next provider request, including streaming calls
 - GPT-6 family calls use the native Responses API for text, images in prompts, structured output, and tool execution; requests remain stateless (`store: false`), with encrypted reasoning retained locally for tool continuation; failed, incomplete, or disconnected streams must not execute partial tool calls
 - model metadata can include provider-published cost values; chat models use input/output token pricing, embedding models use input token pricing, and image generation models use per-image pricing when the provider bills successful generations by count
+- image accounting uses either successful output/reference image counts with resolution/region rates, or separate text/image token rates. Native image adapters preserve billing counters; Gemini thought tokens are separate from its response output and are charged once at the text-output rate. Missing modality breakdowns remain unpriced rather than substituting an advertised per-image equivalent
+- remote speech emits one usage record per synthesis request, including previews. Character-priced models use provider-reported billed characters (including the provider's CJK/SSML rules); legacy OpenAI character-priced speech uses the submitted character count. Token-priced speech preserves text/audio and cached modality counts, including Realtime usage. The byte-only mini speech endpoint exposes no billable token counts, so its published prices are retained but its cost remains unknown. Local synthesis has no remote API charge and is not projected into paid usage statistics
 - fixed-fee coding plans should not inherit pay-as-you-go token rates unless the provider publishes plan-specific token pricing; usage accounting may retain the plan source metadata while leaving calculated cost empty
 - provider account quotas and rate limits must not be represented as fixed model metadata because they vary by account, tier, region, and live provider policy
 - the configurable concurrency value is a local Magi safety limit, defaults to `4`, and is isolated by provider instance, plan, endpoint host, model, and request family so separate accounts or billing modes do not block each other
-- usage accounting should prefer explicit provider-reported cost when present, then fall back to registry chat model pricing for USD-denominated token usage
+- usage accounting prefers valid provider-reported cost, then a request-time snapshot of the provider instance's model price override, then published registry prices in their native currency; missing prices or unsupported billing conditions remain unknown, not zero
+- chat pricing subtracts cache reads and writes from total input before charging ordinary input. Default-TTL, one-hour and twelve-hour writes are mutually exclusive buckets; reasoning tokens already included in output are never added twice. OpenAI Responses write details and Kimi request TTL must reach the usage event, including when cache diagnostics are disabled
+- pricing rules select whole-request input/output tiers (not progressive slabs), effective dates, endpoint regions, explicit/implicit caching, thinking mode and service tiers. Rules override specified rates in order, then matching multipliers compose; explicit null clears a rate. Price metadata records official sources and verification dates
+- peak pricing uses the request dispatch timestamp in UTC, with published Chinese holiday exclusions. DeepSeek's bundled calendar covers 2026–2027; unsupported calendar years remain unpriced until the calendar is updated. Published future prices activate on their configured dates; expired promotions without a published successor become unknown
+- endpoint-specific prices must not be applied to unverified gateways. MiMo uses one host for China and overseas accounts, so overseas accounts need their official USD model-price override. GLM 4.6 and MiniMax M2.7 China prices are currently unverified; international prices must not be substituted for China prices
+- Gemini's implicit cache has no separately billed storage lifetime. Explicit-cache hourly rates are reference metadata: Magi does not create or manage those remote cache resources, and must never charge their storage on every cache read
+- usage summaries, provider/model/scenario breakdowns and daily trends keep currencies separate; no implicit exchange rate is applied. Persisted request costs are snapshots and are not retroactively recalculated when the bundled price table changes. Estimates exclude account-specific credits, quotas, taxes and discounts
 - usage statistics must distinguish a successful empty result from a failed or incomplete response; failures offer retry, and changing the time window must never display a previous window as the current result
 - prompt-cache diagnostics should be lightweight and privacy-safe: they may record provider cache token counters, stable hashes, sizes, selected strategy, and bounded tool names for troubleshooting, but must not persist raw prompts, tool schemas, message bodies, or tool outputs
 - users can review the active model capability profile during onboarding and later in settings
@@ -1524,6 +1565,8 @@ Tool-specific expectations:
 - file read should stay low-friction inside the active conversation workspace; reads outside that workspace are allowed only through the existing permission flow, with sensitive user paths such as SSH, cloud, CLI credential, and netrc files classified as higher risk
 - file permission checks share path expansion with the file tools (whitespace, home directory, and environment variables); workspace and sensitive-path checks also resolve symbolic links before classifying access
 - model observations for file reads, directory listings, glob/grep matches, file diffs, command output, and text attachments use bounded readable text. They preserve resource identities, match line numbers, command status, and truncation/continuation signals. Programmatic tool results, write receipts, validation reports, settings, and task or asset handles remain structured.
+- normal shell exits, including failed tests, remain available as execution results for repair and a new invocation. Long commands return a job handle instead of being killed at the foreground wait limit; the assistant can inspect or stop the job, and explicit background startup is distinct from command completion. No new user configuration is required.
+- completion follows the operation: document saves require complete content checks, settings require saved-value readback, deletion requires absence, and rollback requires matching the restored snapshot. A read-only diagnostic may report problems without being forced to modify the target. Empty files can be read successfully before an authorized overwrite.
 - external skills are discoverable from the backend rather than hardcoded
 - Settings and operator tooling expose more of this surface than first-run onboarding
 

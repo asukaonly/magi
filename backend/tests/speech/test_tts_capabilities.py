@@ -202,3 +202,39 @@ async def test_current_dashscope_tts_uses_speech_endpoint(tmp_path, monkeypatch)
     options = EngineOptions("remote", "qwen-audio-3.1-tts-flash", "longanhuan_v3.1", 1.2,
                             "https://workspace.cn-beijing.maas.aliyuncs.com/api/v1", "test", protocol="dashscope", instructions="Calm")
     assert (await TTSEngine(TTSModelStore(tmp_path)).synthesize("Hi", options, threading.Event())).data == clip.data
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model,provider_usage', [
+    ('qwen-audio-3.1-tts-flash', {'input_tokens': 100, 'output_tokens': 200}),
+    ('qwen-audio-3.1-tts-plus', {'characters': 123}),
+])
+async def test_remote_speech_publishes_provider_billing_counters(tmp_path, monkeypatch, model, provider_usage):
+    from unittest.mock import AsyncMock
+
+    publish = AsyncMock()
+    monkeypatch.setattr('magi.speech.tts.engines.publish_llm_usage_span', publish)
+    clip = pcm_wav(b'\x01\x00' * 100, 24000)
+    def serve(request):
+        if request.method == 'GET':
+            return httpx.Response(200, content=clip.data)
+        return httpx.Response(200, json={'usage': provider_usage,
+            'output': {'finish_reason': 'stop', 'audio': {'url': 'https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/test.wav'}}})
+    factory = httpx.AsyncClient
+    monkeypatch.setattr('magi.speech.tts.engines.httpx.AsyncClient', lambda **kw: factory(transport=httpx.MockTransport(serve), **kw))
+    config = remote_config('dashscope', model, 'longanhuan_v3.1')
+    config.llm.providers['speech'].services.tts.base_url = 'https://workspace.cn-beijing.maas.aliyuncs.com/api/v1'
+    options = resolve_options(config)
+    await TTSEngine(TTSModelStore(tmp_path)).synthesize('Private speech', options, threading.Event())
+    event = publish.await_args.kwargs
+    assert event['provider'] == 'dashscope'
+    assert event['request_kind'] == 'tts'
+    assert event['usage_available'] is True
+    assert event['billing']['endpoint_host'] == 'workspace.cn-beijing.maas.aliyuncs.com'
+    if model.endswith('flash'):
+        assert event['billing']['media_usage']['audio_output_tokens'] == 200
+        assert event['prompt_tokens'] == 100
+    else:
+        assert event['billing']['characters'] == 123
+    assert 'Private speech' not in str(event)
+    assert 'fixture-key' not in str(event)

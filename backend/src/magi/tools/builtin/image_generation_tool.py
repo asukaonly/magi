@@ -531,11 +531,12 @@ class ImageGenerationTool(Tool):
         try:
             for attempt in range(TRANSIENT_IMAGE_GENERATION_RETRIES + 1):
                 try:
+                    started_at = time.time()
                     result = await adapter.generate(request)
                     generated_count = (
                         len(result.images)
                         if getattr(result, "images", None)
-                        else int(getattr(request, "n", 0) or 0)
+                        else 0
                     )
                     await self._publish_image_generation_usage(
                         adapter,
@@ -546,6 +547,7 @@ class ImageGenerationTool(Tool):
                         event_context=event_context,
                         resolved_model=result.model,
                         image_count=generated_count,
+                        billing_usage=result.raw_metadata.get("usage"),
                     )
                     return result
                 except (ImageGenRateLimitError, ImageGenTimeoutError) as exc:
@@ -579,12 +581,14 @@ class ImageGenerationTool(Tool):
         event_context: dict[str, Any] | None = None,
         resolved_model: str | None = None,
         image_count: int = 0,
+        billing_usage: dict[str, int] | None = None,
     ) -> None:
         if image_gen is None:
             return
         try:
+            billing = dict(getattr(adapter, "billing_context", {}) or {})
             await image_gen.publish_usage_span(
-                provider=str(getattr(adapter, "provider_id", "unknown") or "unknown"),
+                provider=str(billing.pop("provider", None) or getattr(adapter, "provider_id", "unknown") or "unknown"),
                 model=str(
                     resolved_model
                     or request.model
@@ -595,6 +599,10 @@ class ImageGenerationTool(Tool):
                 started_at=started_at,
                 image_count=int(image_count or 0),
                 usage_available=bool(success and image_count),
+                prompt_tokens=(billing_usage or {}).get("input_tokens", 0),
+                completion_tokens=(billing_usage or {}).get("output_tokens", 0),
+                billing={**billing, "requested_at": started_at, "media_usage": billing_usage,
+                         "image_size": request.size, "input_image_count": len(request.reference_images or [])},
                 error=error,
                 event_context=event_context,
             )

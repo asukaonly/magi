@@ -68,3 +68,12 @@ describe('production configuration contracts', () => {
     expect(() => parseOnboardingTemplateResponse({ success: true, message: 'OK', data: null })).toThrow(ApiContractError);
   });
 });
+
+it('preserves partial pricing rules and rejects invalid rate values', () => {
+  const response = parseConfigResponse(examples.config);
+  const rates = response.data?.llm.providers.openai.model_metadata_overrides?.['fixture-model'].cost?.rules?.[0].rates;
+  expect(rates).toEqual({ input_per_million_tokens: 4 });
+  const invalid = structuredClone(examples.config);
+  invalid.data.llm.providers.openai.model_metadata_overrides['fixture-model'].cost.rules[0].rates.input_per_million_tokens = -1;
+  expect(() => parseConfigResponse(invalid)).toThrow(ApiContractError);
+});

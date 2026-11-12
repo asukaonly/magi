@@ -1,13 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Activity, Brain, ChevronDown, ChevronRight, Hammer, MessageSquare } from 'lucide-react';
+import { Brain, ChevronDown, ChevronRight, Hammer, MessageSquare } from 'lucide-react';
 import type { ReasoningTrace, RuntimeStatusTrace, ToolCallTrace } from '@/domain/chat/state';
+import { ChatProgressDots } from './ChatProgressDots';
 
 type AssistantRuntimePanelProps = {
   runtimeStatuses?: RuntimeStatusTrace[];
   reasoning?: ReasoningTrace[];
   toolCalls?: ToolCallTrace[];
   streaming?: boolean;
+  showProgress?: boolean;
+  progressText?: string;
+  shouldReduceMotion?: boolean;
+  actions?: ReactNode;
+  children?: ReactNode;
 };
 
 const formatToolArguments = (toolCall: ToolCallTrace): string => {
@@ -17,7 +23,10 @@ const formatToolArguments = (toolCall: ToolCallTrace): string => {
   return String(toolCall.toolArgsText || '').trim();
 };
 
-export function AssistantRuntimePanel({ runtimeStatuses, reasoning, toolCalls, streaming }: AssistantRuntimePanelProps) {
+export function AssistantRuntimePanel({
+  runtimeStatuses, reasoning, toolCalls, streaming, showProgress = streaming,
+  progressText, shouldReduceMotion, actions, children,
+}: AssistantRuntimePanelProps) {
   const { t } = useTranslation('app');
   const visibleStatuses = useMemo(
     () => (runtimeStatuses || []).filter((item) => Boolean(String(item.content || '').trim())),
@@ -34,15 +43,13 @@ export function AssistantRuntimePanel({ runtimeStatuses, reasoning, toolCalls, s
   const hasStatuses = visibleStatuses.length > 0;
   const hasReasoning = visibleReasoning.length > 0;
   const hasToolCalls = visibleToolCalls.length > 0;
-  const hasRuntimeActivity = hasStatuses || hasReasoning || hasToolCalls;
+  const hasRuntimeActivity = hasStatuses || hasReasoning || hasToolCalls || Boolean(children);
   const [expanded, setExpanded] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (streaming && (hasStatuses || hasReasoning || visibleToolCalls.some((item) => item.status === 'running'))) {
-      setExpanded(true);
-    }
-  }, [streaming, hasStatuses, hasReasoning, visibleToolCalls]);
+    setExpanded(false);
+  }, [streaming, showProgress]);
 
   useEffect(() => {
     if (!streaming || !expanded || !scrollRef.current) {
@@ -51,34 +58,40 @@ export function AssistantRuntimePanel({ runtimeStatuses, reasoning, toolCalls, s
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [streaming, expanded, visibleStatuses, visibleReasoning, visibleToolCalls]);
 
-  if (!hasRuntimeActivity) {
+  if (!hasRuntimeActivity && !showProgress && !actions) {
     return null;
   }
 
   const reasoningText = visibleReasoning.map((item) => item.content.trim()).join('\n\n');
+  const latestNarration = visibleStatuses.filter((item) => item.source === 'assistant_tool_call' || item.source === 'assistant_interim').at(-1)?.content.trim();
+  const narration = latestNarration || progressText?.trim();
 
   return (
-    <div className="mb-2 rounded-lg border border-border/40 bg-muted/30" data-testid="chat-assistant-runtime-panel">
-      <button
-        type="button"
-        onClick={() => setExpanded((prev) => !prev)}
-        aria-expanded={expanded}
-        aria-label={expanded ? t('chat.runtime.collapse') : t('chat.runtime.expand')}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <Activity className="h-3.5 w-3.5" aria-hidden="true" />
-        <span className="font-medium">{t('chat.runtime.label')}</span>
-        {streaming && (
-          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current opacity-70" />
+    <div className="space-y-2 text-muted-foreground" data-testid="chat-assistant-runtime-panel">
+      {showProgress && !expanded && (
+        narration ? (
+          <p role="status" className="m-0 whitespace-pre-wrap text-sm leading-6">{narration}</p>
+        ) : <ChatProgressDots shouldReduceMotion={shouldReduceMotion} />
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {hasRuntimeActivity && (
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            aria-expanded={expanded}
+            aria-label={expanded ? t('chat.runtime.collapse') : t('chat.runtime.expand')}
+            className="inline-flex items-center gap-1 rounded py-1 text-xs text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-ring"
+          >
+            <span>{t('chat.runtime.label')}</span>
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+          </button>
         )}
-        <span className="ml-auto">
-          {expanded ? (
-            <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
-        </span>
-      </button>
+        {actions}
+      </div>
       {expanded && (
         <div ref={scrollRef} className="max-h-80 space-y-3 overflow-y-auto overscroll-contain border-t border-border/30 px-3 py-2 pr-2">
           {hasStatuses ? (
@@ -103,7 +116,7 @@ export function AssistantRuntimePanel({ runtimeStatuses, reasoning, toolCalls, s
             <section className="space-y-1">
               <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 <Brain className="h-3.5 w-3.5" aria-hidden="true" />
-                <span>{t('chat.thinking.label')}</span>
+                <span>{t('chat.trace.thinkingContent')}</span>
               </div>
               <pre className="m-0 max-h-64 overflow-auto whitespace-pre-wrap wrap-break-word rounded-md border border-border/40 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
                 {reasoningText}
@@ -147,6 +160,7 @@ export function AssistantRuntimePanel({ runtimeStatuses, reasoning, toolCalls, s
               })}
             </section>
           ) : null}
+          {children}
         </div>
       )}
     </div>

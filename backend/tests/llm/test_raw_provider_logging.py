@@ -126,8 +126,9 @@ def _stream_events(protocol):
         return [ChatCompletionChunk.model_validate({
             "id": "stream-raw", "object": "chat.completion.chunk",
             "created": 1, "model": "diagnostic-model",
-            "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
-        }) for delta in deltas]
+            "choices": [{"index": 0, "delta": delta,
+                         "finish_reason": "stop" if index == len(deltas) - 1 else None}],
+        }) for index, delta in enumerate(deltas)]
     event_parser = TypeAdapter(RawMessageStreamEvent)
     return [event_parser.validate_python(value) for value in [
         {"type": "content_block_start", "index": 0,
@@ -140,6 +141,9 @@ def _stream_events(protocol):
         {"type": "content_block_delta", "index": 1,
          "delta": {"type": "text_delta", "text": "answer"}},
         {"type": "content_block_stop", "index": 1},
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+         "usage": {"output_tokens": 5}},
+        {"type": "message_stop"},
     ]]
 
 

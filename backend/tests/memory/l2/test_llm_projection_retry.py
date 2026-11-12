@@ -266,3 +266,12 @@ async def test_permanent_model_errors_still_end_on_first_attempt(
     await pipeline._process_extract_job(job)
     row = await _row(store)
     assert (row["status"], row["attempt_count"], row["next_retry_at"]) == ("failed", 1, None)
+
+
+@pytest.mark.parametrize("capacity,expected", [(None, 32_768), (4_096, 4_096), (384_000, 32_768)])
+def test_extraction_budget_is_purpose_bound_and_clamped_by_model(capacity, expected):
+    service = L2LLMService(None)
+    service._scenario_llm_pool = SimpleNamespace(_config=SimpleNamespace(llm=SimpleNamespace(
+        selections={LLMScenario.AUXILIARY.value: SimpleNamespace(limits=SimpleNamespace(max_output_tokens=capacity))},
+    )))
+    assert service._resolve_max_output_tokens(scenario=LLMScenario.AUXILIARY) == expected

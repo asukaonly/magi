@@ -1,1 +1,0 @@
-"""MySQL event storage ownership."""

@@ -27,6 +27,7 @@ from magi_plugin_sdk.runtime import (
     SDK_VERSION,
 )
 from magi_plugin_sdk.versioning import validate_sdk_requirement
+from magi_plugin_sdk.tools import Tool
 
 from ..config import PluginSettings, get_config, save_config
 from .base import Plugin
@@ -130,6 +131,7 @@ def build_plugin_runtime(
     provider_registrar: Any | None = None,
     content_clearer: Callable[..., Any] | None = None,
     connection_disconnector: Callable[[PluginConnection], Any] | None = None,
+    storage_runtime: Any = None,
 ) -> PluginRuntimeBindings:
     """Build plugin runtime services for the current runtime instance.
 
@@ -154,12 +156,14 @@ def build_plugin_runtime(
         provider_registrar=provider_registrar,
         content_clearer=content_clearer,
         connection_disconnector=connection_disconnector,
+        storage_runtime=storage_runtime,
         source_registry=resolved_source_registry,
         history_importer_registry=history_importer_registry,
         search_paths=_resolve_search_paths(),
         request_source_schedule_refresh=request_source_schedule_refresh,
     )
     plugin_manager.scan(persist_discovery=activate_enabled)
+    plugin_manager.adopt_storage_instances()
     if activate_enabled:
         plugin_manager.activate_enabled_plugins()
     plugin_projection_service = PluginProjectionService(
@@ -196,8 +200,10 @@ class PluginManager(PluginInstallationMixin):
         provider_registrar: Any | None = None,
         content_clearer: Callable[..., Any] | None = None,
         connection_disconnector: Callable[[PluginConnection], Any] | None = None,
+        storage_runtime: Any = None,
     ) -> None:
         self._search_paths = list(search_paths)
+        self._tool_registry = tool_registry
         self._source_registry = source_registry
         self._request_source_schedule_refresh = request_source_schedule_refresh
         self._package_states: dict[str, PluginPackageState] = {}
@@ -207,6 +213,7 @@ class PluginManager(PluginInstallationMixin):
         self._async_lifecycle_lock = asyncio.Lock()
         self._instance_factory = instance_factory
         self._configure_instance = configure_instance
+        self._storage_runtime = storage_runtime
         self._shutdown_started = False
         self._content_clearer = content_clearer
         self._connection_disconnector = connection_disconnector
@@ -247,6 +254,9 @@ class PluginManager(PluginInstallationMixin):
 
             provider_registrar = PluginProviderRegistry(get_connection=self.connection_store.get)
         self.provider_registry = provider_registrar
+        from .storage_registry import PluginStorageRegistry
+
+        self.storage_registry = storage_runtime.registry if storage_runtime is not None else PluginStorageRegistry()
         from ..events.plugin_ingress import PluginIngressRegistry
 
         self.ingress_registry = ingress_registry or PluginIngressRegistry()
@@ -261,6 +271,7 @@ class PluginManager(PluginInstallationMixin):
             hook_registry_provider=hook_registry_provider,
             operation_registrar=operation_registrar,
             provider_registrar=provider_registrar,
+            storage_registrar=self.storage_registry,
         )
         self._settings_service = PluginSettingsService(
             get_connection=self.connection_store.get,
@@ -293,6 +304,32 @@ class PluginManager(PluginInstallationMixin):
     def _module_name_prefix(plugin_id: str) -> str:
         return f"magi_plugin_{plugin_id.replace('-', '_')}"
 
+    def _is_storage(self, plugin_id: str) -> bool:
+        from magi_plugin_sdk.contracts import ContributionType
+        state = self._package_states.get(plugin_id)
+        return state is not None and ContributionType.STORAGE in state.manifest.contribution_types
+
+    def _guard_storage(self, plugin_id: str, connection_id: str | None = None) -> None:
+        if self._storage_runtime is not None:
+            self._storage_runtime.require_mutable(plugin_id, connection_id)
+
+    def adopt_storage_instances(self) -> None:
+        if self._storage_runtime is None:
+            return
+        from .contracts import PluginContribution, ContributionType
+        for connection_id, instance in self._storage_runtime.instances.items():
+            plugin_id = instance.plugin_id
+            self._plugin_instances[connection_id] = instance
+            self._instance_packages[connection_id] = plugin_id
+            self._connection_contributions[connection_id] = [PluginContribution(
+                plugin_id=plugin_id, contribution_id=f"{connection_id}:{spec.provider_id}",
+                contribution_type=ContributionType.STORAGE, display_name=spec.provider_id,
+                metadata={"domains": list(spec.domains), "contract_version": spec.contract_version},
+            ) for spec, _ in instance.get_storage_providers()]
+            self._watch_worker_failure(connection_id, instance)
+            self._refresh_package_contributions(plugin_id)
+            self._publish_connection_readiness(connection_id)
+
     def _purge_plugin_modules(self, plugin_id: str) -> None:
         prefix = self._module_name_prefix(plugin_id)
         stale_module_names = [
@@ -321,6 +358,7 @@ class PluginManager(PluginInstallationMixin):
     ) -> tuple[PluginDirectoryInstallOutcome, Path | None]:
         """Commit one prepared package without interleaving lifecycle writes."""
 
+        self._guard_storage(plan.plugin_id)
         had_loaded_connections = plan.plugin_id in self._instance_packages.values()
         self.unload_plugin(plan.plugin_id)
         self._drain_shutdowns_sync(plan.plugin_id)
@@ -349,6 +387,7 @@ class PluginManager(PluginInstallationMixin):
     @_serialized_lifecycle_mutation
     def uninstall_plugin(self, plugin_id: str) -> list[str]:
         """Uninstall one package without interleaving lifecycle writes."""
+        self._guard_storage(plugin_id)
         if self._require_package(plugin_id).manifest.kind != "library" and self.connection_store.list(plugin_id):
             raise ValueError("Disconnect plugin connections before uninstalling their package")
         self._require_no_pending_shutdown(plugin_id)
@@ -388,6 +427,8 @@ class PluginManager(PluginInstallationMixin):
         """
 
         for state in self.list_packages():
+            if self._is_storage(state.manifest.plugin_id):
+                continue
             if not state.enabled:
                 continue
             try:
@@ -408,7 +449,8 @@ class PluginManager(PluginInstallationMixin):
         """Rescan plugin manifests and reload enabled plugins in the current runtime."""
 
         for plugin_id in set(self._instance_packages.values()):
-            self.unload_plugin(plugin_id)
+            if not self._is_storage(plugin_id):
+                self.unload_plugin(plugin_id)
         self._require_no_pending_shutdown()
         self.scan(persist_discovery=persist_discovery)
         self.activate_enabled_plugins()
@@ -533,6 +575,12 @@ class PluginManager(PluginInstallationMixin):
             and self._setup_instances.get(connection_id) is not instance
         ):
             return
+        if self._is_storage(instance.plugin_id):
+            failure = self._connection_failures.get(connection_id)
+            connection = self.connection_store.get(connection_id)
+            if failure is None or failure.revision != connection.revision:
+                self._record_connection_failure(connection_id, "worker_failed", error=reason)
+            return
         try:
             self.unload_connection(connection_id)
         finally:
@@ -564,6 +612,8 @@ class PluginManager(PluginInstallationMixin):
             raise RuntimeError("Plugin runtime is shutting down")
         connection = self.connection_store.get(connection_id)
         plugin_id = connection.plugin_id
+        if self._is_storage(plugin_id):
+            raise ValueError("Storage connections use configuration fields and are opened at server startup")
         self._require_no_pending_shutdown(plugin_id)
         if connection.enabled:
             raise ValueError("Setup workers require a disabled connection")
@@ -643,6 +693,8 @@ class PluginManager(PluginInstallationMixin):
             for connection in self.connection_store.list():
                 connection_id = connection.connection_id
                 state = self._require_package(connection.plugin_id)
+                if self._is_storage(connection.plugin_id):
+                    continue
                 instance = self._plugin_instances.get(connection_id)
                 try:
                     if instance is None:
@@ -728,7 +780,7 @@ class PluginManager(PluginInstallationMixin):
 
     def create_connection(self, plugin_id: str, **kwargs: Any) -> PluginConnection:
         connection = self.connection_store.create(plugin_id, **kwargs)
-        if connection.enabled:
+        if connection.enabled and not self._is_storage(plugin_id):
             self.load_connection(connection.connection_id)
         with self._lifecycle_write_lock:
             self._refresh_package_contributions(plugin_id)
@@ -739,6 +791,7 @@ class PluginManager(PluginInstallationMixin):
         self, connection_id: str, *, expected_revision: int, **updates: Any
     ) -> PluginConnection:
         connection = self._check_connection_revision(connection_id, expected_revision)
+        self._guard_storage(connection.plugin_id, connection_id)
         self.unload_connection(connection_id)
         self._drain_shutdowns_sync(connection.plugin_id)
         updated = self.connection_store.update(
@@ -746,7 +799,7 @@ class PluginManager(PluginInstallationMixin):
             expected_revision=expected_revision,
             **updates,
         )
-        if updated.enabled:
+        if updated.enabled and not self._is_storage(updated.plugin_id):
             self.load_connection(connection_id)
         with self._lifecycle_write_lock:
             self._refresh_package_contributions(updated.plugin_id)
@@ -755,6 +808,7 @@ class PluginManager(PluginInstallationMixin):
 
     def disconnect_connection(self, connection_id: str, *, expected_revision: int) -> None:
         connection = self._check_connection_revision(connection_id, expected_revision)
+        self._guard_storage(connection.plugin_id, connection_id)
         if self._connection_disconnector is None:
             raise RuntimeError("Connection disconnect coordinator is unavailable")
         try:
@@ -778,6 +832,7 @@ class PluginManager(PluginInstallationMixin):
         self, connection_id: str, *, expected_revision: int
     ) -> PluginConnection:
         connection = self._check_connection_revision(connection_id, expected_revision)
+        self._guard_storage(connection.plugin_id, connection_id)
         if self._content_clearer is None:
             raise RuntimeError("Connection content clear coordinator is unavailable")
         try:
@@ -917,6 +972,9 @@ class PluginManager(PluginInstallationMixin):
     def load_plugin(self, plugin_id: str) -> PluginPackageState:
         """Load enabled explicit connections; external packages never gain a default account."""
         state = self._require_package(plugin_id)
+        if self._is_storage(plugin_id):
+            self._refresh_package_contributions(plugin_id)
+            return state
         self._validate_runtime_version(state.manifest)
         self._require_no_pending_shutdown(plugin_id)
         if state.manifest.kind == "library":
@@ -961,6 +1019,12 @@ class PluginManager(PluginInstallationMixin):
             raise KeyError(f"Unknown plugin connection: {connection_id}")
         plugin_id = connection.plugin_id
         state = self._require_package(plugin_id)
+        if self._is_storage(plugin_id):
+            existing = self._plugin_instances.get(connection_id)
+            if existing is None:
+                raise ValueError("Storage connections are activated only by server startup selection")
+            self._require_live_worker(existing)
+            return existing
         self._require_no_pending_shutdown(plugin_id)
         try:
             self._authorize_connection(connection)
@@ -1051,6 +1115,10 @@ class PluginManager(PluginInstallationMixin):
 
     @_serialized_lifecycle_mutation
     def unload_connection(self, connection_id: str) -> None:
+        from .process_runtime import ProcessPluginProxy
+
+        connection = self.connection_store.get(connection_id)
+        self._guard_storage(connection.plugin_id, connection_id)
         instance = self._plugin_instances.get(connection_id) or self._setup_instances.get(connection_id)
         if instance is None:
             if connection_id in self._connection_failures:
@@ -1058,6 +1126,11 @@ class PluginManager(PluginInstallationMixin):
                 self._publish_connection_readiness(connection_id)
             return
         plugin_id = self._instance_packages[connection_id]
+        # Worker shutdown owns its resources and must also work after worker death.
+        owned_tools = (
+            () if isinstance(instance, ProcessPluginProxy)
+            else self._tool_registry.owned_tool_instances(connection_id)
+        )
         try:
             try:
                 self._settings_service.unregister_connection(connection_id)
@@ -1068,7 +1141,7 @@ class PluginManager(PluginInstallationMixin):
             self._setup_instances.pop(connection_id, None)
             self._instance_packages.pop(connection_id, None)
             self._connection_contributions.pop(connection_id, None)
-            self._fire_plugin_shutdown(plugin_id, connection_id, instance)
+            self._fire_plugin_shutdown(plugin_id, connection_id, instance, owned_tools=owned_tools)
             self._clear_connection_failure(connection_id)
             self._publish_connection_readiness(connection_id)
             self._refresh_package_contributions(plugin_id)
@@ -1077,6 +1150,7 @@ class PluginManager(PluginInstallationMixin):
     @_serialized_lifecycle_mutation
     def unload_plugin(self, plugin_id: str) -> None:
         """Detach all package connections and retain every pending shutdown for draining."""
+        self._guard_storage(plugin_id)
         failures: list[Exception] = []
         for connection_id, owner in tuple(self._instance_packages.items()):
             if owner == plugin_id:
@@ -1088,7 +1162,9 @@ class PluginManager(PluginInstallationMixin):
         if failures:
             raise RuntimeError(f"Plugin unload failed: {failures}") from failures[0]
 
-    def _fire_plugin_shutdown(self, plugin_id: str, connection_id: str, instance: Plugin) -> None:
+    def _fire_plugin_shutdown(
+        self, plugin_id: str, connection_id: str, instance: Plugin, *, owned_tools: tuple[Tool, ...] = (),
+    ) -> None:
         completion: Future[None] = Future()
         self._pending_plugin_shutdowns[connection_id] = completion
         self._shutdown_owners[connection_id] = plugin_id
@@ -1096,6 +1172,12 @@ class PluginManager(PluginInstallationMixin):
         async def run_shutdown() -> None:
             try:
                 await self.ingress_registry.drain(connection_id)
+                cleanup_results = await asyncio.gather(
+                    *(tool.clear_user_content() for tool in owned_tools), return_exceptions=True,
+                )
+                for cleanup_result in cleanup_results:
+                    if isinstance(cleanup_result, BaseException):
+                        raise cleanup_result
                 result = instance.shutdown()
                 if inspect.isawaitable(result):
                     await result
@@ -1178,6 +1260,8 @@ class PluginManager(PluginInstallationMixin):
             failures: list[Exception] = []
             try:
                 for plugin_id in set(self._instance_packages.values()):
+                    if self._is_storage(plugin_id):
+                        continue
                     try:
                         self.unload_plugin(plugin_id)
                     except Exception as exc:

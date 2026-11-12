@@ -42,7 +42,7 @@ class ControlledWorker(ProcessPluginProxy):
         self._lock = threading.RLock()
         self._catalog = {
             name: [] for name in (
-                "get_operations", "get_providers", "get_history_importers",
+                "get_operations", "get_providers", "get_storage_providers", "get_history_importers",
                 "get_channel_fields", "get_settings_resources", "get_settings_actions",
                 "get_summary_profiles", "get_extraction_profiles", "get_skills", "get_hooks",
             )
@@ -355,3 +355,16 @@ async def test_explicit_shutdown_and_late_disconnected_callback_are_inert(runtim
     assert runtime.store.list() == []
     assert manager.iter_loaded_plugins() == []
     assert manager.get_package("sample").healthy
+
+
+def test_failed_storage_keeps_its_owner_without_recursive_readiness(runtime):
+    from magi_plugin_sdk.contracts import ContributionType
+    manager, connection = runtime.manager, runtime.connection
+    worker = manager.load_connection(connection.connection_id)
+    manager._package_states["sample"].manifest.contribution_types = [ContributionType.STORAGE]
+    worker.die(notify=False)
+    assert manager.connection_readiness(connection.connection_id)[0].status == ConnectionStatus.FAILED
+    assert manager.get_connection_plugin(connection.connection_id) is worker
+    with pytest.raises(RuntimeError, match="worker"):
+        manager.load_connection(connection.connection_id)
+    assert len(runtime.instances) == 1

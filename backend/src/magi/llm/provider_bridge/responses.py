@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from ..output_limit import OutputLimitReached
+
 import json
 import logging
 import time
 import uuid
 from typing import Any
+from urllib.parse import urlsplit
 
 from ...utils.model_context_messages import strip_runtime_context_metadata
 
@@ -17,12 +20,21 @@ from ...config.models import ThinkingDepth
 logger = logging.getLogger(__name__)
 
 
+def _usage_value(obj: Any, key: str) -> Any:
+    return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+
+def _openai_cache_write_12h_tokens(usage: Any) -> int:
+    details = _usage_value(usage, "prompt_tokens_details")
+    return _nested_int(details, "cache_write_tokens_details", "ttl_12h_tokens")
+
+
 def _nested_int(obj: Any, outer: str, inner: str) -> int:
     """Read an int from a nested SDK usage detail (e.g. usage.prompt_tokens_details.cached_tokens); 0 if absent/None."""
-    container = getattr(obj, outer, None)
+    container = _usage_value(obj, outer)
     if container is None:
         return 0
-    return int(getattr(container, inner, 0) or 0)
+    return int(_usage_value(container, inner) or 0)
 
 
 def _openai_cache_read_tokens(usage: Any) -> int:
@@ -41,19 +53,15 @@ def _openai_cache_read_tokens(usage: Any) -> int:
 
 
 def _openai_cache_write_tokens(usage: Any) -> int:
-    """Cache-write (creation) tokens from an OpenAI-compatible usage object.
-
-    DashScope explicit cache reports the write under
-    ``prompt_tokens_details.cache_creation_input_tokens`` (Anthropic-style). Most
-    OpenAI-compat providers have no cache-write concept and report nothing (#110).
-    """
-    return _nested_int(usage, "prompt_tokens_details", "cache_creation_input_tokens")
+    """OpenAI/Kimi write counts, or the explicit-cache field used by Qwen."""
+    return (_nested_int(usage, "prompt_tokens_details", "cache_write_tokens")
+            or _nested_int(usage, "prompt_tokens_details", "cache_creation_input_tokens"))
 
 
 def _openai_cache_fields_seen(usage: Any) -> bool:
     details = getattr(usage, "prompt_tokens_details", None)
     if details is not None and (
-        hasattr(details, "cached_tokens") or hasattr(details, "cache_creation_input_tokens")
+        any(_usage_value(details, key) is not None for key in ("cached_tokens", "cache_write_tokens", "cache_creation_input_tokens"))
     ):
         return True
     return hasattr(usage, "prompt_cache_hit_tokens") or hasattr(usage, "prompt_cache_miss_tokens")
@@ -106,6 +114,9 @@ class ProviderBridgeResponseMixin:
     llm: Any
 
     def _provider_name(self) -> str:
+        raise NotImplementedError
+
+    def resolve_effective_reasoning_depth(self, requested: ThinkingDepth) -> ThinkingDepth:
         raise NotImplementedError
 
     @staticmethod
@@ -172,6 +183,8 @@ class ProviderBridgeResponseMixin:
             ),
             cache_read_tokens=_openai_cache_read_tokens(usage_data),
             cache_write_tokens=_openai_cache_write_tokens(usage_data),
+            cache_write_12h_tokens=_openai_cache_write_12h_tokens(usage_data),
+            service_tier=_usage_value(usage_data, "service_tier"),
             cache_fields_seen=_openai_cache_fields_seen(usage_data),
         )
 
@@ -275,6 +288,8 @@ class ProviderBridgeResponseMixin:
         return converted
 
     def _parse_anthropic_response(self, response: Any) -> ProviderResponse:
+        if getattr(response, "stop_reason", None) == "max_tokens":
+            raise OutputLimitReached(self._extract_anthropic_usage(response))
         tool_calls: list[ProviderToolCall] = []
         content_text_parts: list[str] = []
         assistant_blocks: list[dict[str, Any]] = []
@@ -329,6 +344,7 @@ class ProviderBridgeResponseMixin:
     def _parse_openai_response(self, response: Any) -> ProviderResponse:
         choice = response.choices[0]
         message = choice.message
+        content = (message.content or "") + (getattr(message, "refusal", None) or "")
 
         tool_calls: list[ProviderToolCall] = []
         raw_tool_calls: list[dict[str, Any]] = []
@@ -364,7 +380,7 @@ class ProviderBridgeResponseMixin:
                 tool_calls=tool_calls,
                 assistant_message={
                     "role": "assistant",
-                    "content": message.content or "",
+                    "content": content,
                     "tool_calls": raw_tool_calls,
                     **({"reasoning_content": message.reasoning_content}
                        if getattr(message, "reasoning_content", None) else {}),
@@ -375,7 +391,7 @@ class ProviderBridgeResponseMixin:
                 usage=self._extract_openai_usage(response),
             )
 
-        provider_response = self._build_content_response(message.content or "")
+        provider_response = self._build_content_response(content)
         provider_response.metadata = self._build_openai_metadata(choice, message, raw_tool_calls)
         provider_response.usage = self._extract_openai_usage(response)
         return provider_response
@@ -438,18 +454,10 @@ class ProviderBridgeResponseMixin:
 
     @staticmethod
     def _extract_openai_usage(response: Any) -> ProviderUsage | None:
-        usage = getattr(response, "usage", None)
-        if usage is None:
-            return None
-        return ProviderUsage(
-            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
-            completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
-            total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
-            reasoning_tokens=_nested_int(usage, "completion_tokens_details", "reasoning_tokens"),
-            cache_read_tokens=_openai_cache_read_tokens(usage),
-            cache_write_tokens=_openai_cache_write_tokens(usage),
-            cache_fields_seen=_openai_cache_fields_seen(usage),
-        )
+        usage = ProviderBridgeResponseMixin._extract_openai_stream_usage(getattr(response, "usage", None))
+        if usage is not None:
+            usage.service_tier = getattr(response, "service_tier", None) or usage.service_tier
+        return usage
 
     @staticmethod
     def _extract_anthropic_usage(response: Any) -> ProviderUsage | None:
@@ -497,6 +505,7 @@ class ProviderBridgeResponseMixin:
             "cache_read_tokens": int(usage.cache_read_tokens if usage else 0),
             "cache_write_tokens": int(usage.cache_write_tokens if usage else 0),
             "cache_write_1h_tokens": int(usage.cache_write_1h_tokens if usage else 0),
+            "cache_write_12h_tokens": int(usage.cache_write_12h_tokens if usage else 0),
             "cache_fields_seen": bool(usage.cache_fields_seen if usage else False),
             "thinking_enabled": thinking_depth != ThinkingDepth.NONE,
             "thinking_depth": thinking_depth.value,
@@ -570,9 +579,21 @@ class ProviderBridgeResponseMixin:
         usage: ProviderUsage | dict[str, Any] | None,
     ) -> dict[str, Any]:
         request_preview, response_preview = _usage_event_previews(context)
+        tokens = self._usage_token_attributes(usage)
+        if self._provider_name() == "kimi" and (context.get("billing") or {}).get("cache_ttl") == "1h":
+            tokens["cache_write_1h_tokens"] = tokens["cache_write_tokens"]
         return {
             **self._usage_event_identity_attributes(context),
-            **self._usage_token_attributes(usage),
+            **tokens,
+            "cost_override": context.get("cost_override"),
+            "billing": {
+                **(context.get("billing") or {}),
+                "endpoint_host": urlsplit(str(getattr(self.llm, "base_url", "") or "")).hostname,
+                "service_tier": _usage_value(usage, "service_tier") or (
+                    "default" if self._provider_name() == "grok"
+                    else (context.get("billing") or {}).get("service_tier", "default")
+                ),
+            },
             "cache_observation": context.get("cache_observation"),
             "usage_available": usage is not None,
             "request_preview": request_preview,
@@ -612,5 +633,6 @@ class ProviderBridgeResponseMixin:
             "cache_read_tokens": self._usage_int(usage, "cache_read_tokens"),
             "cache_write_tokens": self._usage_int(usage, "cache_write_tokens"),
             "cache_write_1h_tokens": self._usage_int(usage, "cache_write_1h_tokens"),
+            "cache_write_12h_tokens": self._usage_int(usage, "cache_write_12h_tokens"),
             "cache_fields_seen": _usage_cache_fields_seen(usage),
         }

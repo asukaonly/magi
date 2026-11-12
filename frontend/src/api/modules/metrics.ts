@@ -5,6 +5,7 @@ export interface LLMUsageTotals {
   successful_calls: number;
   failed_calls: number;
   calls_with_usage: number;
+  unpriced_calls?: number;
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
@@ -35,6 +36,7 @@ export interface LLMUsageBreakdownItem {
   avg_latency_ms?: number | null;
   avg_ttft_ms?: number | null;
   cost_usd?: number | null;
+  cost_by_currency?: Array<{ currency: string; amount: number }> | null;
   cost_currency?: string | null;
 }
 
@@ -57,6 +59,7 @@ export interface LLMUsageTimeseriesPoint {
   cache_write_1h_tokens?: number | null;
   cache_hit_rate?: number | null;
   cost_usd?: number | null;
+  cost_by_currency?: Array<{ currency: string; amount: number }> | null;
 }
 
 export interface LLMUsageTimeseries {

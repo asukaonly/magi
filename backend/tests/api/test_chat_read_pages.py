@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers import messages, messages_content, messages_sessions
-from magi.chat.storage.relational_read import pagination
+from magi_plugin_sdk.storage_chat.relational_read import pagination
 from magi.core.chat_read_models import InvalidPageCursor, StalePageCursor
 from test_messages_sessions import (
     _build_service,
@@ -218,11 +218,11 @@ def test_exact_turn_lookup_keeps_user_anchor_beyond_last_page(reader):
 
 
 def test_synthetic_status_appears_once_and_active_turns_bypass_conditional_hit(reader, monkeypatch):
-    import magi.chat.storage.relational_read.history_operations as history_operations
+    import magi.chat.storage.relational_reader as history_operations
 
     monkeypatch.setattr(
         history_operations,
-        "_get_chat_trace_read_service",
+        "get_chat_trace_read_service",
         lambda: SimpleNamespace(
             get_read_revision=lambda **_: "test:0",
             get_trace_summary=lambda **_: {"headline": "Working", "trace_available": True},
@@ -284,11 +284,11 @@ def test_read_failures_are_unavailable_not_empty_success(reader, client):
 def test_older_user_page_does_not_invent_status_when_assistant_is_on_a_newer_page(
     reader, monkeypatch
 ):
-    import magi.chat.storage.relational_read.history_operations as history_operations
+    import magi.chat.storage.relational_reader as history_operations
 
     monkeypatch.setattr(
         history_operations,
-        "_get_chat_trace_read_service",
+        "get_chat_trace_read_service",
         lambda: SimpleNamespace(
             get_read_revision=lambda **_: "test:0",
             get_trace_summary=lambda **_: {"headline": "Completed", "trace_available": True},
@@ -413,7 +413,7 @@ def _seed_completed_turn(reader):
 
 
 def test_trace_change_during_projection_retries_before_publishing_revision(reader, monkeypatch):
-    import magi.chat.storage.relational_read.history_operations as history_operations
+    import magi.chat.storage.relational_reader as history_operations
 
     _seed_completed_turn(reader)
     state = {"revision": "trace:1", "reads": 0}
@@ -427,7 +427,7 @@ def test_trace_change_during_projection_retries_before_publishing_revision(reade
 
     monkeypatch.setattr(
         history_operations,
-        "_get_chat_trace_read_service",
+        "get_chat_trace_read_service",
         lambda: SimpleNamespace(
             get_read_revision=lambda **_: state["revision"],
             get_trace_summary=summary,
@@ -440,7 +440,7 @@ def test_trace_change_during_projection_retries_before_publishing_revision(reade
 
 
 def test_continuous_trace_changes_fail_read_instead_of_caching_mixed_snapshot(reader, monkeypatch):
-    import magi.chat.storage.relational_read.history_operations as history_operations
+    import magi.chat.storage.relational_reader as history_operations
 
     _seed_completed_turn(reader)
     state = {"revision": 0}
@@ -451,7 +451,7 @@ def test_continuous_trace_changes_fail_read_instead_of_caching_mixed_snapshot(re
 
     monkeypatch.setattr(
         history_operations,
-        "_get_chat_trace_read_service",
+        "get_chat_trace_read_service",
         lambda: SimpleNamespace(
             get_read_revision=revision,
             get_trace_summary=lambda **_: {"headline": "Changing", "trace_available": True},

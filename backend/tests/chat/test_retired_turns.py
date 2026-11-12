@@ -9,8 +9,7 @@ from magi.chat.storage.sqlite_store import SqliteChatRepository
 from _shared.db_schema import apply_chain_schema
 from magi.chat.errors import ChatTurnConflictError
 from magi.utils.runtime import RuntimePaths
-from test_mysql_chat_repository import create_turn
-from test_mysql_chat_repository import mysql_chat as mysql_chat, mysql_chat_reader as mysql_chat_reader
+from _shared.mysql_fixtures import create_turn, mysql_chat, mysql_chat_reader
 
 
 @pytest.fixture

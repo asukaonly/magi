@@ -43,7 +43,7 @@ import signal
 import subprocess
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
@@ -364,6 +364,7 @@ class _BoundedStreamCapture:
         max_tail_bytes: int,
         max_spill_bytes: int,
         spill_directory: _SpillDirectory,
+        on_output: Callable[[str, bytes], None] | None = None,
     ) -> None:
         self._name = name
         self._max_tail_bytes = max_tail_bytes
@@ -376,6 +377,7 @@ class _BoundedStreamCapture:
         self._spill_path: Path | None = None
         self._spill_available = max_spill_bytes > 0
         self._reached_eof = False
+        self._on_output = on_output
 
     def feed(self, chunk: bytes) -> None:
         if not chunk:
@@ -387,6 +389,12 @@ class _BoundedStreamCapture:
             overflow = len(self._tail) - self._max_tail_bytes
             if overflow > 0:
                 del self._tail[:overflow]
+
+        if self._on_output is not None:
+            try:
+                self._on_output(self._name, chunk)
+            except Exception:
+                logger.exception("bounded_subprocess.output_callback_failed stream=%s", self._name)
 
         if not self._spill_available:
             return
@@ -672,7 +680,7 @@ def _validate_bounded_subprocess_arguments(
     *,
     command: str | Sequence[str],
     shell: bool,
-    timeout: float,
+    timeout: float | None,
     max_output_bytes: int,
     max_spill_bytes: int,
     terminate_grace_seconds: float,
@@ -687,7 +695,7 @@ def _validate_bounded_subprocess_arguments(
             or not all(isinstance(part, str) and part for part in command)
         ):
             raise ValueError("exec commands must be non-empty sequences of strings")
-    if timeout <= 0:
+    if timeout is not None and timeout <= 0:
         raise ValueError("timeout must be greater than zero")
     if max_output_bytes < 0:
         raise ValueError("max_output_bytes must be non-negative")
@@ -708,9 +716,11 @@ async def _collect_bounded_subprocess(
     *,
     max_output_bytes: int,
     max_spill_bytes: int,
-    timeout: float,
+    timeout: float | None,
     terminate_grace_seconds: float,
     windows_job: _WindowsJob | None,
+    on_output: Callable[[str, bytes], None] | None = None,
+    on_spawn: Callable[[int], None] | None = None,
 ) -> BoundedSubprocessResult:
     assert process.stdout is not None
     assert process.stderr is not None
@@ -720,12 +730,14 @@ async def _collect_bounded_subprocess(
         max_tail_bytes=max_output_bytes,
         max_spill_bytes=max_spill_bytes,
         spill_directory=spill_directory,
+        on_output=on_output,
     )
     stderr_capture = _BoundedStreamCapture(
         name="stderr",
         max_tail_bytes=max_output_bytes,
         max_spill_bytes=max_spill_bytes,
         spill_directory=spill_directory,
+        on_output=on_output,
     )
     wait_task = asyncio.create_task(_wait_for_root_exit(process))
     stdout_task = asyncio.create_task(_drain_stream(process.stdout, stdout_capture))
@@ -735,6 +747,8 @@ async def _collect_bounded_subprocess(
     finalized = False
 
     try:
+        if on_spawn is not None:
+            on_spawn(process.pid)
         timed_out = False
         try:
             await asyncio.wait_for(asyncio.shield(wait_task), timeout=timeout)
@@ -805,12 +819,15 @@ async def run_bounded_subprocess(
     command: str | Sequence[str],
     *,
     shell: bool,
-    timeout: float,
+    timeout: float | None,
     cwd: str | os.PathLike[str] | None = None,
     env: Mapping[str, str] | None = None,
     max_output_bytes: int = DEFAULT_OUTPUT_TAIL_BYTES,
     max_spill_bytes: int = DEFAULT_OUTPUT_SPILL_BYTES,
     terminate_grace_seconds: float = 3.0,
+    on_output: Callable[[str, bytes], None] | None = None,
+    on_spawn: Callable[[int], None] | None = None,
+    label: str | None = None,
 ) -> BoundedSubprocessResult:
     """Run a one-shot command with bounded output and process-tree cleanup.
 
@@ -819,6 +836,11 @@ async def run_bounded_subprocess(
     after the process tree has been terminated and capture tasks have settled.
     Windows children start suspended and are assigned to a kill-on-close Job
     Object before any user code can create descendants.
+
+    ``timeout=None`` removes the deadline without weakening cancellation cleanup.
+    Synchronous callbacks observe the isolated PID and each output chunk; output
+    callback failures are logged without interrupting capture. A label registers
+    the process for crash recovery until tree cleanup completes.
     """
     _validate_bounded_subprocess_arguments(
         command=command,
@@ -860,6 +882,18 @@ async def run_bounded_subprocess(
             await process.wait()
             raise
 
+    registry_path = _default_registry_path() if label is not None else None
+    if registry_path is not None:
+        argv0 = str(command[0]) if not isinstance(command, str) else (
+            os.environ.get("COMSPEC", "cmd.exe") if os.name == "nt" else "/bin/sh"
+        )
+        try:
+            _register(RegistryEntry(
+                pid=process.pid, label=label, argv0=argv0,
+                parent_pid=os.getpid(), started_at=time.time(),
+            ), registry_path=registry_path)
+        except Exception:
+            logger.exception("bounded_subprocess.register_failed label=%s pid=%d", label, process.pid)
     try:
         return await _collect_bounded_subprocess(
             process,
@@ -868,8 +902,15 @@ async def run_bounded_subprocess(
             timeout=timeout,
             terminate_grace_seconds=terminate_grace_seconds,
             windows_job=windows_job,
+            on_output=on_output,
+            on_spawn=on_spawn,
         )
     finally:
+        if registry_path is not None:
+            try:
+                _unregister(process.pid, registry_path=registry_path)
+            except Exception:
+                logger.exception("bounded_subprocess.unregister_failed label=%s pid=%d", label, process.pid)
         if windows_job is not None:
             windows_job.close()
 
@@ -1042,7 +1083,11 @@ def _terminate_registered_orphan(pid: int, *, force: bool) -> None:
             **hidden_process_kwargs(),
         )
         return
-    os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
+    kill_signal = signal.SIGKILL if force else signal.SIGTERM
+    if os.getpgid(pid) == pid:
+        os.killpg(pid, kill_signal)
+    else:
+        os.kill(pid, kill_signal)
 
 
 @dataclass

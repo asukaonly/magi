@@ -188,6 +188,30 @@ def _thinking_then_tool_events() -> List[Any]:
         SimpleNamespace(type="content_block_delta", index=1,
                         delta=SimpleNamespace(type="input_json_delta", partial_json='{"command": "ls"}')),
         SimpleNamespace(type="content_block_stop", index=1),
-        SimpleNamespace(type="message_delta", usage=SimpleNamespace(output_tokens=5)),
+        SimpleNamespace(type="message_delta", delta=SimpleNamespace(stop_reason="tool_use"),
+                        usage=SimpleNamespace(output_tokens=5)),
         SimpleNamespace(type="message_stop"),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["max_tokens", "tool_use"])
+async def test_tool_completion_preview_waits_for_successful_generation(monkeypatch, reason):
+    from magi.llm.output_limit import OutputLimitReached
+
+    emitted = []
+
+    async def record(event):
+        emitted.append(event)
+
+    monkeypatch.setattr("magi.llm.provider_bridge.tool_streaming.emit_stream_event", record)
+    canned = _thinking_then_tool_events()
+    canned[-2].delta = SimpleNamespace(stop_reason=reason)
+    bridge = _bridge(_StreamingMessagesClient(canned))
+    if reason == "max_tokens":
+        with pytest.raises(OutputLimitReached):
+            await bridge.chat_with_tools_stream("system", [], [])
+        assert not any(event.kind == "tool_call_end" for event in emitted)
+    else:
+        await bridge.chat_with_tools_stream("system", [], [])
+        assert sum(event.kind == "tool_call_end" for event in emitted) == 1

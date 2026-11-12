@@ -10,6 +10,7 @@ from typing import Any
 
 from magi.tools.capabilities import build_tool_capabilities
 from magi.utils.diagnostic_logging import full_content_logging_enabled
+from ..tool_metadata import resolve_tool_capability_metadata
 
 from ._tool_execution_contracts import (
     _FunctionCallingToolExecutionHostProtocol,
@@ -280,6 +281,9 @@ class _RegisteredToolExecutor:
             error=result.error,
             error_code=getattr(result, "error_code", None),
             execution_time=execution_time,
+            effect_metadata=resolve_tool_capability_metadata(
+                self._host.tool_registry, request.tool_name, arguments=arguments,
+            ),
         )
 
     def _log_slow_scan(

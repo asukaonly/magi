@@ -9,6 +9,7 @@ import time
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from ..base import LLMAdapter
+from ..output_limit import OutputLimitReached
 from ..concurrency_limiter import (
     LLMConcurrencyLimiter,
     LLMRequestPriority,
@@ -29,7 +30,6 @@ from .streaming import (
     ProviderBridgeChatStreamingMixin,
     ProviderBridgeToolStreamingMixin,
 )
-from ...config.constants import DEFAULT_MAX_TOKENS, DEFAULT_THINKING_TOKENS
 from ...config.models import ThinkingDepth
 
 
@@ -130,7 +130,7 @@ class LLMProviderBridge:
         self,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int = DEFAULT_THINKING_TOKENS,
+        max_tokens: int | None = None,
         temperature: float = 0.7,
         json_mode: bool = False,
         timeout_seconds: Optional[float] = None,
@@ -165,7 +165,7 @@ class LLMProviderBridge:
         self,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int = DEFAULT_THINKING_TOKENS,
+        max_tokens: int | None = None,
         temperature: float = 0.7,
         disable_thinking: Optional[bool] = None,
         json_mode: bool = False,
@@ -195,7 +195,7 @@ class LLMProviderBridge:
         self,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int = DEFAULT_THINKING_TOKENS,
+        max_tokens: int | None = None,
         temperature: float = 0.7,
         disable_thinking: Optional[bool] = None,
         json_mode: bool = False,
@@ -249,7 +249,7 @@ class LLMProviderBridge:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int = DEFAULT_MAX_TOKENS,
+        max_tokens: int | None = None,
         temperature: float = 0.7,
         disable_thinking: Optional[bool] = None,
         timeout_seconds: Optional[float] = None,
@@ -342,7 +342,7 @@ class LLMProviderBridge:
         *,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         json_mode: bool,
@@ -376,6 +376,9 @@ class LLMProviderBridge:
         event_context: Optional[Dict[str, Any]],
         messages: List[Dict[str, Any]],
     ) -> None:
+        metadata = provider_response.metadata or {}
+        if metadata.get("finish_reason") in {"length", "max_tokens"}:
+            raise OutputLimitReached(provider_response.usage)
         latency_ms = int((time.time() - started_at) * 1000)
         self._operations._attach_trace_metrics(
             provider_response=provider_response,
@@ -405,6 +408,12 @@ class LLMProviderBridge:
         operation: str,
     ) -> None:
         latency_ms = int((time.time() - started_at) * 1000)
+        usage = None
+        if isinstance(exc, OutputLimitReached):
+            if exc.usage_format == "openai":
+                exc.usage = self._operations._extract_openai_stream_usage(exc.usage)
+                exc.usage_format = "normalized"
+            usage = exc.usage
         log_provider_call_failure(
             self.llm,
             exc,
@@ -415,7 +424,7 @@ class LLMProviderBridge:
         await self._operations._emit_usage_event(
             success=False,
             latency_ms=latency_ms,
-            usage=None,
+            usage=usage,
             event_context=_with_trace_previews(event_context, messages=messages),
             error=str(exc),
         )
@@ -425,7 +434,7 @@ class LLMProviderBridge:
         *,
         system_prompt: str,
         messages: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         timeout_seconds: Optional[float],
         event_context: Optional[Dict[str, Any]],
@@ -449,7 +458,7 @@ class LLMProviderBridge:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
@@ -477,7 +486,7 @@ class LLMProviderBridge:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int = DEFAULT_MAX_TOKENS,
+        max_tokens: int | None = None,
         temperature: float = 0.7,
         timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
@@ -529,7 +538,7 @@ class LLMProviderBridge:
         system_prompt: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
-        max_tokens: int,
+        max_tokens: int | None,
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],

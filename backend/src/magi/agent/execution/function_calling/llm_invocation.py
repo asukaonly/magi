@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Protocol, cast
 
-from ....config.constants import DEFAULT_MAX_TOKENS
 from ....config.models import ThinkingDepth
 from ....llm.cancellable_client import (
     CancellableLLMClient,
@@ -25,13 +23,6 @@ THINKING_LLM_TIMEOUT_SECONDS = 180.0
 class LlmInvocationHostProtocol(Protocol):
     provider_bridge: LLMProviderBridge
 
-    async def _invoke_with_rate_limit_backoff(
-        self,
-        factory: Callable[[], Awaitable[Any]],
-        *,
-        label: str,
-    ) -> Any: ...
-
 
 @dataclass(frozen=True, slots=True)
 class FunctionCallingLlmRequest:
@@ -46,6 +37,7 @@ class FunctionCallingLlmRequest:
     execution_agent_id: str
     execution_preset: str
     iteration: int | None
+    max_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,21 +105,18 @@ async def call_provider_with_tools(
     tools: list[dict[str, Any]],
 ) -> ToolsProviderCallResult:
     if get_stream_sink() is not None:
-        stream_result: ToolStreamResult = await host._invoke_with_rate_limit_backoff(
-            lambda: host.provider_bridge.chat_with_tools_stream(
-                system_prompt=request.system_prompt,
-                messages=request.messages,
-                tools=tools,
-                max_tokens=DEFAULT_MAX_TOKENS,
-                temperature=0.7,
+        stream_result: ToolStreamResult = await host.provider_bridge.chat_with_tools_stream(
+            system_prompt=request.system_prompt,
+            messages=request.messages,
+            tools=tools,
+            max_tokens=request.max_tokens,
+            temperature=0.7,
+            thinking_depth=request.thinking_depth,
+            timeout_seconds=resolve_llm_timeout(
+                request.timeout_seconds,
                 thinking_depth=request.thinking_depth,
-                timeout_seconds=resolve_llm_timeout(
-                    request.timeout_seconds,
-                    thinking_depth=request.thinking_depth,
-                ),
-                event_context=build_llm_event_context(request),
             ),
-            label="chat_with_tools_stream",
+            event_context=build_llm_event_context(request),
         )
         return ToolsProviderCallResult(
             provider_response=stream_result.provider_response,
@@ -137,21 +126,18 @@ async def call_provider_with_tools(
             ),
         )
 
-    provider_response = await host._invoke_with_rate_limit_backoff(
-        lambda: host.provider_bridge.chat_with_tools(
-            system_prompt=request.system_prompt,
-            messages=request.messages,
-            tools=tools,
-            max_tokens=DEFAULT_MAX_TOKENS,
-            temperature=0.7,
+    provider_response = await host.provider_bridge.chat_with_tools(
+        system_prompt=request.system_prompt,
+        messages=request.messages,
+        tools=tools,
+        max_tokens=request.max_tokens,
+        temperature=0.7,
+        thinking_depth=request.thinking_depth,
+        timeout_seconds=resolve_llm_timeout(
+            request.timeout_seconds,
             thinking_depth=request.thinking_depth,
-            timeout_seconds=resolve_llm_timeout(
-                request.timeout_seconds,
-                thinking_depth=request.thinking_depth,
-            ),
-            event_context=build_llm_event_context(request),
         ),
-        label="chat_with_tools",
+        event_context=build_llm_event_context(request),
     )
     return ToolsProviderCallResult(provider_response=provider_response, streamed=False)
 
@@ -196,7 +182,7 @@ async def _stream_final_response(
             system_prompt=request.system_prompt,
             messages=request.messages,
             control=control,
-            max_tokens=DEFAULT_MAX_TOKENS,
+            max_tokens=request.max_tokens,
             temperature=0.7,
             thinking_depth=request.thinking_depth,
             timeout_seconds=resolve_llm_timeout(
@@ -212,7 +198,7 @@ async def _stream_final_response(
     async for event in host.provider_bridge.chat_response_stream(
         system_prompt=request.system_prompt,
         messages=request.messages,
-        max_tokens=DEFAULT_MAX_TOKENS,
+        max_tokens=request.max_tokens,
         temperature=0.7,
         thinking_depth=request.thinking_depth,
         timeout_seconds=resolve_llm_timeout(
@@ -238,7 +224,7 @@ async def _call_final_response_with_control(
         system_prompt=request.system_prompt,
         messages=request.messages,
         control=control,
-        max_tokens=DEFAULT_MAX_TOKENS,
+        max_tokens=request.max_tokens,
         temperature=0.7,
         thinking_depth=request.thinking_depth,
         json_mode=json_mode,
@@ -262,21 +248,18 @@ async def _call_final_response(
     *,
     json_mode: bool,
 ) -> Any:
-    return await host._invoke_with_rate_limit_backoff(
-        lambda: host.provider_bridge.chat_response(
-            system_prompt=request.system_prompt,
-            messages=request.messages,
-            max_tokens=DEFAULT_MAX_TOKENS,
-            temperature=0.7,
+    return await host.provider_bridge.chat_response(
+        system_prompt=request.system_prompt,
+        messages=request.messages,
+        max_tokens=request.max_tokens,
+        temperature=0.7,
+        thinking_depth=request.thinking_depth,
+        json_mode=json_mode,
+        timeout_seconds=resolve_llm_timeout(
+            request.timeout_seconds,
             thinking_depth=request.thinking_depth,
-            json_mode=json_mode,
-            timeout_seconds=resolve_llm_timeout(
-                request.timeout_seconds,
-                thinking_depth=request.thinking_depth,
-            ),
-            event_context=build_llm_event_context(request),
         ),
-        label="chat_response",
+        event_context=build_llm_event_context(request),
     )
 
 

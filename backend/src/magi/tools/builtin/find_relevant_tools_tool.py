@@ -63,7 +63,7 @@ class FindRelevantToolsTool(Tool):
         self.schema = ToolSchema(
             name="find-relevant-tools",
             description=(
-                "Find up to two additional tools or skills that are relevant to the current unmet subtask. "
+                "Find additional tools or skills that are relevant to the current unmet subtask. "
                 "Use this when the current tool set cannot complete the next grounded step, not for broad capability browsing."
             ),
             category="system",
@@ -93,7 +93,6 @@ class FindRelevantToolsTool(Tool):
                     required=False,
                     default=2,
                     min_value=1,
-                    max_value=2,
                 ),
             ],
             examples=[
@@ -154,7 +153,7 @@ class FindRelevantToolsTool(Tool):
         return _DiscoveryRequest(
             query=query,
             current_tools=self._normalize_current_tools(parameters.get("current_tools")),
-            limit=1 if limit < 1 else 2 if limit > 2 else limit,
+            limit=max(1, limit),
         )
 
     async def _discover(

@@ -24,6 +24,9 @@ def _fake_client_yielding(chunks):
     async def _stream():
         for c in chunks:
             yield c
+        yield SimpleNamespace(choices=[SimpleNamespace(
+            delta=SimpleNamespace(content=None), finish_reason="stop"
+        )])
 
     class _FakeCompletions:
         async def create(self, **kwargs):

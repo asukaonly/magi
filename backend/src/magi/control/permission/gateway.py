@@ -91,6 +91,7 @@ class _GateContext:
     tool_is_dangerous: bool
     tool_risk_level: RiskLevel | str | None
     tool_risk_authoritative: bool
+    tool_effect_class: str
     skill_preapproved: bool
 
 
@@ -151,7 +152,7 @@ class PermissionGateway:
         # External-channel users may need several minutes to respond while
         # the bounded timeout still prevents an indefinitely suspended run.
         prompt_timeout_seconds: float = 300.0,
-        plan_mode_guard: Callable[[str | None, str], bool] | None = None,
+        plan_mode_guard: Callable[[str | None, str, str], bool] | None = None,
         # Per-binding auto-approval is active only when both dependencies are
         # configured. Partial bootstrap therefore remains fail-closed.
         # ``binding_settings_store`` is the SQLite-backed
@@ -194,6 +195,7 @@ class PermissionGateway:
         tool_is_dangerous: bool = False,
         tool_risk_level: RiskLevel | str | None = None,
         tool_risk_authoritative: bool = False,
+        tool_effect_class: str = "unknown",
         skill_preapproved: bool = False,
     ) -> PermissionDecision:
         """Evaluate a single tool invocation."""
@@ -209,6 +211,7 @@ class PermissionGateway:
             tool_is_dangerous=tool_is_dangerous,
             tool_risk_level=tool_risk_level,
             tool_risk_authoritative=tool_risk_authoritative,
+            tool_effect_class=tool_effect_class,
             skill_preapproved=skill_preapproved,
         )
         logger.info(
@@ -240,6 +243,7 @@ class PermissionGateway:
         tool_is_dangerous: bool,
         tool_risk_level: RiskLevel | str | None,
         tool_risk_authoritative: bool,
+        tool_effect_class: str,
         skill_preapproved: bool,
     ) -> PermissionDecision:
         context = _GateContext(
@@ -253,6 +257,7 @@ class PermissionGateway:
             tool_is_dangerous=tool_is_dangerous,
             tool_risk_level=tool_risk_level,
             tool_risk_authoritative=tool_risk_authoritative,
+            tool_effect_class=tool_effect_class,
             skill_preapproved=skill_preapproved,
         )
         for decision in (
@@ -313,7 +318,9 @@ class PermissionGateway:
     def _plan_mode_decision(self, context: _GateContext) -> PermissionDecision | None:
         if self._plan_mode_guard is None:
             return None
-        if self._plan_mode_guard(context.session_id, context.tool_name):
+        if self._plan_mode_guard(
+            context.session_id, context.tool_name, context.tool_effect_class
+        ):
             return None
         return PermissionDecision(
             request_id=PermissionRequest.new_id(),

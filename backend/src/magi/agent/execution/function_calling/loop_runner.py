@@ -162,6 +162,18 @@ class FunctionCallingLoopRunner:
                 thinking_depth=effective_depth,
                 control=control,
             )
+            if step_outcome.failure_reason == "TASK_BUDGET_EXCEEDED":
+                await emit_stream_event(
+                    LLMStreamEvent(kind="text_reset", step_label="task_budget_finalization")
+                )
+                outcome = await self._run_fallback_final_response(
+                    state=state,
+                    run_input=run_input,
+                    thinking_depth=self._resolve_effective_reasoning_depth(state),
+                    control=control,
+                    final_response_reason="task_budget_finalization",
+                )
+                return await self._gate_fallback_outcome(state, run_input, outcome)
             loop_outcome = await self._handle_step_outcome(
                 state=state,
                 step_outcome=step_outcome,
@@ -421,6 +433,8 @@ class FunctionCallingLoopRunner:
                 evidence=state.tool_evidence,
                 repair_iterations=state.repair_iterations,
                 run_plan=run_plan,
+                user_input=run_input.turn.text,
+                final_response=step_outcome.content,
             )
         logger.info(
             "agent_run.completion_decision",
@@ -533,7 +547,7 @@ class FunctionCallingLoopRunner:
             )
         return ExecutionOutcome(
             status="blocked",
-            content=_blocked_outcome_message(decision),
+            content=_blocked_outcome_message(decision, step_outcome.content),
             failure_reason=decision.reason_code,
             error_text=" ".join(decision.observations),
             tool_failures=list(state.tool_failures),
@@ -571,7 +585,10 @@ class FunctionCallingLoopRunner:
                 state,
                 ExecutionOutcome(
                     status="failed",
-                    content="",
+                    content=_partial_outcome_message(
+                        "The task budget ended before required completion repair.",
+                        outcome.content,
+                    ),
                     failure_reason="repair_budget_unavailable",
                     error_text="The task budget ended before required completion repair.",
                     tool_failures=list(state.tool_failures),
@@ -590,7 +607,7 @@ class FunctionCallingLoopRunner:
         if decision.reason_code == "repair_exhausted":
             return True
         return bool(
-            decision.reason_code == "required_plan_incomplete"
+            decision.reason_code in {"required_plan_incomplete", "shell_job_pending"}
             and state.repair_iterations >= run_input.completion_policy.max_repair_iterations
         )
 
@@ -689,9 +706,17 @@ def _build_completed_outcome(
     )
 
 
-def _blocked_outcome_message(decision: CompletionDecision) -> str:
+def _blocked_outcome_message(decision: CompletionDecision, content: str = "") -> str:
     detail = " ".join(item.strip() for item in decision.observations if item.strip())
-    return detail or f"The runtime blocked completion: {decision.reason_code}."
+    return _partial_outcome_message(
+        detail or f"The runtime blocked completion: {decision.reason_code}.", content
+    )
+
+
+def _partial_outcome_message(reason: str, content: str) -> str:
+    if not content.strip():
+        return reason
+    return f"{reason}\n\nPartial result (completion not verified):\n{content}"
 
 
 def _build_cancelled_outcome(

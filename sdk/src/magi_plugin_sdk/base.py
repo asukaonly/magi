@@ -29,6 +29,7 @@ from .user_content import UserContentClearContext
 
 if TYPE_CHECKING:
     from .history_imports import HistoryImporter, HistoryImporterSpec
+    from .storage import StorageProvider, StorageProviderSpec
 
 
 class Plugin(ABC):
@@ -188,6 +189,10 @@ class Plugin(ABC):
 
         Supported kinds are web_search, model and external_agent.
         """
+        return []
+
+    def get_storage_providers(self) -> list[tuple["StorageProviderSpec", "StorageProvider"]]:
+        """Return storage capabilities activated by the host storage lifecycle."""
         return []
 
     def get_sources(self) -> list[tuple[str, Any, SourceSpec]]:

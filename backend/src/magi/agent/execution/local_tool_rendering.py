@@ -11,7 +11,7 @@ def render_local_result(
     tool_name: str, data: dict[str, Any], *, success: bool, error_code: str | None,
     max_items: int, max_text_chars: int, max_chars: int,
 ) -> str | None:
-    if tool_name in {"bash", "powershell"} and "return_code" in data:
+    if tool_name in {"bash", "powershell", "shell_job"} and "return_code" in data:
         return _shell(data, success=success, error_code=error_code, max_chars=max_chars)
     if not success:
         return None
@@ -30,13 +30,19 @@ def render_local_result(
 
 def _shell(data: dict[str, Any], *, success: bool, error_code: str | None, max_chars: int) -> str:
     out = TextBudget(max_chars)
-    status = "succeeded" if success else "failed"
+    status = "succeeded" if success and data.get("return_code") == 0 else "failed"
+    if data.get("status") in {"starting", "running", "cancelled"}:
+        status = str(data["status"])
     header = f"Command {status}; exit code: {data.get('return_code')}"
+    if data.get("job_id"):
+        header += f"; job_id: {one_line(data['job_id'])}"
     if error_code:
         header += f"; {one_line(error_code)}"
     if data.get("timed_out"):
         header += "; timed out"
     out.add(header)
+    if status in {"starting", "running"}:
+        out.add("Use shell_job to wait, inspect, or stop this job. Do not start the same command again.")
     streams = [(name, str(data.get(name) or "")) for name in ("stdout", "stderr")]
     streams = [(name, text) for name, text in streams if text or data.get(f"{name}_truncated")]
     if not streams:

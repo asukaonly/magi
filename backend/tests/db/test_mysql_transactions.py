@@ -8,15 +8,15 @@ import pytest
 from sqlalchemy import Column, Integer, MetaData, Table, insert, select, text
 
 from magi.core.persistence_errors import PersistenceConflictError
-from magi.db.mysql import MysqlDatabase, MysqlSettings
+from _shared.mysql_storage_plugin.database import MysqlDatabase, MysqlSettings
 
 
 def test_mysql_settings_require_explicit_credentials(monkeypatch):
     monkeypatch.delenv("MAGI_MYSQL_TEST_MISSING_PASSWORD", raising=False)
-    with pytest.raises(ValueError, match="not configured"):
+    with pytest.raises(ValueError, match="password"):
         MysqlDatabase(MysqlSettings(
             host="127.0.0.1", database="magi_test_architecture", user="root",
-            password_env="MAGI_MYSQL_TEST_MISSING_PASSWORD", tls=False,
+            tls=False,
         ))
 
 
@@ -25,7 +25,7 @@ def test_remote_mysql_requires_verified_tls(monkeypatch):
     with pytest.raises(ValueError, match="require TLS"):
         MysqlDatabase(MysqlSettings(
             host="database.example", database="magi_test_architecture", user="root",
-            password_env="MAGI_MYSQL_TEST_PASSWORD", tls=False,
+            password=os.environ["MAGI_MYSQL_TEST_PASSWORD"], tls=False,
         ))
 
 
@@ -39,7 +39,7 @@ async def mysql_database(monkeypatch):
         host="127.0.0.1", port=int(port),
         database=os.environ.get("MAGI_TEST_MYSQL_DATABASE", "magi_test_architecture"),
         user=os.environ.get("MAGI_TEST_MYSQL_USER", "root"),
-        password_env="MAGI_MYSQL_TEST_PASSWORD", tls=False, pool_size=1,
+        password=os.environ["MAGI_MYSQL_TEST_PASSWORD"], tls=False, pool_size=1,
     ))
     metadata = MetaData()
     table = Table("transaction_test_" + uuid4().hex, metadata,

@@ -34,12 +34,8 @@ class _Registry:
 
 
 def _host() -> SimpleNamespace:
-    from magi.agent.execution.function_calling.orchestrator import FunctionCallingOrchestrator
-
     registry = _Registry()
     return SimpleNamespace(
-        _MAX_TOOL_EXPANSIONS_PER_TURN=FunctionCallingOrchestrator._MAX_TOOL_EXPANSIONS_PER_TURN,
-        _MAX_TOOLS_PER_EXPANSION=2,
         tool_registry=registry,
         _build_tools_parameter=lambda names: [
             {"type": "function", "function": {"name": name}} for name in names
@@ -87,25 +83,30 @@ def test_local_write_discovery_reserves_a_validation_companion() -> None:
         tool_results=[_result("weather", "file_write")],
     )
 
-    assert additions == ["file_write", "verify"]
-    assert state.selected_tool_names == ["resident_0", "file_write", "verify"]
+    assert additions == ["weather", "file_write", "verify"]
+    assert state.selected_tool_names == ["resident_0", "weather", "file_write", "verify"]
 
 
-def test_sequential_discovery_keeps_prior_tools_and_stops_at_the_run_budget() -> None:
+def test_sequential_discovery_keeps_prior_tools_beyond_three_expansions() -> None:
     host = _host()
     state = FunctionCallingStepState(messages=[], effective_system_prompt="", tools=[])
-    for name in ("weather", "file_write", "resident_1"):
+    for name in ("weather", "file_write", "resident_1", "resident_2", "resident_3"):
         assert name in apply_tool_expansion_from_results(
             host, state=state, tool_results=[_result(name)]
         )
-    selected = list(state.selected_tool_names)
-    assert "verify" in selected
-    assert (
-        apply_tool_expansion_from_results(host, state=state, tool_results=[_result("resident_2")])
-        == []
+    assert state.selected_tool_names == ["weather", "file_write", "verify", "resident_1", "resident_2", "resident_3"]
+    assert state.tool_expansion_count == 5
+    assert state.messages == []
+
+
+def test_discovery_can_add_more_than_two_tools_without_duplicate_schemas() -> None:
+    state = FunctionCallingStepState(messages=[], effective_system_prompt="", tools=[])
+    additions = apply_tool_expansion_from_results(
+        _host(), state=state, tool_results=[_result("weather", "resident_1", "resident_2", "weather")],
     )
-    assert state.selected_tool_names == selected
-    assert "budget is exhausted" in state.messages[-1]["content"]
+
+    assert additions == ["weather", "resident_1", "resident_2"]
+    assert state.selected_tool_names == additions
 
 
 def test_expansion_rejects_over_model_limit_without_losing_existing_tools() -> None:

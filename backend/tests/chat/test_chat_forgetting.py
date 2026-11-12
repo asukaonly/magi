@@ -1543,9 +1543,13 @@ async def test_runtime_forgetting_stops_matching_background_work() -> None:
             return []
 
     cleared_sessions = []
+    cleared_shell_sessions = []
 
     async def clear_control(session_id):
         cleared_sessions.append(session_id)
+
+    async def clear_shell_jobs(user_id, session_id):
+        cleared_shell_sessions.append((user_id, session_id))
 
     coordinator = ChatRuntimeForgettingCoordinator(
         runtime_command_queue=_Queue(),
@@ -1555,6 +1559,7 @@ async def test_runtime_forgetting_stops_matching_background_work() -> None:
         delivery_scheduler=_Scheduler(),
         background_task_manager=_Background(),
         clear_control_session=clear_control,
+        clear_shell_jobs=clear_shell_jobs,
     )
 
     await coordinator.prepare_session_delete(
@@ -1577,6 +1582,7 @@ async def test_runtime_forgetting_stops_matching_background_work() -> None:
     )
 
     assert cleared_sessions == ["session-delete", "session-history"]
+    assert cleared_shell_sessions == [("u1", "session-delete"), ("u1", "session-history")]
     assert calls == [
         (
             "session-delete",

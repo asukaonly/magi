@@ -38,8 +38,39 @@ interchangeable.
 | Skills | `get_skills()` and packaged `SKILL.md` | Shared index, loader, execution and owner-safe removal |
 | Hooks | `get_hooks()`, `HookContext`, `HookDecision` | Validated JSON events and existing decision precedence |
 | Providers | `get_providers()` and SDK provider requests/events | Search, model and external-agent adapters; bounded streams |
+| Storage | `get_storage_providers()` and SDK storage requests/results | Startup selection, repository injection, recovery ordering and active-connection lifetime protection |
 | History imports | `get_history_importers()` | User-selected bounded input and host memory governance |
 | Configuration | Manifest fields, setup actions, resources and UI blocks | Forms, write-only credentials, optimistic revisions and setup authority |
+
+Storage contributions use the versioned `StorageOpen`, `StorageOpened`,
+`StorageCall`, and `StorageResult` SDK values. Their worker dispatch exposes only
+`open`, `invoke`, and `close`; repository operations accept bounded JSON values,
+never SQL connections or host objects. Domain repositories remain host-owned
+contracts. Storage bindings pin their connection until its consumers have
+drained, so normal contribution disposal cannot replace an active storage owner.
+
+`storage_ports` and `storage_models` in the SDK contain the public chat, channel and
+event persistence signatures, values, and deterministic index normalization.
+Host domain ports consume these contracts; ingestion policy, scheduling and
+external side effects remain in their host layers. A repository dispatcher
+validates arguments and results against the explicit method table rather than
+allowing arbitrary attribute access. Logical snapshots cross the same transport
+in bounded chunks; the destination validates length, checksum and snapshot schema
+before its atomic import. An interrupted transfer never activates a binding.
+
+The built-in `storage-sqlite` contribution is assembled by the host. External
+`storage-mysql` runs in the existing supervised worker. Early storage packages
+contribute only storage and are self-contained; they cannot depend on the normal
+plugin activation graph, which starts after repositories. The normal manager
+adopts these instances without starting or stopping them a second time. Selected
+connections and durable bindings reject ordinary update, disable and removal;
+storage failures never trigger a silent fallback to SQLite.
+
+Chat uses invocation-scoped callbacks for asset validation, workspace identity
+and read enrichment. The host checks the original user/session, payload and
+workspace before responding. No callback can choose another connection or expose
+an arbitrary host operation. Snapshot transport uses bounded frames and checksums;
+the current logical snapshot is materialized in memory and capped at 1 GiB.
 
 Installation records package integrity and user consent. It does not create an
 account. The user creates a connection, supplies configuration or runs an
@@ -175,7 +206,10 @@ replacing another owner. Disposers are tied to an exact registration, so stale
 cleanup cannot remove a replacement. Each connection owns its loaded instance
 and contribution identifiers. Reload, package replacement, and shutdown drain
 the previous instance before publishing a replacement. Package removal requires
-disconnecting its connections first.
+disconnecting its connections first. Bundled host tool instances release their
+owned resources before plugin shutdown; a cleanup failure blocks replacement.
+External process connections release resources through their worker lifetime,
+without requiring an RPC to an already exited worker.
 
 The public SDK is version `0.2.2`, with plugin protocol `2`. Disk manifests
 declare `protocol_version = 2`, `min_sdk_version`, and an execution mode
@@ -1873,3 +1907,13 @@ Mail is a semantic domain. External `mail_core` provides shared contracts and
 source normalization, while provider plugins own OAuth, API translation and sync.
 Each mailbox is a separate connection with its own scoped credentials and cursor.
 Neither the agent nor memory core imports the Gmail implementation.
+
+Chat storage shares its relational workflows and portable values through
+`magi_plugin_sdk.storage_chat` and `storage_models`. Database drivers remain
+provider-owned. The composition root supplies host effects for attachment
+validation, workspace identity claims, cleanup inventory and trace enrichment.
+External workers can request these effects only inside the originating repository
+invocation and only for its exact user, session, attachment payload and workspace.
+Asset mutation serialization and outbox wakeups remain host-owned; connection
+handles and SQL are never sent over the storage protocol. Read connections and
+blocking cleanup are drained before cancellation releases their owner.

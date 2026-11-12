@@ -293,6 +293,7 @@
         "enum": [
           "operation",
           "provider",
+          "storage",
           "tool",
           "source",
           "channel",
@@ -1937,7 +1938,7 @@
             "type": "string"
           },
           "min_sdk_version": {
-            "default": "0.2.6",
+            "default": "0.2.7",
             "maxLength": 32,
             "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
             "title": "Min Sdk Version",

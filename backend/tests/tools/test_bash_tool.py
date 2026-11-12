@@ -16,6 +16,30 @@ from magi.tools.builtin.bash_tool import (
 from magi.tools.schema import ToolExecutionContext
 
 
+@pytest.mark.parametrize("shell_name", ["bash", "powershell"])
+def test_nonzero_exit_is_a_completed_command_observation(shell_name: str) -> None:
+    from magi.agent.execution.tool_invocation_service import _effect_state_from_result
+    from magi.agent.execution.tool_effects import ToolEffectState
+    from magi.tools.builtin.bash_tool import _decode_bounded_process_output
+    from magi.tools.builtin.powershell_tool import PowerShellTool
+
+    stream = BoundedStreamOutput(tail=b"test failed", total_bytes=11, truncated=False, spill_path=None)
+    output = _decode_bounded_process_output(BoundedSubprocessResult(
+        returncode=1, stdout=stream, stderr=stream, timed_out=False,
+    ))
+    request = SimpleNamespace(command="run-tests", timeout=30)
+    if shell_name == "bash":
+        result = BashTool()._result_from_output(request, output, {})
+    else:
+        result = PowerShellTool()._result_from_output(
+            executable="powershell", request=request, output=output, risk_data={},
+        )
+    assert result.success and result.error_code is None
+    assert result.data["return_code"] == 1
+    assert result.data["command_succeeded"] is False
+    assert _effect_state_from_result(result) is ToolEffectState.SUCCEEDED
+
+
 @pytest.mark.parametrize(
     "case_expected_text,case_encoding",
     [
@@ -188,9 +212,10 @@ async def test_bash_timeout_keeps_partial_output_and_bounded_metadata(
     maximum = next(
         parameter.max_value for parameter in tool.schema.parameters if parameter.name == "timeout"
     )
-    assert 0 < maximum < tool.schema.timeout
+    assert maximum is None
+    assert (await tool.validate_parameters({"command": "echo hi", "timeout": 3600}))[0]
     result = await tool.execute(
-        {"command": "echo hi", "cwd": ".", "timeout": maximum},
+        {"command": "echo hi", "cwd": ".", "timeout": 30},
         ToolExecutionContext(agent_id="test-agent", workspace="."),
     )
 
@@ -206,5 +231,5 @@ async def test_bash_timeout_keeps_partial_output_and_bounded_metadata(
     command, kwargs = calls[0]
     assert command == ["/usr/bin/bash", "-c", "echo hi"]
     assert kwargs["shell"] is False
-    assert kwargs["timeout"] == maximum
+    assert kwargs["timeout"] is None
     assert kwargs["max_spill_bytes"] == 0

@@ -8,6 +8,7 @@ import type {
   TurnExecutionControlState,
 } from './presentation.types';
 import {
+  isPendingRunState,
   isTerminalRunState,
   normalizeRunState,
   normalizeTerminalRunState,
@@ -97,7 +98,9 @@ export const getExecutionActionState = (
 ): ProjectedExecutionActionState => {
   const turnId = String(message.turnId || '').trim();
   const executionControl = turnId ? executionControlByTurnId[turnId] : undefined;
-  const traceStatus = normalizeRunState(message.traceSummary?.status) || 'running';
+  const hasFinishedReply = message.role === 'assistant' && message.kind === 'assistant'
+    && !message.streaming && message.messageKind !== 'assistant_interim';
+  const traceStatus = normalizeRunState(message.traceSummary?.status) || (hasFinishedReply ? 'completed' : 'running');
   const backendRunState = normalizeRunState(message.runState?.state);
   const executionControlState = normalizeRunState(executionControl?.state);
   const terminalBackendRunState = normalizeTerminalRunState(backendRunState) || '';
@@ -344,7 +347,7 @@ export const projectExecutionProgressPresentation = (
     planStage,
     showBubbleTitle: variant === 'card' || (!runningBubbleUsesMessageText && statusTitle !== contentText),
     indicator: terminalState || 'progress',
-    showSpinningIndicator: executionState === 'running' || executionState === 'cancelling' || executionState === 'detaching',
+    showSpinningIndicator: isPendingRunState(executionState),
     traceStats: traceSummary
       ? {
         activeSteps,

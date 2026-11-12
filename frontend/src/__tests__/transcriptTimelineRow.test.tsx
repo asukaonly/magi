@@ -106,6 +106,15 @@ const createTranscriptRow = (
 );
 
 describe('TranscriptTimelineRow', () => {
+  it('keeps streaming feedback available without an execution projection', () => {
+    render(createTranscriptRow({
+      id: 'stream', role: 'assistant', kind: 'assistant', content: '', timestamp: 1000,
+      streaming: true, runtimeStatuses: [{ source: 'assistant_tool_call', content: 'Checking the source.' }],
+    }));
+    expect(screen.getByRole('status')).toHaveTextContent('Checking the source.');
+    expect(screen.getByRole('button', { name: 'chat.runtime.expand' })).toBeInTheDocument();
+  });
+
   beforeEach(() => {
     vi.mocked(codeAgentApi.getDelegation).mockReset();
     useConversationStore.getState().reset();

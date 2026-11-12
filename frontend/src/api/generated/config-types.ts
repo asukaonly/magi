@@ -456,14 +456,49 @@ export interface components {
         };
         /**
          * LLMModelCostModel
-         * @description Provider-published pricing metadata for a model.
+         * @description Provider-published prices; absent rates mean unknown, never free.
          */
         LLMModelCostModel: {
+            /**
+             * Audio Input Per Million Tokens
+             * @default null
+             */
+            audio_input_per_million_tokens: number | null;
+            /**
+             * Audio Output Per Million Tokens
+             * @default null
+             */
+            audio_output_per_million_tokens: number | null;
+            /**
+             * Cache Storage Per Million Token Hours
+             * @default null
+             */
+            cache_storage_per_million_token_hours: number | null;
+            /**
+             * Cache Write 12H Per Million Tokens
+             * @default null
+             */
+            cache_write_12h_per_million_tokens: number | null;
+            /**
+             * Cache Write 1H Per Million Tokens
+             * @default null
+             */
+            cache_write_1h_per_million_tokens: number | null;
             /**
              * Cache Write Per Million Tokens
              * @default null
              */
             cache_write_per_million_tokens: number | null;
+            /**
+             * Cached Audio Input Per Million Tokens
+             * @default null
+             */
+            cached_audio_input_per_million_tokens: number | null;
+            /**
+             * Cached Image Input Per Million Tokens
+             * @default null
+             */
+            cached_image_input_per_million_tokens: number | null;
             /**
              * Cached Input Per Million Tokens
              * @default null
@@ -474,6 +509,18 @@ export interface components {
              * @default USD
              */
             currency: string;
+            /** Endpoint Hosts */
+            endpoint_hosts: string[];
+            /**
+             * Image Input Per Million Tokens
+             * @default null
+             */
+            image_input_per_million_tokens: number | null;
+            /**
+             * Image Output Per Million Tokens
+             * @default null
+             */
+            image_output_per_million_tokens: number | null;
             /**
              * Input Per Million Tokens
              * @default null
@@ -484,11 +531,25 @@ export interface components {
              * @default null
              */
             output_per_million_tokens: number | null;
+            /** @default null */
+            peak_pricing: components["schemas"]["LLMPeakPricing"] | null;
             /**
              * Per Image
              * @default null
              */
             per_image: number | null;
+            /**
+             * Per Input Image
+             * @default null
+             */
+            per_input_image: number | null;
+            /**
+             * Per Million Characters
+             * @default null
+             */
+            per_million_characters: number | null;
+            /** Rules */
+            rules: components["schemas"]["LLMPricingRule"][];
             /**
              * Source
              * @default null
@@ -499,6 +560,11 @@ export interface components {
              * @default null
              */
             source_note: string | null;
+            /**
+             * Verified On
+             * @default null
+             */
+            verified_on: string | null;
         };
         /**
          * LLMModelMetadataOverrideSettings
@@ -566,6 +632,91 @@ export interface components {
              * @default null
              */
             vendor: components["schemas"]["ModelVendor"] | null;
+        };
+        /**
+         * LLMPeakPricing
+         * @description UTC weekday peak windows, excluding published Chinese holiday dates.
+         */
+        LLMPeakPricing: {
+            /** Calendar Years */
+            calendar_years: number[];
+            /** Holidays */
+            holidays: [
+                string,
+                string
+            ][];
+            /** Multiplier */
+            multiplier: number;
+            /** Sources */
+            sources: string[];
+            /** Utc Windows */
+            utc_windows: [
+                number,
+                number
+            ][];
+        };
+        /**
+         * LLMPricingRule
+         * @description Matching rules override rates in order; multipliers compose afterward.
+         */
+        LLMPricingRule: {
+            /**
+             * Cache Mode
+             * @default null
+             */
+            cache_mode: ("implicit" | "explicit") | null;
+            /** Endpoint Hosts */
+            endpoint_hosts: string[];
+            /**
+             * Ends At
+             * @default null
+             */
+            ends_at: string | null;
+            /** Image Sizes */
+            image_sizes: string[];
+            /**
+             * Inference Geo
+             * @default null
+             */
+            inference_geo: string | null;
+            /**
+             * Max Input Tokens
+             * @default null
+             */
+            max_input_tokens: number | null;
+            /**
+             * Max Output Tokens
+             * @default null
+             */
+            max_output_tokens: number | null;
+            /**
+             * Min Input Tokens
+             * @default null
+             */
+            min_input_tokens: number | null;
+            /**
+             * Min Output Tokens
+             * @default null
+             */
+            min_output_tokens: number | null;
+            /**
+             * Multiplier
+             * @default 1
+             */
+            multiplier: number;
+            rates: components["schemas"]["LLMRateOverrides"];
+            /** Service Tiers */
+            service_tiers: string[];
+            /**
+             * Starts At
+             * @default null
+             */
+            starts_at: string | null;
+            /**
+             * Thinking
+             * @default null
+             */
+            thinking: boolean | null;
         };
         /**
          * LLMProviderASRSettings
@@ -730,6 +881,46 @@ export interface components {
              * @default 90
              */
             timeout: number;
+        };
+        /**
+         * LLMRateOverrides
+         * @description Omitted prices inherit; explicit null makes the price unknown.
+         */
+        LLMRateOverrides: {
+            /** Audio Input Per Million Tokens */
+            audio_input_per_million_tokens?: number | null;
+            /** Audio Output Per Million Tokens */
+            audio_output_per_million_tokens?: number | null;
+            /** Cache Storage Per Million Token Hours */
+            cache_storage_per_million_token_hours?: number | null;
+            /** Cache Write 12H Per Million Tokens */
+            cache_write_12h_per_million_tokens?: number | null;
+            /** Cache Write 1H Per Million Tokens */
+            cache_write_1h_per_million_tokens?: number | null;
+            /** Cache Write Per Million Tokens */
+            cache_write_per_million_tokens?: number | null;
+            /** Cached Audio Input Per Million Tokens */
+            cached_audio_input_per_million_tokens?: number | null;
+            /** Cached Image Input Per Million Tokens */
+            cached_image_input_per_million_tokens?: number | null;
+            /** Cached Input Per Million Tokens */
+            cached_input_per_million_tokens?: number | null;
+            /** Currency */
+            currency?: string | null;
+            /** Image Input Per Million Tokens */
+            image_input_per_million_tokens?: number | null;
+            /** Image Output Per Million Tokens */
+            image_output_per_million_tokens?: number | null;
+            /** Input Per Million Tokens */
+            input_per_million_tokens?: number | null;
+            /** Output Per Million Tokens */
+            output_per_million_tokens?: number | null;
+            /** Per Image */
+            per_image?: number | null;
+            /** Per Input Image */
+            per_input_image?: number | null;
+            /** Per Million Characters */
+            per_million_characters?: number | null;
         };
         /** LLMSelectionConfigModel */
         LLMSelectionConfigModel: {

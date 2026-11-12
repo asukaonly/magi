@@ -36,6 +36,9 @@ const executionPlaceholderPriority = (projectedMessage: RenderableTimelineMessag
 };
 
 const shouldPinExecutionPlaceholderToTail = (projectedMessage: RenderableTimelineMessage): boolean => {
+  if (projectedMessage.surface === 'transcript'
+    && !projectedMessage.message.streaming
+    && projectedMessage.message.messageKind !== 'assistant_interim') return false;
   const turnId = String(projectedMessage.message.turnId || '').trim();
   if (!turnId) {
     return false;
@@ -69,6 +72,7 @@ type ChatTimelinePaneProps = {
   messageContextMenuRef: RefObject<HTMLDivElement>;
   messagesEndRef?: RefObject<HTMLDivElement>;
   timelineRef: RefObject<HTMLDivElement>;
+  timelineContentRef: RefObject<HTMLDivElement>;
   /**
    * True while a turn is in flight — set after the user sends and cleared when
    * the assistant turn completes. Used to decide whether to render the
@@ -116,6 +120,7 @@ export const ChatTimelinePane = ({
   messageContextMenuRef,
   messagesEndRef,
   timelineRef,
+  timelineContentRef,
   waitingForReply,
   historyReadState,
   loadingOlderHistory,
@@ -190,7 +195,17 @@ export const ChatTimelinePane = ({
     return ids;
   }, [messages]);
   const projectedMessages = useMemo(() => {
-    const projected = messages.map((message) => projectChatTimelineRow(message, {
+    const interimByTurnId = new Map<string, NonNullable<ChatTimelineMessage['runtimeStatuses']>>();
+    for (const message of messages) {
+      if (message.messageKind !== 'assistant_interim' || !message.turnId || !message.content.trim()) continue;
+      const statuses = interimByTurnId.get(message.turnId) ?? [];
+      statuses.push({ source: 'assistant_interim', content: message.content });
+      interimByTurnId.set(message.turnId, statuses);
+    }
+    const projected = messages.map((message) => projectChatTimelineRow(
+      message.role === 'assistant' && message.messageKind !== 'assistant_interim' && message.turnId && interimByTurnId.has(message.turnId)
+        ? { ...message, runtimeStatuses: [...(interimByTurnId.get(message.turnId) ?? []), ...(message.runtimeStatuses ?? [])] }
+        : message, {
       summaries,
       executionControlByTurnId,
       cancellingTurnIds,
@@ -219,7 +234,8 @@ export const ChatTimelinePane = ({
 
     projected.forEach((projectedMessage, index) => {
       const projectedTurnId = String(projectedMessage.message.turnId || '').trim();
-      if (projectedMessage.surface === 'runtime_status' && projectedTurnId && finalizedTurnIds.has(projectedTurnId)) {
+      if ((projectedMessage.surface === 'runtime_status' || projectedMessage.message.messageKind === 'assistant_interim')
+        && projectedTurnId && finalizedTurnIds.has(projectedTurnId)) {
         return;
       }
       const placeholderPriority = executionPlaceholderPriority(projectedMessage);
@@ -298,7 +314,7 @@ export const ChatTimelinePane = ({
         onCopyMessage={onCopyMessage}
         onDeleteMessage={onDeleteMessage}
       />
-      <div className="mx-auto flex w-full max-w-[1080px] flex-col px-1">
+      <div ref={timelineContentRef} className="mx-auto flex w-full max-w-[1080px] flex-col px-1">
         {historyReadState?.stale ? (
           <p role="status" className="mb-3 text-center text-xs text-muted-foreground">
             {t('chat.cachedHistory', { time: new Date(historyReadState.checkedAt).toLocaleString() })}

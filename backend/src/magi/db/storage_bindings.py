@@ -4,14 +4,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from magi_plugin_sdk.fs import atomic_write_managed_bytes, read_managed_bytes
 
 
 class StorageTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    kind: Literal["sqlite", "mysql"]
-    identity: str
+    kind: str = Field(min_length=1, max_length=64)
+    identity: str = Field(min_length=1, max_length=256)
+    plugin_id: str = Field(min_length=1, max_length=128)
+    connection_id: str = Field(pattern=r"^conn_[0-9a-f]{32}$")
+    contract_version: Literal[1] = 1
 
 
 class StorageTransferIntent(BaseModel):
@@ -23,7 +26,7 @@ class StorageTransferIntent(BaseModel):
 
 class StorageBinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    version: Literal[1] = 1
+    version: Literal[2] = 2
     center_id: str
     active: StorageTarget | None = None
     pending: StorageTransferIntent | None = None
@@ -44,4 +47,5 @@ class StorageBindingFile:
         return binding
 
     def write(self, binding: StorageBinding) -> None:
+        self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         atomic_write_managed_bytes(self._path, binding.model_dump_json().encode())

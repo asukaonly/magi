@@ -7,6 +7,7 @@ import locale
 import os
 import shutil
 from dataclasses import dataclass
+from functools import partial
 from typing import Dict, Any
 from magi_plugin_sdk.subprocess import (
     BoundedStreamOutput,
@@ -23,6 +24,7 @@ from ..schema import (
     ToolErrorCode,
 )
 from ._bash_grading import classify_command
+from ._shell_jobs import ShellJobs
 
 _PROXY_ENV_KEYS = (
     "HTTP_PROXY",
@@ -35,12 +37,11 @@ _PROXY_ENV_KEYS = (
     "no_proxy",
 )
 
-MAX_BASH_COMMAND_TIMEOUT_SECONDS = 300
 # The bounded runner can spend up to 18 seconds terminating the process tree
 # and settling stream readers. Keep two additional seconds for bounded result
 # construction and the registry handoff.
 SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS = 20
-BASH_TOOL_TIMEOUT_SECONDS = MAX_BASH_COMMAND_TIMEOUT_SECONDS + SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
+BASH_TOOL_TIMEOUT_SECONDS = 30 + SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
 
 
 def _windows_code_page_encoding(function_name: str) -> str | None:
@@ -240,6 +241,7 @@ def _bounded_output_data(output: _ShellOutput) -> dict[str, Any]:
             str(process.stderr.spill_path) if process.stderr.spill_path is not None else None
         ),
         "timed_out": process.timed_out,
+        "command_succeeded": not process.timed_out and process.returncode == 0,
     }
 
 
@@ -255,7 +257,10 @@ def _bash_description() -> str:
         "when shell networking is necessary, rely on the subprocess proxy environment "
         "generated from Magi network settings and do not hardcode proxy hosts or ports. "
         "Destructive commands (rm -rf, git push --force, git reset --hard, etc.) "
-        "are refused unless confirm_destructive=true is passed explicitly."
+        "are refused unless confirm_destructive=true is passed explicitly. "
+        "Commands that exceed the foreground wait keep running and return a job_id; "
+        "use shell_job to wait, inspect output, or stop them. To start a development "
+        "server, set background=true and keep the command in the foreground (no '&')."
     )
 
 
@@ -277,12 +282,13 @@ def _bash_parameters() -> list[ToolParameter]:
         ToolParameter(
             name="timeout",
             type=ParameterType.INTEGER,
-            description="Timeout (seconds)",
+            description="Foreground wait in seconds (at most 30 per call). Longer commands keep running as jobs.",
             required=False,
             default=30,
             min_value=1,
-            max_value=MAX_BASH_COMMAND_TIMEOUT_SECONDS,
         ),
+        ToolParameter(name="background", type=ParameterType.BOOLEAN, default=False,
+                      description="Return after starting the command; manage it with shell_job. Do not add '&'."),
         ToolParameter(
             name="confirm_destructive",
             type=ParameterType.BOOLEAN,
@@ -336,6 +342,7 @@ class BashTool(Tool):
 
     def _init_schema(self) -> None:
         """initialize Schema"""
+        self.jobs = ShellJobs("bash")
         self.schema = ToolSchema(
             name="bash",
             description=_bash_description(),
@@ -366,8 +373,13 @@ class BashTool(Tool):
             return _unsupported_bash_result(risk_data)
 
         try:
-            output = await self._run_bash(executable, request)
-            return self._result_from_output(request, output, risk_data)
+            return await self.jobs.start(
+                command=request.command, context=context,
+                risk_data=risk_data,
+                background=bool(parameters.get("background", False)), wait_seconds=request.timeout,
+                run=partial(self._run_bash, executable, request),
+                render=lambda result: self._result_from_output(request, _decode_bounded_process_output(result), risk_data),
+            )
 
         except FileNotFoundError:
             return ToolResult(
@@ -388,16 +400,21 @@ class BashTool(Tool):
         self,
         executable: str,
         request: _BashRequest,
-    ) -> _ShellOutput:
-        result = await run_bounded_subprocess(
+        **callbacks: Any,
+    ) -> BoundedSubprocessResult:
+        return await run_bounded_subprocess(
             [executable, "-c", request.command],
             shell=False,
-            timeout=request.timeout,
+            timeout=None,
             cwd=request.cwd,
             env=_build_subprocess_env(),
             max_spill_bytes=0,
+            label="shell_job.bash",
+            **callbacks,
         )
-        return _decode_bounded_process_output(result)
+
+    async def clear_user_content(self) -> None:
+        await self.jobs.close()
 
     def _result_from_output(
         self,
@@ -418,10 +435,7 @@ class BashTool(Tool):
                 data=result_data,
             )
         return ToolResult(
-            success=output.process.returncode == 0,
+            # A nonzero exit is an observation, not an ambiguous invocation.
+            success=True,
             data=result_data,
-            error=output.stderr if output.process.returncode != 0 else None,
-            error_code=(
-                ToolErrorCode.COMMAND_FAILED.value if output.process.returncode != 0 else None
-            ),
         )

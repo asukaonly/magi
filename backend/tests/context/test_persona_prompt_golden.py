@@ -143,6 +143,7 @@ async def test_seven_prompt_keeps_ordinary_chat_low_intensity() -> None:
     assert "* Persona: 七号" in prompt
     assert "* Candidate: chat" in prompt
     assert "* Persona Intensity: 1/3" in prompt
+    assert "Intensity limits theatrical emphasis, not the stable voice" in prompt
     assert "默认 1-3 句" in prompt
     assert "你喜欢吃什么" not in prompt
     assert "## Persona Trigger Candidates" not in prompt
@@ -173,6 +174,9 @@ async def test_emotional_context_selects_quiet_persona_behavior(message, fatigue
     assert "* Candidate: emotional" in prompt
     assert "* Condition: emotional_support" in prompt
     assert "sarcasm: none_to_light" in prompt
+    assert "## Quiet-Hour Candidates" in prompt
+    assert "## Quiet-Hour Clamp" not in prompt
+    assert "Keyword overlap is a retrieval hint, not proof" in prompt
     assert "* Persona Intensity: 1/3" in prompt
 
     if fatigue:
@@ -186,6 +190,17 @@ async def test_seven_prompt_does_not_treat_generic_difficulty_as_fatigue() -> No
 
     assert "* Candidate: chat" in prompt
     assert "* Candidate: emotional" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_explicit_seriousness_renders_a_clamp_separately_from_candidates() -> None:
+    prompt = await _render_seven_prompt(user_message="别开玩笑，我今天心情好差。")
+
+    assert "* Required Register: emotional" in prompt
+    hard_clamps = prompt.split("## Quiet-Hour Clamp", 1)[1].split("## Quiet-Hour Candidates", 1)[0]
+    assert "* Condition: user_requested_seriousness" in hard_clamps
+    assert "jokes: none" in hard_clamps
+    assert "emotional_support" not in hard_clamps
 
 
 @pytest.mark.asyncio
@@ -231,7 +246,7 @@ async def test_preset_prompt_includes_style_policy_without_stock_tails(
     [
         pytest.param(
             "absurdity (mid)",
-            "当场认大哥",
+            "可以认大哥",
             "crisis (mid)",
             "hostility (mid)",
             "我整了个特别离谱的活，你听完别笑",
@@ -299,3 +314,38 @@ async def test_seven_prompt_revealed_layer_renders_relationship_modifiers() -> N
     assert "## Relationship Layer Modifiers" in prompt
     assert "* Active Layer: revealed" in prompt
     assert "护短" in prompt
+    assert "实际记忆依据" in prompt
+    assert "先听" in prompt
+    assert "打字然后删掉" not in prompt
+    assert "一连串更离谱" not in prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message,reply",
+    [
+        ("哦", "七号: 嗯。"),
+        ("晚安", "七号: 晚安。"),
+        ("我回来了", "七号: 回来了啊。"),
+        ("我今天面试过了！", "七号: 过了啊。那今天可以理直气壮地歇了。"),
+        ("谢谢你，刚才帮大忙了。", "七号: 行，没白折腾。"),
+        ("你刚才那句让我有点不舒服。", "刚才损过头了，对不起"),
+        ("我宣布这个 bug 是量子态。", "一开调试就坍缩是吧"),
+        ("今天没什么事，就是想找你待会儿。", "七号: ……行。没事也能聊。"),
+        ("我只是想吐槽，没让你修。", "七号: 哦。那你骂，我先不动。"),
+    ],
+)
+async def test_seven_prompt_selects_ordinary_and_repair_examples(message, reply) -> None:
+    prompt = await _render_seven_prompt(user_message=message)
+    assert reply in prompt
+    assert "一个按钮干活" not in prompt
+    assert "今天这电量" not in prompt
+    assert "Bad:" not in prompt
+    assert "Examples illustrate voice, not facts about this conversation" in prompt
+
+
+@pytest.mark.asyncio
+async def test_seven_prompt_omits_examples_when_the_topic_does_not_match() -> None:
+    prompt = await _render_seven_prompt(user_message="这张照片里的云很漂亮")
+    assert "## Relevant Persona Examples" not in prompt
+    assert "* Persona: 七号" in prompt

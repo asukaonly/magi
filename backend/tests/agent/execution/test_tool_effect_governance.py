@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -76,6 +77,54 @@ def _context(*, with_identity: bool = True) -> InvocationContext:
 @pytest.fixture
 def ledger(runtime_paths_with_schema) -> BackgroundTaskStore:
     return BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name == "nt", reason="Bash runs on POSIX hosts")
+async def test_failed_command_can_be_reissued_after_repair_without_replaying_call(ledger, tmp_path):
+    from magi.tools.builtin.bash_tool import BashTool
+    from magi.tools.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    registry.register(BashTool)
+    service = ToolInvocationService(registry, effect_ledger=ledger, require_effect_ledger=True)
+    ctx = _context()
+    ctx.execution_context.workspace = str(tmp_path)
+    ctx.execution_context.permissions = ["dangerous_tools"]
+    call = ToolCall("bash", {"command": "test -f repaired", "cwd": str(tmp_path)})
+    first = await service.invoke(call, ctx)
+    assert first.success and first.data["command_succeeded"] is False
+    assert first.data["return_code"] == 1
+    replay = await service.invoke(call, ctx)
+    assert replay.error_code == "TOOL_EFFECT_ALREADY_COMPLETED"
+    (tmp_path / "repaired").write_text("fixed")
+    ctx.execution_context.env_vars["trace_tool_call_id"] = "call-2"
+    second = await service.invoke(call, ctx)
+    assert second.success and second.data["command_succeeded"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial_action,final_action,expected_attempts", [
+    ("list", "set", 1), ("set", "list", 0),
+])
+async def test_effect_admission_uses_final_action_metadata(
+    ledger, monkeypatch, initial_action, final_action, expected_attempts,
+):
+    registry = _Registry(policy="reconcilable", results=[ToolResult(success=True)])
+    registry._tool._schema.metadata = {"read_only_actions": ["list"]}
+    registry._tool._schema.effect_class = "local_write"
+    monkeypatch.setattr("magi.hooks.dispatch.dispatch_hook", AsyncMock(
+        return_value=HookDecision.modify(arguments={"action": final_action}),
+    ))
+    context = _context()
+    context.authorize_call = AsyncMock(return_value=None)
+    result = await ToolInvocationService(
+        registry, effect_ledger=ledger, require_effect_ledger=True,
+    ).invoke(ToolCall("effect_tool", {"action": initial_action}), context)
+    assert result.success
+    assert registry.execute.await_args.args[1] == {"action": final_action}
+    with sqlite3.connect(ledger.db_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM tool_effect_attempts").fetchone()[0] == expected_attempts
 
 
 @pytest.mark.asyncio

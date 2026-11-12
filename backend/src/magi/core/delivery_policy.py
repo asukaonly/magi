@@ -1,11 +1,11 @@
 """Shared delivery retry and lease policy; business stores retain transaction ownership."""
-MAX_ATTEMPTS = 5
-SEND_TIMEOUT_SECONDS = 30.0
-PREPARATION_TIMEOUT_SECONDS = 120.0
-LEASE_MS = int((PREPARATION_TIMEOUT_SECONDS + SEND_TIMEOUT_SECONDS + 30) * 1000)
-LIFETIME_MS = 86_400_000
-UNAVAILABLE_RETRY_MS = 5000
 
-
-def retry_delay_ms(attempt_count: int) -> int:
-    return min(300_000, 1000 << min(max(attempt_count, 0), 8))
+from magi_plugin_sdk.storage_models.delivery_policy import (
+    MAX_ATTEMPTS,
+    SEND_TIMEOUT_SECONDS,
+    PREPARATION_TIMEOUT_SECONDS,
+    LEASE_MS,
+    LIFETIME_MS,
+    UNAVAILABLE_RETRY_MS,
+    retry_delay_ms,
+)

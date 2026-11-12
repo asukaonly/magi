@@ -1,107 +1,27 @@
-"""Relational persistence composition for the chat domain."""
+"""Compose shared chat transactions with host-owned asset validation."""
 
-from __future__ import annotations
+from magi_plugin_sdk.storage_chat.relational_store import RelationalChatRepository as SharedChatRepository
 
-import logging
-from typing import Callable
-
-
+from ...core.chat_assets.mutations import chat_asset_mutation_guarded_if
 from ...utils.runtime import RuntimePaths
-from .relational import ChatDatabase, ChatRow
-from .statements import ChatSql
-from .ownership import ChatOwnershipPersistenceMixin
-from .assistant_memory_outbox import (
-    ChatAssistantMemoryOutboxPersistenceMixin,
-)
-from .attachments import ChatAttachmentPersistenceMixin
-from .context_summaries import ChatContextSummaryPersistenceMixin
-from .delivery_failures import ChatDeliveryFailurePersistenceMixin
-from .delivery_outcomes import ChatDeliveryOutcomePersistenceMixin
-from .messages import ChatMessagePersistenceMixin
-from .post_turn_outbox import ChatPostTurnOutboxMixin
-from .outbound_delivery import ChatOutboundDeliveryMixin
-from .model_context import ChatModelContextPersistenceMixin
-from .sessions import ChatSessionPersistenceMixin
-from .task_execution_budgets import (
-    ChatTaskExecutionBudgetPersistenceMixin,
-)
-from .turns import ChatTurnPersistenceMixin
-from .user_turn_delivery import (
-    ChatUserTurnDeliveryPersistenceMixin,
-)
+from ..asset_validation import has_explicit_asset_payloads, has_explicit_asset_payload_map, has_managed_asset_payloads
+from .host import LocalChatStorageHost
+from .relational import ChatDatabase
 
 
-logger = logging.getLogger(__name__)
-
-
-class RelationalChatRepository(
-    ChatOwnershipPersistenceMixin,
-    ChatAttachmentPersistenceMixin,
-    ChatAssistantMemoryOutboxPersistenceMixin,
-    ChatContextSummaryPersistenceMixin,
-    ChatDeliveryFailurePersistenceMixin,
-    ChatDeliveryOutcomePersistenceMixin,
-    ChatMessagePersistenceMixin,
-    ChatPostTurnOutboxMixin,
-    ChatOutboundDeliveryMixin,
-    ChatModelContextPersistenceMixin,
-    ChatSessionPersistenceMixin,
-    ChatTaskExecutionBudgetPersistenceMixin,
-    ChatTurnPersistenceMixin,
-    ChatUserTurnDeliveryPersistenceMixin,
-):
-    """Compose chat persistence capabilities and own their lifecycle."""
-
+class RelationalChatRepository(SharedChatRepository):
     def __init__(self, *, database: ChatDatabase, runtime_paths: RuntimePaths) -> None:
-        self.database = database
-        self._runtime_paths = runtime_paths
-        self._initialized = False
-        self._assistant_memory_outbox_waker: Callable[[], None] | None = None
+        super().__init__(database=database, host=LocalChatStorageHost(runtime_paths))
 
-    async def initialize(self) -> None:
-        """Open storage owned by the composition root."""
-        if not self._initialized:
-            await self.database.initialize()
-            self._initialized = True
-
-    async def shutdown(self) -> None:
-        """Reset the repository without closing a shared database owner."""
-        self._initialized = False
-
-    def set_assistant_memory_outbox_waker(
-        self,
-        waker: Callable[[], None] | None,
-    ) -> None:
-        """Bind the optional process-local wake hint for durable outbox work."""
-
-        self._assistant_memory_outbox_waker = waker
-
-    def _notify_assistant_memory_outbox(self) -> None:
-        waker = self._assistant_memory_outbox_waker
-        if waker is None:
-            return
-        try:
-            waker()
-        except Exception:
-            logger.exception("Assistant-memory outbox wake failed")
-
-    async def is_empty(self) -> bool:
-        """Return whether the chat store has any durable rows."""
-        await self.initialize()
-        async with self.database.session() as db:
-            for table in ("chat_sessions", "chat_turns", "chat_messages"):
-                cur = await db.execute(f"SELECT COUNT(*) FROM {table}")
-                row = await cur.fetchone()
-                if row is not None and int(row[0] or 0) > 0:
-                    return False
-        return True
-
-    async def _fetchone(
-        self,
-        sql: str | ChatSql,
-        params: tuple[object, ...],
-    ) -> ChatRow | None:
-        await self.initialize()
-        async with self.database.session() as db:
-            cur = await db.execute(sql, params)
-            return await cur.fetchone()
+    append_message = chat_asset_mutation_guarded_if(
+        "attachment_payloads", has_explicit_asset_payloads,
+    )(SharedChatRepository.append_message)
+    create_user_turn_once = chat_asset_mutation_guarded_if(
+        "attachment_payloads", has_managed_asset_payloads,
+    )(SharedChatRepository.create_user_turn_once)
+    commit_user_turn_assistant_outcome = chat_asset_mutation_guarded_if(
+        "attachment_payloads_by_message_id", has_explicit_asset_payload_map,
+    )(SharedChatRepository.commit_user_turn_assistant_outcome)
+    commit_unmanaged_assistant_outcome = chat_asset_mutation_guarded_if(
+        "attachment_payloads_by_message_id", has_explicit_asset_payload_map,
+    )(SharedChatRepository.commit_unmanaged_assistant_outcome)

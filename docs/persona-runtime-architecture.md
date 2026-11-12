@@ -18,16 +18,16 @@ Read this with:
 
 Persona is not a permanent output filter.
 
-A believable persona should usually sound like a normal conversational partner with stable preferences, attention patterns, and relationship-specific reactions. Strong style should appear when the situation activates it, not on every turn.
+A believable persona should have a recognizable everyday voice, stable preferences, attention patterns, and relationship-specific reactions. Strong performance should appear when the situation activates it, not on every turn. Low performance intensity must not erase directness, dry humor, or social temperament.
 
 The core rule is:
 
 ```text
-Persona = stable identity + low-intensity idiolect + register selection
+Persona = stable identity + recognizable idiolect + register selection
         + active signature triggers + relationship modifiers + state modulation
 ```
 
-The final reply model should not receive a full menu of persona states and decide what to perform. The runtime should first produce a `PersonaTurnPlan`, then prompt rendering should inject only the behavior that is relevant for the current turn.
+The runtime produces a bounded `PersonaTurnPlan` rather than a full menu of persona states. Hard requirements are enforced before rendering; retrieved expression and quiet-hour candidates remain conditional until the reply model interprets the actual conversation in the same call.
 
 ## Ownership
 
@@ -97,7 +97,7 @@ She is direct, technically sharp, defensive with strangers, and protective when 
 
 ### 2. Idiolect
 
-Idiolect is the persona's low-intensity language fingerprint. It is always available, but it should stay subtle.
+Idiolect is the persona's stable language fingerprint. It remains available in ordinary, technical, and emotional exchanges; performance limits reduce embellishment rather than replacing it with a generic assistant voice.
 
 It can include:
 
@@ -124,7 +124,7 @@ Magi should support at least these registers:
 | `emotional` | User vulnerability, fatigue, frustration, or support needs | Lower sarcasm; increase steadiness and care. |
 | `crisis` | Safety, privacy, security, urgent risk | No performance; short, concrete instructions. |
 
-Register should be chosen before prompt rendering. It should not be left as a long prompt block that asks the final model to infer the mode itself.
+The planner retrieves a compact register candidate set before rendering. Except for a hard requirement, the reply model chooses among those candidates from the user's actual meaning; the lexical fallback is not a semantic verdict.
 
 ### 4. Signature Triggers
 
@@ -300,10 +300,12 @@ tools inside the unified run.
 Hard clamps should be sparse, deterministic, and generic:
 
 - urgent safety or privacy risk forces `crisis`
-- explicit user instruction such as "be serious" activates a quiet-hour clamp
+- direct imperative clauses such as "be serious" or "别开玩笑" activate a quiet-hour clamp; isolated words such as "认真" or "serious" do not
 - surface constraints may lower expressiveness without changing identity
 
 Everything persona-specific should come from config, not code.
+
+Emotion-keyword matches and configured quiet-hour condition overlap are retrieval hints. Their quiet-hour records carry `conditional: true`, do not lower the planner's intensity, and render as conditional candidates rather than mandatory clamps. The reply model applies them only when the full context matches, distinguishing playful complaints from genuine distress. Explicit seriousness does not force an emotional-support turn into technical analysis. Focused work and crisis clamps remain mandatory. This uses the existing reply call, not an additional classifier.
 
 The planner may inspect all configured trigger activation conditions. The final
 reply prompt only receives the active trigger subset selected for this turn.
@@ -436,6 +438,10 @@ Recommended groups:
 Quick mode should ask only for the fields a normal user can reason about directly: basic profile, stable identity, values, sentence style, and everyday response behavior. It must not expose trigger libraries, quiet-hour clamps, deep persona layers, or other runtime structure as first-screen work. Expert mode can expose full trigger, layer, register, and dynamic-state controls, but advanced sections should use progressive disclosure instead of opening every internal structure at once. Deep persona layers are intentionally a discovery/play surface in the product UI; opening them should require explicit confirmation because the content may spoil relationship-depth mechanics. The `surface` layer is a required fixed baseline and should remain in the config, but it is not a user-editable or removable deep layer in the editor.
 
 The top-level `description` should be treated as selector and card summary text, not as a second identity field. Runtime identity comes from `identity_core.identity_statement`; UI copy and labels should make that distinction obvious so users do not duplicate the same content in both fields. Register examples should be edited as block-based few-shot templates, with one short user turn and one AI turn per block separated by blank lines, instead of flattening examples into loose single lines. Quiet-hour `clamps` should prefer enumerated known runtime keys rather than unconstrained free-text keys, and deep persona layers should expose structured unlock conditions such as trust threshold, interaction count, and milestone requirement instead of a raw JSON-like blob.
+
+Each runtime example uses `[User: ...]`, a newline, and the actual good reply. Example selection compares only the user cue with the current message, never the assistant reply or a negative demonstration. It selects at most two examples using conservative lexical similarity (exact normalized matches or token Dice similarity of at least 0.5); ties retain declaration order. Empty, malformed, and unrelated examples are omitted, even when fewer than two examples exist. There is no first-example fallback or extra model call. Paraphrases with little shared wording may receive no example; persona behavior and idiolect still apply.
+
+Seven is technically reliable, self-respecting, quick with dry humor, and slow to approach people or express closeness. Her everyday voice stays sharp without a mandatory closing joke. Practical problem-solving may precede recognition of an implicit emotional need, but explicit needs must be respected rather than deliberately missed. Familiarity reduces defensiveness and permits quiet company, uncertainty, and memory-grounded shared jokes; it does not automatically make her sweeter or more proactive. Her low ordinary chattiness does not limit detailed technical answers, and reserved initiation must not suppress explicit reminders or assigned work. Identity, relationships, and memories retain their existing owners and identifiers.
 
 The editor and save flow should share one validation contract. Minimum readiness requires name, identity statement, loved/rejected values, baseline idiolect, and chat behavior. Expert readiness additionally checks signature trigger count and shape, quiet-hour count and clamps, all core registers, six examples, unique trigger IDs, layer shape, surface layer presence, and first-meeting bootstrap content. Minimum validation copy should read as save guidance, not as a startup error.
 

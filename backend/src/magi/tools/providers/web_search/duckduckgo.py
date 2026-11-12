@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import aiohttp
 
 from ..base import Provider, ProviderConfig
+from ..http_errors import ProviderRateLimitError, parse_retry_after_seconds
 
 
 class _DuckDuckGoResultsParser(HTMLParser):
@@ -142,6 +143,13 @@ class DuckDuckGoSearchProvider(Provider):
                     if self._is_challenge_response(response.status, html):
                         raise Exception(
                             "DuckDuckGo search challenge triggered. The provider returned an anti-bot verification page instead of search results."
+                        )
+                    if response.status == 429:
+                        raise ProviderRateLimitError(
+                            "DuckDuckGo search rate limit exceeded",
+                            retry_after_seconds=parse_retry_after_seconds(
+                                response.headers.get("Retry-After")
+                            ),
                         )
                     raise Exception(f"DuckDuckGo API error: {response.status} - {html}")
 

@@ -8,6 +8,7 @@ PYTHON_BIN="${PYTHON:-python}"
 cd "$ROOT_DIR/backend/src"
 
 export PYTHONPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${PYTHONPATH:+:$PYTHONPATH}"
+export MYPYPATH="$ROOT_DIR/backend/src:$ROOT_DIR/sdk/src${MYPYPATH:+:$MYPYPATH}"
 
 TYPE_GATE_DIRS=(
   magi/agent/execution/function_calling
@@ -42,6 +43,8 @@ TYPE_GATE_DIRS=(
   magi/runtime_trace/chat_trace/builders
   magi/chat/storage
   magi/chat/user_turn_delivery
+  "$ROOT_DIR/sdk/src/magi_plugin_sdk/storage_models"
+  "$ROOT_DIR/sdk/src/magi_plugin_sdk/storage_ports"
 )
 
 TYPE_GATE_FILES=(
@@ -68,7 +71,9 @@ TYPE_GATE_FILES=(
   magi/llm/concurrency_limiter.py
   magi/llm/streaming_events.py
   magi/llm/usage_store.py
-  magi/llm/usage_tracing.py
+  magi/llm/reasoning_dialect.py
+  magi/runtime_trace/usage_tracing.py
+  magi/memory/l1/source_facets.py
   magi/memory/l1/cognition_handoffs.py
   magi/memory/l2/batch_models.py
   magi/memory/l2/candidate_models.py
@@ -101,6 +106,9 @@ TYPE_GATE_FILES=(
   magi/memory/l2/pipeline/queueing.py
   magi/memory/l2/pipeline/utils.py
   magi/memory/l2/pipeline/workers.py
+  "$ROOT_DIR/sdk/src/magi_plugin_sdk/storage.py"
+  "$ROOT_DIR/sdk/src/magi_plugin_sdk/storage_errors.py"
+  "$ROOT_DIR/sdk/src/magi_plugin_sdk/storage_chat/host.py"
 )
 
 for target in "${TYPE_GATE_DIRS[@]}" "${TYPE_GATE_FILES[@]}"; do

@@ -29,7 +29,9 @@ from magi.plugins.operation_authorization import build_host_invocation
 from magi.plugins.operations import PluginOperationRegistry
 from magi.speech.tts.engines import pcm_wav
 from magi.tools.registry import ToolRegistry
-from channels.test_storage_transfer import environment as environment
+from _shared.storage_plugins import mysql_package, mysql_settings, storage_environment, select
+from magi.bootstrap.storage_plugins import build_storage_plugin_runtime
+from magi.config.storage_models import StructuredStorageSettings
 from memory.test_vector_factory import _chroma_factory
 from memory.test_clear_embedding_barrier import _DeterministicEmbeddingService, _user_message
 
@@ -51,14 +53,16 @@ def operation_runtime(paths, effect):
 
 
 @pytest.mark.parametrize('audio_uncertain', [False, True])
-async def test_phone_operation_text_speech_restart_and_clear(environment, ensure_db_schema, audio_uncertain):
-    paths, settings = environment
+async def test_phone_operation_text_speech_restart_and_clear(storage_environment, ensure_db_schema, audio_uncertain):
+    paths, remote = storage_environment
     for chain, path in [('background_tasks', paths.background_tasks_db_path), ('runtime_trace', paths.runtime_trace_db_path)]:
         ensure_db_schema(chain, path)
-    settings = settings.model_copy(update={'chat': 'mysql', 'memory_events': 'mysql'})
+    settings = StructuredStorageSettings(chat=remote, memory_events=remote, channels=remote)
+    select(paths, settings)
     context = RuntimeBootstrapContext()
     context.core.runtime_paths = paths
     context.core.config = SimpleNamespace(structured_storage=settings)
+    context.plugins.storage_runtime = build_storage_plugin_runtime(paths)
     module = StructuredStorageModule(context)
     factory = _chroma_factory(paths.memory_dir, ensure_db_schema)
     memory = None
@@ -154,3 +158,4 @@ async def test_phone_operation_text_speech_restart_and_clear(environment, ensure
         await factory.clear_all()
         await factory.close()
         await module.shutdown()
+        await context.plugins.storage_runtime.close()

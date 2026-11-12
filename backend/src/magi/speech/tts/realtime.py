@@ -5,17 +5,19 @@ import base64
 import binascii
 import json
 import threading
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
+from magi.runtime_trace.media_usage import openai_media_usage
 
 if TYPE_CHECKING:
     from .engines import EngineOptions
 
 
-async def synthesize_pcm(text: str, options: "EngineOptions", cancellation: threading.Event) -> bytes:
+async def synthesize_pcm(text: str, options: "EngineOptions", cancellation: threading.Event,
+                         billing: dict[str, Any]) -> bytes:
     """Return complete 24 kHz mono PCM, or reject a partial/failed response."""
     base = urlsplit(options.base_url)
     url = urlunsplit(("wss", base.netloc, base.path.rstrip("/") + "/realtime",
@@ -56,6 +58,7 @@ async def synthesize_pcm(text: str, options: "EngineOptions", cancellation: thre
                     if len(audio) > 2 * 1024 * 1024:
                         raise ValueError("audio_too_large")
                 elif kind == "response.done":
+                    billing["media_usage"] = openai_media_usage(event["response"].get("usage"), output_modality="audio")
                     if event["response"]["status"] != "completed":
                         raise ValueError("provider_rejected")
                     if not audio or len(audio) % 2:

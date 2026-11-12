@@ -9,6 +9,10 @@ from enum import Enum
 from typing import Any, Iterable
 
 
+USER_INPUT_EVIDENCE_REF = "user_input"
+FINAL_RESPONSE_EVIDENCE_REF = "final_response"
+
+
 class PlanStatus(str, Enum):
     ACTIVE = "active"
     COMPLETED = "completed"

@@ -184,7 +184,7 @@
     "web_search": {
       "no_providers": {
         "error": "No search providers are configured. Ask the user to configure a provider API key via system-settings, then retry.",
-        "llm_guidance": "Do not retry web search until at least one search provider is available. Ask the user to confirm tool configuration or restore a supported provider.",
+        "llm_guidance": "Web search is unavailable until a search provider is configured. Continue with other available tools when they can complete the task, such as fetching a known URL. Ask the user to configure search only if it is still needed.",
         "user_message": "To continue web search, please ensure the web search tool is configured. I will resume the current search after it is available."
       },
       "all_providers_failed": {
@@ -194,9 +194,13 @@
       },
       "duckduckgo_challenge": {
         "error": "DuckDuckGo search challenge triggered. Configure another web-search provider and retry.",
-        "llm_guidance": "DuckDuckGo is currently blocked by an anti-bot challenge for this search. Ask the user to configure Brave, Perplexity, or Tavily via system-settings before retrying. Do not keep retrying DuckDuckGo for the same request.",
+        "llm_guidance": "DuckDuckGo is blocked by an anti-bot challenge. Do not retry it for this request. Continue with other available tools when they can complete the task, such as fetching a known URL. Ask the user to configure another search provider only if search is still needed.",
         "user_message": "DuckDuckGo hit an anti-bot check this time and could not return stable results. Please configure Brave, Perplexity, or Tavily in settings, then I can continue the search.",
         "fallback_reason": "DuckDuckGo returned an anti-bot verification challenge instead of usable search results."
+      },
+      "temporary_provider_failure": {
+        "llm_guidance": "Search failed because a provider timed out or was rate limited. A bounded retry is allowed; respect any retry delay. Other available tools may also complete the task.",
+        "user_message": "Search is temporarily unavailable ({providers}). I can retry or use another available tool."
       }
     },
     "config": {

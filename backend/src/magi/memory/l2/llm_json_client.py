@@ -434,7 +434,7 @@ class L2LLMJsonClientMixin:
         return adapter, LLMProviderBridge(adapter)
 
     def _resolve_max_output_tokens(self, *, scenario: LLMScenario) -> int:
-        default_limit = 4096
+        default_limit = 32_768
         host = self._llm_json_client_host()
         pool = host._scenario_llm_pool
         if pool is None:
@@ -462,7 +462,7 @@ class L2LLMJsonClientMixin:
             resolved = int(max_output_tokens)
         except (TypeError, ValueError):
             return default_limit
-        return resolved if resolved > 0 else default_limit
+        return min(default_limit, resolved) if resolved > 0 else default_limit
 
     def _usage_log_fields(self, response: ProviderResponse) -> dict[str, Any]:
         usage = response.usage

@@ -48,6 +48,7 @@ from magi.agent.task_agents.handlers import (
     ExecutionRequest,
     ExecutionResult,
 )
+from magi.agent.task_agents.common import AgentRunExecutionResult
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from magi.chat.task_agent.reply_context import ChatReplyContextMixin
 from magi.chat.task_agent.recall_feedback_context import ChatRecallFeedbackContextMixin
@@ -810,9 +811,14 @@ class ChatTaskAgent(
                 if isinstance(context.latest_fact, FactRecord)
                 else None
             )
-            return ExecutionResult(
+            error_text = _format_llm_error(exc)
+            return AgentRunExecutionResult(
                 mode=request.mode,
-                response_text=_format_llm_error(exc),
+                response_text=error_text,
+                execution_outcome={
+                    "status": "failed",
+                    "failure_reason": error_text,
+                },
                 root_user_message=context.latest_user_message,
                 correlation_id=correlation_id,
                 message_started_at=getattr(request, "message_started_at", None),

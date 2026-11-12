@@ -13,6 +13,10 @@ from magi.tools.providers.http_errors import (
     parse_retry_after_seconds,
 )
 from magi.tools.providers.web_search.brave import BraveSearchProvider
+from magi.tools.providers.web_search.duckduckgo import DuckDuckGoSearchProvider
+from magi.tools.providers.web_search.perplexity import PerplexitySearchProvider
+from magi.tools.providers.web_search.searxng import SearXNGSearchProvider
+from magi.tools.providers.web_search.tavily import TavilySearchProvider
 from magi.tools.providers.web_search.rate_limit import SharedProviderRateLimiter
 
 
@@ -67,7 +71,14 @@ def test_parse_retry_after_supports_seconds_and_http_dates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_brave_provider_exposes_retry_after(monkeypatch) -> None:
+@pytest.mark.parametrize("provider_class,challenge", [
+    (BraveSearchProvider, False), (DuckDuckGoSearchProvider, False),
+    (PerplexitySearchProvider, False), (SearXNGSearchProvider, False),
+    (TavilySearchProvider, False), (DuckDuckGoSearchProvider, True),
+])
+async def test_search_provider_distinguishes_rate_limit_from_challenge(
+    monkeypatch, provider_class, challenge: bool,
+) -> None:
     class _Response:
         status = 429
         headers = {"Retry-After": "6"}
@@ -77,6 +88,9 @@ async def test_brave_provider_exposes_retry_after(monkeypatch) -> None:
 
         async def __aexit__(self, exc_type, exc, traceback) -> None:
             return None
+
+        async def text(self) -> str:
+            return "Bots use DuckDuckGo too" if challenge else "Too many requests"
 
     class _Session:
         async def __aenter__(self):
@@ -88,15 +102,21 @@ async def test_brave_provider_exposes_retry_after(monkeypatch) -> None:
         def get(self, *args, **kwargs):
             return _Response()
 
+        post = get
+
     monkeypatch.setattr(
         "magi.tools.providers.web_search.brave.aiohttp.ClientSession",
         lambda **kwargs: _Session(),
     )
 
-    with pytest.raises(ProviderRateLimitError) as captured:
-        await BraveSearchProvider().execute(
+    with pytest.raises(Exception if challenge else ProviderRateLimitError) as captured:
+        await provider_class().execute(
             {"query": "hello"},
-            ProviderConfig(api_key="configured"),
+            ProviderConfig(api_key="configured", base_url="https://example.org"),
         )
 
-    assert captured.value.retry_after_seconds == 6.0
+    if challenge:
+        assert not isinstance(captured.value, ProviderRateLimitError)
+        assert "challenge triggered" in str(captured.value)
+    else:
+        assert captured.value.retry_after_seconds == 6.0

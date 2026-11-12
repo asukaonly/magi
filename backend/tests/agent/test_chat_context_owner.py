@@ -5,8 +5,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-pytestmark = pytest.mark.usefixtures("bound_chat_reader")
-
 from magi.agent.task_agents.handlers import (
     ChatRuntimeContext,
     CapabilitySelection,
@@ -16,6 +14,8 @@ from magi.agent.task_agents.handlers import (
 )
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.context.contracts import PromptPackage
+
+pytestmark = pytest.mark.usefixtures("bound_chat_reader")
 
 
 class _FakeLLMAdapter:
@@ -83,7 +83,8 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(request.system_prompt, "owned-by-context-layer")
         self.assertEqual(request.runtime_world_state, "world-state")
-        self.assertEqual(request.working_context, "working-context")
+        self.assertEqual(request.working_context.split("\n\n", 1)[0], "working-context")
+        self.assertIn("\n\n## Picture stickers\n", request.working_context)
 
     async def test_chat_handlers_add_memory_query_guidance_when_capability_is_selected(self):
         agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())

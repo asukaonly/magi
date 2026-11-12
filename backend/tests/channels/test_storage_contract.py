@@ -15,8 +15,6 @@ from magi.channels.binding_settings_store import ChannelBindingSettingsStore
 from magi.outreach.ports import OutreachRepositories
 from magi.outreach.stores import OutreachOutboxStore, OutreachDeliveryLogStore
 from magi.outreach.contracts import OutreachIntentConflictError
-from magi.db.mysql import MysqlDatabase, MysqlSettings
-from magi.db.mysql_migrations import upgrade_mysql_channels
 
 
 @pytest.fixture(params=["sqlite", "mysql"])
@@ -35,6 +33,8 @@ async def repositories(request, tmp_path, ensure_db_schema, monkeypatch):
             ),
         )
         return
+    from _shared.mysql_storage_plugin.database import MysqlDatabase, MysqlSettings
+    from _shared.mysql_storage_plugin.schema_lifecycle import upgrade_mysql_channels
     port = os.environ.get("MAGI_TEST_MYSQL_PORT")
     if not port:
         pytest.skip("Set MAGI_TEST_MYSQL_PORT to test MySQL repositories")
@@ -49,16 +49,16 @@ async def repositories(request, tmp_path, ensure_db_schema, monkeypatch):
             port=int(port),
             database=name,
             user=os.environ.get("MAGI_TEST_MYSQL_USER", "root"),
-            password_env="MAGI_MYSQL_TEST_PASSWORD",
+            password=os.environ["MAGI_MYSQL_TEST_PASSWORD"],
             tls=False,
         )
     )
-    from magi.channels.persistence.mysql import (
+    from _shared.mysql_storage_plugin.channels.repositories import (
         MysqlChannelSessionRepository,
         MysqlDeliveryReceiptsRepository,
         MysqlChannelBindingSettingsRepository,
     )
-    from magi.outreach.persistence.mysql import (
+    from _shared.mysql_storage_plugin.outreach.repositories import (
         MysqlOutreachOutboxRepository,
         MysqlOutreachDeliveryLogRepository,
     )

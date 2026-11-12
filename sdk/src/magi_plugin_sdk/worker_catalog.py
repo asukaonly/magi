@@ -200,6 +200,22 @@ class WorkerCatalog:
                 }
             )
         catalog["get_providers"] = providers
+        storage = []
+        seen_storage = set()
+        for index, (spec, implementation) in enumerate(plugin.get_storage_providers()):
+            from .storage import StorageProviderSpec
+
+            spec = StorageProviderSpec.model_validate(spec)
+            if spec.provider_id in seen_storage:
+                raise ValueError("Duplicate storage provider identifier")
+            seen_storage.add(spec.provider_id)
+            methods = frozenset({"open", "invoke", "close"})
+            if any(not callable(getattr(implementation, name, None)) for name in methods):
+                raise ValueError("Storage provider does not implement its public protocol")
+            target = f"storage:{index}"
+            self.targets[target] = (implementation, methods)
+            storage.append({"target": target, "spec": spec})
+        catalog["get_storage_providers"] = storage
         channel = plugin.get_channel()
         catalog["get_channel"] = None
         if channel is not None:

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..checkpoint import AgentRunCheckpoint
+    from ..tool_metadata import ToolCapabilityMetadata
 
 
 @dataclass
@@ -40,6 +41,7 @@ class ToolCallResult:
     error_code: str | None = None
     execution_time: float = 0.0
     model_text: str | None = None
+    effect_metadata: ToolCapabilityMetadata | None = None
 
 
 @dataclass

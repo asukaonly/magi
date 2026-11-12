@@ -7,12 +7,21 @@ from .contracts import CompletionDecision, CompletionOutcome
 from .evidence import (
     ToolExecutionEvidence,
     failed_validation_evidence,
+    has_inline_validation,
     inconclusive_validation_evidence,
     successful_validation_evidence,
+    text_evidence_ref,
     unresolved_validations,
+    validation_check_passed,
     validation_checks,
 )
-from magi.control.run_plan import PlanStatus, RunPlan, TodoStatus
+from magi.control.run_plan import (
+    FINAL_RESPONSE_EVIDENCE_REF,
+    USER_INPUT_EVIDENCE_REF,
+    PlanStatus,
+    RunPlan,
+    TodoStatus,
+)
 
 
 class CompletionGate:
@@ -25,8 +34,17 @@ class CompletionGate:
         evidence: list[ToolExecutionEvidence],
         repair_iterations: int,
         run_plan: RunPlan | None = None,
+        user_input: str = "",
+        final_response: str = "",
     ) -> CompletionDecision:
-        refs = tuple(item.to_ref() for item in evidence)
+        text_refs = tuple(
+            text_evidence_ref(reference, text)
+            for reference, text in (
+                (USER_INPUT_EVIDENCE_REF, user_input),
+                (FINAL_RESPONSE_EVIDENCE_REF, final_response),
+            ) if text.strip()
+        )
+        refs = (*tuple(item.to_ref() for item in evidence), *text_refs)
         if policy.require_effect_terminal_state and any(item.uncertain for item in evidence):
             return CompletionDecision(
                 outcome=CompletionOutcome.BLOCKED,
@@ -37,16 +55,63 @@ class CompletionGate:
                 evidence_refs=refs,
             )
 
+        pending_jobs = _pending_shell_jobs(evidence)
+        if pending_jobs:
+            exhausted = repair_iterations >= policy.max_repair_iterations
+            return CompletionDecision(
+                outcome=CompletionOutcome.BLOCKED if exhausted else CompletionOutcome.CONTINUE,
+                reason_code="shell_job_pending",
+                observations=(
+                    "A foreground command is still running. Use shell_job to wait for its result, "
+                    "or explicitly stop it before reporting a final outcome. Job IDs: "
+                    + ", ".join(sorted(pending_jobs)),
+                ),
+                evidence_refs=refs,
+                repairable=not exhausted,
+            )
+
+        failed_effect_jobs = {
+            item.result["job_id"] for item in evidence
+            if _mutating_effect(item, evidence)
+            and any(_failed_shell_job(other) for other in _later_shell_observations(item, evidence))
+        }
+        if policy.require_effect_terminal_state and failed_effect_jobs:
+            return CompletionDecision(
+                outcome=CompletionOutcome.BLOCKED,
+                reason_code="uncertain_effect",
+                observations=(
+                    "A shell job failed without a reliable exit result. Reconcile its possible "
+                    "state changes before claiming completion. Job IDs: "
+                    + ", ".join(sorted(failed_effect_jobs)),
+                ),
+                evidence_refs=refs,
+            )
+
         plan_decision = _evaluate_required_plan(
             run_plan,
             evidence=evidence,
             repair_iterations=repair_iterations,
             max_repair_iterations=policy.max_repair_iterations,
             refs=refs,
+            text_refs={item.evidence_id for item in text_refs},
         )
         if plan_decision is not None:
             return plan_decision
 
+        guarded_effects = [
+            item for item in evidence
+            if _mutating_effect(item, evidence)
+            and not _confirmed_shell_effect(item, evidence) and (
+                (item.effect_class == "local_write" and policy.require_local_write_validation)
+                or (
+                    item.effect_class == "unknown"
+                    and policy.require_unknown_effect_validation
+                )
+            )
+        ]
+        # A command exit needs no invented file check, but an actual failed check
+        # after a mutation remains actionable evidence.
+        validation_scopes = _validation_scopes(evidence)
         failed_validation = failed_validation_evidence(
             evidence,
             validation_tool_names=policy.validation_tool_names,
@@ -59,7 +124,7 @@ class CompletionGate:
             evidence,
             validation_tool_names=policy.validation_tool_names,
         )
-        if unresolved_validations(failed_validation, evidence, successful_validation):
+        if unresolved_validations(failed_validation, evidence, successful_validation, required_paths=validation_scopes):
             if repair_iterations >= policy.max_repair_iterations:
                 return CompletionDecision(
                     outcome=CompletionOutcome.BLOCKED,
@@ -77,7 +142,7 @@ class CompletionGate:
                 repairable=True,
                 reasoning_helpful=True,
             )
-        if unresolved_validations(inconclusive_validation, evidence, successful_validation):
+        if unresolved_validations(inconclusive_validation, evidence, successful_validation, required_paths=validation_scopes):
             if repair_iterations >= policy.max_repair_iterations:
                 return CompletionDecision(
                     outcome=CompletionOutcome.BLOCKED,
@@ -98,16 +163,6 @@ class CompletionGate:
                 reasoning_helpful=False,
             )
 
-        local_writes = [
-            item for item in evidence if item.success and item.effect_class == "local_write"
-        ]
-        unknown_effects = [
-            item for item in evidence if item.success and item.effect_class == "unknown"
-        ]
-        guarded_effects = [
-            *(local_writes if policy.require_local_write_validation else []),
-            *(unknown_effects if policy.require_unknown_effect_validation else []),
-        ]
         last_guarded_effect_index = max(
             (index for index, item in enumerate(evidence) if item in guarded_effects),
             default=-1,
@@ -148,12 +203,152 @@ class CompletionGate:
 __all__ = ["CompletionGate"]
 
 
+def _completed_command(item: ToolExecutionEvidence) -> bool:
+    """Accept an actual shell exit receipt, without claiming file integrity."""
+    if item.tool_name not in {"bash", "powershell", "shell_job"} or not isinstance(item.result, dict):
+        return False
+    if item.tool_name == "shell_job" and (
+        item.result.get("shell_tool") not in {"bash", "powershell"}
+        or item.result.get("status") != "completed"
+    ):
+        return False
+    code = item.result.get("return_code")
+    return (
+        item.success
+        and item.result.get("status") not in {"starting", "running", "cancelled", "failed"}
+        and isinstance(code, int) and not isinstance(code, bool)
+        and item.result.get("command_succeeded") is (code == 0)
+        and item.result.get("timed_out") is False
+    )
+
+
+def _confirmed_shell_control(item: ToolExecutionEvidence) -> bool:
+    if not item.success or not isinstance(item.result, dict) or not item.result.get("job_id"):
+        return False
+    if item.tool_name in {"bash", "powershell"}:
+        return item.result.get("background_requested") is True and item.result.get("status") == "running"
+    return (
+        item.tool_name == "shell_job" and item.result.get("shell_tool") in {"bash", "powershell"}
+        and item.result.get("action") == "stop" and item.result.get("status") == "cancelled"
+        and item.result.get("stopped") is True
+    )
+
+
+def _pending_shell_jobs(evidence: list[ToolExecutionEvidence]) -> set[str]:
+    pending: dict[str, str] = {}
+    for item in evidence:
+        if not isinstance(item.result, dict):
+            continue
+        job_id = item.result.get("job_id")
+        if not isinstance(job_id, str) or not job_id:
+            continue
+        if item.success and item.tool_name in {"bash", "powershell"} and item.result.get("status") in {"starting", "running"}:
+            if not _confirmed_shell_control(item):
+                pending[job_id] = item.tool_name
+        elif item.tool_name == "shell_job" and pending.get(job_id) == item.result.get("shell_tool"):
+            if _completed_command(item) or _confirmed_shell_control(item) or _failed_shell_job(item):
+                pending.pop(job_id)
+    return set(pending)
+
+
+def _confirmed_shell_effect(item: ToolExecutionEvidence, evidence: list[ToolExecutionEvidence]) -> bool:
+    if _completed_command(item) or _confirmed_shell_control(item):
+        return True
+    return any(
+        _completed_command(other) or _confirmed_shell_control(other)
+        for other in _later_shell_observations(item, evidence)
+    )
+
+
+def _failed_shell_job(item: ToolExecutionEvidence) -> bool:
+    return (
+        item.tool_name == "shell_job" and isinstance(item.result, dict)
+        and item.result.get("status") == "failed"
+    )
+
+
+def _later_shell_observations(
+    item: ToolExecutionEvidence, evidence: list[ToolExecutionEvidence]
+) -> list[ToolExecutionEvidence]:
+    if (
+        item.tool_name not in {"bash", "powershell"} or not isinstance(item.result, dict)
+        or not isinstance(item.result.get("job_id"), str) or not item.result["job_id"]
+        or item.result.get("status") not in {"starting", "running"}
+    ):
+        return []
+    return [
+        other for other in evidence[evidence.index(item) + 1 :]
+        if other.tool_name == "shell_job" and isinstance(other.result, dict)
+        and other.result.get("job_id") == item.result["job_id"]
+        and other.result.get("shell_tool") == item.tool_name
+    ]
+
+
+def _rollback_without_changes(item: ToolExecutionEvidence) -> bool:
+    return (
+        item.tool_name == "file_rollback" and isinstance(item.result, dict)
+        and (item.result.get("dry_run") is True or item.result.get("restored") == [])
+    )
+
+
+def _mutating_effect(item: ToolExecutionEvidence, evidence: list[ToolExecutionEvidence]) -> bool:
+    if not item.success or _rollback_without_changes(item):
+        return False
+    if item.tool_name == "shell_job":
+        if not (_completed_command(item) or _confirmed_shell_control(item)):
+            return False
+        return any(
+            other.success and other.tool_name == item.result.get("shell_tool")
+            and other.effect_class in {"local_write", "unknown"}
+            and isinstance(other.result, dict)
+            and other.result.get("job_id") == item.result.get("job_id")
+            and other.result.get("risk_level") != "read_only"
+            for other in evidence
+        )
+    if item.tool_name in {"bash", "powershell"} and isinstance(item.result, dict):
+        if item.result.get("risk_level") == "read_only":
+            return False
+    return item.effect_class in {"local_write", "unknown"}
+
+
+def _has_later_mutation(evidence: list[ToolExecutionEvidence], start: int, end: int, path: str) -> bool:
+    for item in evidence[start + 1 : end]:
+        if not _mutating_effect(item, evidence):
+            continue
+        targets = item.result.get("validation_targets") if isinstance(item.result, dict) else None
+        if targets is None or targets == []:
+            return True
+        if isinstance(targets, list) and any(
+            isinstance(target, dict) and target.get("path") == path for target in targets
+        ):
+            return True
+    return False
+
+
+def _validation_scopes(evidence: list[ToolExecutionEvidence]) -> dict[str, set[str] | None]:
+    """Own only declared targets; unscoped mutations conservatively cover all checks."""
+    paths: set[str] | None = set()
+    scopes = {}
+    for item in evidence:
+        if paths is not None and _mutating_effect(item, evidence):
+            targets = item.result.get("validation_targets") if isinstance(item.result, dict) else None
+            if not isinstance(targets, list) or not targets or any(
+                not isinstance(target, dict) or not isinstance(target.get("path"), str) or not target["path"]
+                for target in targets
+            ):
+                paths = None
+            else:
+                paths.update(target["path"] for target in targets)
+        scopes[item.evidence_id] = None if paths is None else set(paths)
+    return scopes
+
+
 def _effects_have_current_validation(
     evidence: list[ToolExecutionEvidence],
     guarded_effects: list[ToolExecutionEvidence],
     successful_validation: list[ToolExecutionEvidence],
 ) -> bool:
-    targets: dict[str, tuple[int, str | None]] = {}
+    targets: dict[str, tuple[int, dict]] = {}
     unscoped_effects: list[int] = []
     for index, item in enumerate(evidence):
         if item not in guarded_effects:
@@ -165,25 +360,61 @@ def _effects_have_current_validation(
         for target in declared:
             if not isinstance(target, dict) or not target.get("path"):
                 return False
-            targets[str(target["path"])] = (index, target.get("content_sha256"))
+            targets[str(target["path"])] = (index, target)
     checks = [
         (index, row)
         for index, item in enumerate(evidence)
         if item in successful_validation
         for row in validation_checks(item)
+        if validation_check_passed(row)
     ]
-    last_unscoped_effect = max(unscoped_effects, default=-1)
+    # A completed command may still alter a file declared by an earlier write.
+    last_unscoped_effect = max(
+        [*unscoped_effects, *(
+            index for index, item in enumerate(evidence)
+            if _mutating_effect(item, evidence)
+            and (_completed_command(item) or _confirmed_shell_control(item))
+        )],
+        default=-1,
+    )
     return all(
-        any(index > effect_index for index, _ in checks) for effect_index in unscoped_effects
+        any(
+            index > effect_index and not has_inline_validation(evidence[index])
+            for index, _ in checks
+        ) for effect_index in unscoped_effects
     ) and all(
-        digest is not None
-        and any(
-            index > max(effect_index, last_unscoped_effect)
-            and row.get("path") == path
-            and row.get("content_sha256") == digest
+        any(
+            row.get("path") == path
+            and (
+                (
+                    target.get("expected_state") == "saved"
+                    and row.get("verifier") == "settings.readback"
+                    and row.get("matched") is True
+                    and index == effect_index
+                    and has_inline_validation(evidence[index])
+                )
+                or (
+                    target.get("content_sha256") is not None
+                    and row.get("content_sha256") is not None
+                    and (
+                        row.get("content_sha256") == target["content_sha256"]
+                        or _has_later_mutation(evidence, effect_index, index, path)
+                    )
+                    and index > last_unscoped_effect
+                    and (
+                        index > effect_index
+                        or (index == effect_index and evidence[index].tool_name == "file_rollback")
+                    )
+                )
+                or (
+                    row.get("check_kind") == "absence"
+                    and index > max(effect_index, last_unscoped_effect)
+                    and _has_later_mutation(evidence, effect_index, index, path)
+                )
+            )
             for index, row in checks
         )
-        for path, (effect_index, digest) in targets.items()
+        for path, (effect_index, target) in targets.items()
     )
 
 
@@ -194,6 +425,7 @@ def _evaluate_required_plan(
     repair_iterations: int,
     max_repair_iterations: int,
     refs,
+    text_refs: set[str],
 ) -> CompletionDecision | None:
     if plan is None or not plan.required:
         return None
@@ -226,7 +458,7 @@ def _evaluate_required_plan(
             repairable=True,
         )
 
-    available_refs = {
+    available_refs = text_refs | {
         reference
         for item in evidence
         if item.success and item.tool_name not in _PLAN_GOVERNANCE_TOOLS
@@ -252,7 +484,7 @@ def _evaluate_required_plan(
             outcome=CompletionOutcome.CONTINUE,
             reason_code="todo_evidence_missing",
             observations=(
-                "Attach an evidence_ref from this run to every completed required todo.",
+                "Attach a tool evidence_ref, user_input, or final_response from this run to every completed required todo.",
             ),
             evidence_refs=refs,
             repairable=True,

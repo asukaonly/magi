@@ -479,3 +479,25 @@ def _build_pdf_bytes(objects: list[bytes]) -> bytes:
         + b"\n%%EOF\n"
     )
     return header + body + xref + trailer
+
+
+@pytest.mark.parametrize("kind", ["text_file", "pdf"])
+def test_prepare_runtime_attachment_preserves_full_extracted_text(tmp_path: Path, kind: str) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
+    text = "A" * 120_000 + "Tail"
+    is_pdf = kind == "pdf"
+    upload = _mutate(
+        service.ingest_attachment, session_id="session-1", turn_id="turn-1",
+        original_name="long.pdf" if is_pdf else "long.txt",
+        content=_build_simple_pdf_bytes(text) if is_pdf else text.encode(),
+        mime_type="application/pdf" if is_pdf else "text/plain",
+    )
+    prepared = _mutate(
+        service.prepare_runtime_attachment, session_id="session-1", turn_id="turn-1", attachment=upload,
+    )
+
+    assert prepared["parse_status"] == "parsed"
+    assert prepared["truncated"] is False
+    assert prepared["character_count"] == len(text)
+    assert Path(prepared["derived_text_path"]).read_text(encoding="utf-8") == text

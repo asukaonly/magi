@@ -11,7 +11,7 @@ import pytest
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.chat import workspace_identity
 from magi.chat.lifecycle import ChatStoreModule
-from magi.chat.storage.relational_read import session_operations
+from magi.chat.storage import host as session_operations
 from magi.core.workspace import WorkspaceStateStore
 from magi.memory.context_scope import (
     ContextCatalog,

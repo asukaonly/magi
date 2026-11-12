@@ -1,0 +1,18 @@
+[plugin]
+id = "storage-sqlite"
+name = "SQLite Storage"
+name_i18n = { "zh-CN" = "SQLite 存储" }
+version = "1.0.0"
+icon = "lucide:database"
+protocol_version = 2
+min_sdk_version = "0.2.7"
+description = "Built-in local storage for conversations, memory events and channels."
+description_i18n = { "zh-CN" = "内置的本地对话、记忆事件和渠道存储。" }
+author = "Magi Team"
+entry_module = "plugin"
+entry_class = "SqliteStoragePlugin"
+official = true
+data_locality = "local_only"
+contribution_types = ["storage"]
+
+[plugin.default_settings]

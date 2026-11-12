@@ -89,7 +89,7 @@ async def test_tool_call_draft_visibility_is_explained_after_results(monkeypatch
     if draft:
         assert state.messages[-2]["role"] == "tool"
         assert is_working_context_message(state.messages[-1])
-        assert "NOT been shown to the user" in state.messages[-1]["content"]
+        assert "temporary progress note" in state.messages[-1]["content"]
         assert "save the usable draft" in state.messages[-1]["content"]
         assert state.model_context_port.commit.call_args.kwargs["messages"][-1] == state.messages[-1]
     else:
@@ -102,6 +102,138 @@ def _build_orchestrator() -> FunctionCallingOrchestrator:
         llm_adapter=SimpleNamespace(model_name="fake-model", provider_name="fake-provider"),
         permission_gateway=AllowAllPermissionGateway(),
     )
+
+
+@pytest.mark.asyncio
+async def test_successful_mutation_allows_retrying_repaired_preconditions(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+    from magi.agent.execution.tool_effects import ToolEffectReplayPolicy
+    from magi.agent.execution.tool_metadata import ToolCapabilityMetadata, ToolEffectClass
+
+    host = _build_orchestrator()
+    state = host.build_step_state(
+        turn=UserTurnInput(text="Create the missing file and inspect it", attachments=[], user_id=None, session_id=None),
+        system_prompt="system", selected_tools=[], conversation_history=[],
+    )
+    state.tools = [{"type": "function", "function": {"name": name}}
+                   for name in ("file_read", "file_write")]
+    read = ToolCall(id="read-1", name="file_read", arguments={"path": "new.txt"})
+    write = ToolCall(id="write", name="file_write", arguments={"path": "new.txt", "content": "saved"})
+    retry = ToolCall(id="read-2", name="file_read", arguments=dict(read.arguments))
+    mutation = ToolCapabilityMetadata(
+        name="file_write", effect_class=ToolEffectClass.LOCAL_WRITE,
+        replay_policy=ToolEffectReplayPolicy.RECONCILABLE, permission_class="standard",
+    )
+    invoke = AsyncMock(side_effect=[
+        ToolCallResult(tool_call_id=read.id, tool_name=read.name, success=False,
+                       error="Missing file", error_code="FILE_NOT_FOUND"),
+        ToolCallResult(tool_call_id=write.id, tool_name=write.name, success=True,
+                       data={"saved": True}, effect_metadata=mutation),
+        ToolCallResult(tool_call_id=retry.id, tool_name=retry.name, success=True,
+                       data={"content": "saved"}),
+    ])
+    monkeypatch.setattr(host, "_execute_tool_call", invoke)
+    monkeypatch.setattr(host, "_call_llm_with_tools", AsyncMock(side_effect=[
+        {"tool_calls": [call]} for call in (read, write, retry)
+    ]))
+    for _ in range(3):
+        outcome = await host.step_executor.execute_step(
+            state=state, user_message="Create the missing file", user_id="user", session_id="session",
+            run_id="run", turn_id="turn", execution_preset="chat", execution_agent_id="chat",
+        )
+    assert invoke.await_count == 3
+    assert outcome.status == "continue"
+    assert "saved" in state.messages[-1]["content"]
+    assert not state.failed_tool_call_fingerprints
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("effect,replay,error_code,terminal,retry_allowed", [
+    ("read_only", "read_only", "TIMEOUT", False, True),
+    ("read_only", "read_only", "RATE_LIMITED", False, True),
+    ("read_only", "read_only", "TIMEOUT", True, False),
+    ("read_only", "read_only", "INVALID_PARAMETERS", False, False),
+    ("local_write", "reconcilable", "TIMEOUT", False, False),
+    ("unknown", "unknown", "TIMEOUT", False, False),
+    (None, None, "TIMEOUT", False, False),
+])
+async def test_only_retryable_reads_can_repeat_failed_arguments(
+    monkeypatch, effect, replay, error_code, terminal, retry_allowed,
+) -> None:
+    from unittest.mock import AsyncMock
+    from magi.agent.execution.tool_effects import ToolEffectReplayPolicy
+    from magi.agent.execution.tool_metadata import ToolCapabilityMetadata, ToolEffectClass
+
+    host = _build_orchestrator()
+    state = host.build_step_state(
+        turn=UserTurnInput(text="Fetch a page", attachments=[], user_id=None, session_id=None),
+        system_prompt="system", selected_tools=[], conversation_history=[],
+    )
+    state.tools = [
+        {"type": "function", "function": {"name": name}}
+        for name in ("web-fetch", "web-search")
+    ]
+    metadata = None if effect is None else ToolCapabilityMetadata(
+        name="web-fetch", effect_class=ToolEffectClass(effect),
+        replay_policy=ToolEffectReplayPolicy(replay), permission_class="standard",
+    )
+    invoke = AsyncMock(side_effect=[
+        ToolCallResult(tool_call_id="call", tool_name="web-fetch", success=False,
+                       error="Temporary failure", error_code=error_code,
+                       data={"terminal": terminal}, effect_metadata=metadata),
+        ToolCallResult(tool_call_id="call", tool_name="web-fetch", success=True,
+                       data={"content": "recovered"}, effect_metadata=metadata),
+    ])
+    monkeypatch.setattr(host, "_execute_tool_call", invoke)
+    monkeypatch.setattr(host, "_call_llm_with_tools", AsyncMock(return_value={
+        "tool_calls": [ToolCall(id="call", name="web-fetch", arguments={"url": "https://example.org"})],
+    }))
+    outcomes = []
+    for _ in range(2):
+        outcomes.append(await host.step_executor.execute_step(
+            state=state, user_message="Fetch a page", user_id="user", session_id="session",
+            run_id="run", turn_id="turn", execution_preset="chat", execution_agent_id="chat",
+        ))
+    assert invoke.await_count == (2 if retry_allowed else 1)
+    assert outcomes[0].status == "continue"
+    if retry_allowed:
+        assert state.messages[-1]["role"] == "tool"
+        assert "recovered" in state.messages[-1]["content"]
+        assert state.consecutive_failed_tool_iterations == 0
+    else:
+        assert state.tool_failures[-1]["error_code"] == "REPEATED_FAILED_TOOL_CALL"
+
+
+@pytest.mark.asyncio
+async def test_transient_read_retries_remain_bounded(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+    from magi.agent.execution.tool_effects import ToolEffectReplayPolicy
+    from magi.agent.execution.tool_metadata import ToolCapabilityMetadata, ToolEffectClass
+
+    host = _build_orchestrator()
+    state = host.build_step_state(
+        turn=UserTurnInput(text="Fetch", attachments=[], user_id=None, session_id=None),
+        system_prompt="system", selected_tools=[], conversation_history=[],
+    )
+    invoke = AsyncMock(return_value=ToolCallResult(
+        tool_call_id="call", tool_name="web-fetch", success=False, error="Timeout", error_code="TIMEOUT",
+        effect_metadata=ToolCapabilityMetadata(
+            name="web-fetch", effect_class=ToolEffectClass.READ_ONLY,
+            replay_policy=ToolEffectReplayPolicy.READ_ONLY, permission_class="standard",
+        ),
+    ))
+    monkeypatch.setattr(host, "_execute_tool_call", invoke)
+    monkeypatch.setattr(host, "_call_llm_with_tools", AsyncMock(return_value={
+        "tool_calls": [ToolCall(id="call", name="web-fetch", arguments={})],
+    }))
+    for _ in range(3):
+        outcome = await host.step_executor.execute_step(
+            state=state, user_message="Fetch", user_id="user", session_id="session",
+            run_id="run", turn_id="turn", execution_preset="chat", execution_agent_id="chat",
+        )
+    assert invoke.await_count == 3
+    assert outcome.status == "failed"
+    assert outcome.failure_reason == "ALL_TOOLS_FAILED"
 
 
 def test_build_step_state_does_not_duplicate_latest_user_message_from_history() -> None:
@@ -1197,8 +1329,13 @@ async def test_step_executor_returns_control_after_one_step_until_called_again(m
     assert step_state.iteration == 2
 
 
-def test_replan_blocked_for_terminal_provider_configuration_error() -> None:
-    """Terminal provider errors should stop the loop instead of chasing fallback tools."""
+@pytest.mark.parametrize("error_code", [
+    "NO_PROVIDERS_CONFIGURED", "PROVIDER_CHALLENGE", "PROVIDER_NOT_CONFIGURED",
+])
+@pytest.mark.parametrize("alternative_available", [False, True])
+def test_provider_failure_replans_when_another_tool_is_available(
+    error_code: str, alternative_available: bool,
+) -> None:
     orchestrator = _build_orchestrator()
 
     results = [
@@ -1207,21 +1344,22 @@ def test_replan_blocked_for_terminal_provider_configuration_error() -> None:
             tool_name="weather",
             success=False,
             error="API key not configured",
-            error_code="NO_PROVIDERS_CONFIGURED",
+            error_code=error_code,
             execution_time=0.01,
         )
     ]
     available_tools = [
         {"type": "function", "function": {"name": "weather"}},
-        {"type": "function", "function": {"name": "web-search"}},
     ]
+    if alternative_available:
+        available_tools.append({"type": "function", "function": {"name": "web-search"}})
 
     allowed = orchestrator._should_allow_replan_after_failed_iteration(
         results,
         consecutive_failed_tool_iterations=1,
         available_tools=available_tools,
     )
-    assert allowed is False
+    assert allowed is alternative_available
 
 
 @pytest.mark.parametrize("untried_available", [False, True])
@@ -1251,3 +1389,45 @@ def test_nonterminal_blocker_can_replan_only_when_an_untried_tool_exists(untried
         available_tools=available_tools,
     )
     assert allowed is untried_available
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_code", [
+    "NO_PROVIDERS_CONFIGURED", "PROVIDER_CHALLENGE", "PROVIDER_NOT_CONFIGURED",
+])
+async def test_provider_failure_suppresses_only_failed_tool_and_allows_fetch(
+    monkeypatch, error_code: str,
+) -> None:
+    from unittest.mock import AsyncMock
+
+    host = _build_orchestrator()
+    def schemas(names):
+        return [{"type": "function", "function": {"name": name}} for name in names]
+    monkeypatch.setattr(host, "_build_tools_parameter", schemas)
+    state = host.build_step_state(
+        turn=UserTurnInput(text="Read the official site", attachments=[], user_id=None, session_id=None),
+        system_prompt="system", selected_tools=["web-search", "web-fetch"], conversation_history=[],
+    )
+    monkeypatch.setattr(host, "_call_llm_with_tools", AsyncMock(side_effect=[
+        {"tool_calls": [ToolCall(id="search", name="web-search", arguments={"query": "official site"})]},
+        {"tool_calls": [ToolCall(id="fetch", name="web-fetch", arguments={"url": "https://example.org"})]},
+    ]))
+    invoke = AsyncMock(side_effect=[
+        ToolCallResult(tool_call_id="search", tool_name="web-search", success=False,
+                       error="Search provider unavailable", error_code=error_code),
+        ToolCallResult(tool_call_id="fetch", tool_name="web-fetch", success=True,
+                       data={"content": "Official page"}),
+    ])
+    monkeypatch.setattr(host, "_execute_tool_call", invoke)
+
+    for _ in range(2):
+        outcome = await host.step_executor.execute_step(
+            state=state, user_message="Read the official site", user_id="user", session_id="session",
+            run_id="run", turn_id="turn", execution_preset="chat", execution_agent_id="chat",
+        )
+        assert outcome.status == "continue"
+
+    assert state.suppressed_tool_names == {"web-search"}
+    assert state.selected_tool_names == ["web-fetch"]
+    assert [call.kwargs["tool_call"].name for call in invoke.await_args_list] == ["web-search", "web-fetch"]
+    assert state.consecutive_failed_tool_iterations == 0

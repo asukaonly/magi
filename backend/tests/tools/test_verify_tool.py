@@ -159,10 +159,17 @@ async def test_verify_changed_empty_session_returns_empty(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_verification_identifies_the_written_content_version(tmp_path: Path) -> None:
-    target = tmp_path / "created.json"
+@pytest.mark.parametrize("filename,content", [
+    ("created.json", '{"ok": true}'),
+    ("draft.md", "# Draft\nComplete text.\n"),
+    ("note.txt", "Complete text.\n"),
+    ("config.yaml", "enabled: true\n"),
+    ("data.csv", "name,value\nexample,1\n"),
+])
+async def test_verification_identifies_the_written_content_version(tmp_path: Path, filename, content) -> None:
+    target = tmp_path / filename
     write = await FileWriteTool().execute(
-        {"path": str(target), "content": '{"ok": true}'}, _ctx(tmp_path)
+        {"path": str(target), "content": content}, _ctx(tmp_path)
     )
     verify = await VerifyTool().execute({"mode": "paths", "paths": [str(target)]}, _ctx(tmp_path))
     assert write.success and verify.success
@@ -191,12 +198,13 @@ async def test_verification_identifies_the_written_content_version(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("filename", ["changing.json", "changing.md"])
 async def test_file_changed_during_verification_is_inconclusive(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, filename
 ) -> None:
     from magi.tools.builtin._verifiers import verify_file
 
-    target = tmp_path / "changing.json"
+    target = tmp_path / filename
     target.write_text('{"before": true}')
 
     async def changing_verifier(path, *, timeout_s):
@@ -224,3 +232,137 @@ async def test_verify_rejects_invalid_mode_or_missing_paths(
     res = await VerifyTool().execute({"mode": mode_value}, _ctx(tmp_path))
     assert not res.success
     assert expected_error_field in (res.error or "").lower()
+
+
+def _tool_evidence(tool, result):
+    schema = tool.get_schema()
+    return ToolExecutionEvidence(
+        tool_name=schema.name, success=result.success, effect_class=schema.effect_class,
+        replay_policy=schema.effect_replay_policy, result=result.data,
+    )
+
+
+@pytest.mark.asyncio
+async def test_explicit_absence_verifies_deletion_and_retires_previous_content(tmp_path):
+    path = tmp_path / "draft.json"
+    context = _ctx(tmp_path)
+    write_tool, verify_tool = FileWriteTool(), VerifyTool()
+    write = await write_tool.execute({"path": str(path), "content": "{broken"}, context)
+    failed = await verify_tool.execute({"mode": "paths", "paths": [str(path)]}, context)
+    path.unlink()
+    missing = await verify_tool.execute({"mode": "paths", "paths": [str(path)]}, context)
+    absent = await verify_tool.execute(
+        {"mode": "paths", "paths": [str(path)], "expected_state": "absent"}, context
+    )
+    assert missing.data["results"][0]["status"] == "skipped"
+    assert absent.data["results"][0]["status"] == "pass"
+    evidence = [_tool_evidence(write_tool, write), _tool_evidence(verify_tool, failed)]
+    deletion = ToolExecutionEvidence(
+        tool_name="bash", success=True, effect_class="unknown", replay_policy="unknown",
+        result={"return_code": 0, "command_succeeded": True, "timed_out": False},
+    )
+    gate = CompletionGate()
+    assert gate.evaluate(
+        policy=CompletionPolicy(), evidence=[*evidence, _tool_evidence(verify_tool, absent)], repair_iterations=0
+    ).reason_code == "validation_required"
+    assert gate.evaluate(
+        policy=CompletionPolicy(),
+        evidence=[*evidence, deletion, _tool_evidence(verify_tool, missing), _tool_evidence(verify_tool, absent)],
+        repair_iterations=0,
+    ).outcome is CompletionOutcome.COMPLETE
+    path.write_text("new content")
+    present = await verify_tool.execute(
+        {"mode": "paths", "paths": [str(path)], "expected_state": "absent"}, context
+    )
+    assert present.data["results"][0]["status"] == "fail"
+
+
+@pytest.mark.asyncio
+async def test_absence_requires_explicit_paths_and_does_not_accept_dangling_symlink(tmp_path):
+    tool = VerifyTool()
+    invalid = await tool.execute({"expected_state": "absent"}, _ctx(tmp_path))
+    assert not invalid.success
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path / "missing")
+    result = await tool.execute(
+        {"mode": "paths", "paths": [str(link)], "expected_state": "absent"}, _ctx(tmp_path)
+    )
+    assert result.data["results"][0]["status"] == "fail"
+    assert result.data["results"][0]["path"] == str(link)
+
+
+@pytest.mark.asyncio
+async def test_shell_written_invalid_file_remains_blocked_after_successful_command_exit(tmp_path):
+    import sys
+    from magi.tools.builtin.bash_tool import BashTool
+
+    if sys.platform == "win32":
+        pytest.skip("Bash is the native POSIX shell")
+    context = _ctx(tmp_path)
+    shell, verify = BashTool(), VerifyTool()
+    changed = await shell.execute({"command": "printf 'def broken(:\\n' > broken.py"}, context)
+    checked = await verify.execute({"mode": "paths", "paths": ["broken.py"]}, context)
+    assert changed.success
+    assert changed.data["return_code"] == 0
+    assert checked.data["summary"]["fail"] == 1
+    assert CompletionGate().evaluate(
+        policy=CompletionPolicy(), evidence=[_tool_evidence(shell, changed), _tool_evidence(verify, checked)],
+        repair_iterations=0,
+    ).reason_code == "validation_failed"
+
+
+@pytest.mark.asyncio
+async def test_saved_setting_does_not_own_unrelated_file_diagnostic(tmp_path):
+    from magi.tools.builtin.system_settings_tool import SystemSettingsTool
+
+    path = tmp_path / "existing.py"
+    path.write_text("def broken(:\n")
+    context = _ctx(tmp_path)
+    setting, verify = SystemSettingsTool(), VerifyTool()
+    saved = await setting.execute(
+        {"action": "set", "path": "app.diagnostics.full_content_logging_enabled", "value": "false"}, context
+    )
+    checked = await verify.execute({"mode": "paths", "paths": [str(path)]}, context)
+    assert saved.data["results"][0]["status"] == "pass"
+    assert checked.data["summary"]["fail"] == 1
+    assert CompletionGate().evaluate(
+        policy=CompletionPolicy(), evidence=[_tool_evidence(setting, saved), _tool_evidence(verify, checked)],
+        repair_iterations=0,
+    ).outcome is CompletionOutcome.COMPLETE
+    empty = await verify.execute({"mode": "changed"}, context)
+    assert empty.data["results"] == []
+    assert CompletionGate().evaluate(
+        policy=CompletionPolicy(), evidence=[_tool_evidence(setting, saved), _tool_evidence(verify, empty)],
+        repair_iterations=0,
+    ).outcome is CompletionOutcome.COMPLETE
+
+
+@pytest.mark.asyncio
+async def test_mixed_check_keeps_written_target_pass_without_owning_existing_failure(tmp_path):
+    path = tmp_path / "written.py"
+    existing = tmp_path / "existing.py"
+    existing.write_text("def broken(:\n")
+    context = _ctx(tmp_path)
+    writer, verify = FileWriteTool(), VerifyTool()
+    saved = await writer.execute({"path": str(path), "content": "x = 1\n"}, context)
+    checked = await verify.execute({"mode": "paths", "paths": [str(path), str(existing)]}, context)
+    assert checked.data["summary"]["pass"] == checked.data["summary"]["fail"] == 1
+    own_write = _tool_evidence(writer, saved)
+    mixed_check = _tool_evidence(verify, checked)
+    gate = CompletionGate()
+    assert gate.evaluate(
+        policy=CompletionPolicy(), evidence=[own_write, mixed_check], repair_iterations=0
+    ).outcome is CompletionOutcome.COMPLETE
+    unknown = ToolExecutionEvidence(
+        tool_name="plugin", success=True, effect_class="unknown", replay_policy="unknown",
+    )
+    assert gate.evaluate(
+        policy=CompletionPolicy(), evidence=[own_write, unknown, mixed_check], repair_iterations=0
+    ).reason_code == "validation_failed"
+    await FileReadTool().execute({"path": str(existing)}, context)
+    bad_write = await writer.execute({"path": str(existing), "content": "def broken(:\n"}, context)
+    assert bad_write.success, bad_write.error
+    rechecked = await verify.execute({"mode": "paths", "paths": [str(path), str(existing)]}, context)
+    assert gate.evaluate(
+        policy=CompletionPolicy(), evidence=[own_write, _tool_evidence(writer, bad_write), _tool_evidence(verify, rechecked)], repair_iterations=0
+    ).reason_code == "validation_failed"

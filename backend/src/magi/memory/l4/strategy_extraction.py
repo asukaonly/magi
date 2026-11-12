@@ -190,7 +190,7 @@ class L4StrategyExtractor:
             response = await bridge.chat_response(
                 system_prompt=EXTRACTION_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=1024,
+                max_tokens=8_192,
                 temperature=0.0,
                 json_mode=True,
                 disable_thinking=True,

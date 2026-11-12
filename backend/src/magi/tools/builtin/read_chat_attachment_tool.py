@@ -376,7 +376,7 @@ class ReadChatAttachmentTool(Tool):
         if derived_handle is not None:
             try:
                 with derived_handle:
-                    return derived_handle.read().decode("utf-8"), {"parse_status": "parsed"}
+                    return derived_handle.read().decode("utf-8"), {**attachment, "parse_status": "parsed"}
             except (OSError, UnicodeError):
                 pass
 

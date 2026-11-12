@@ -6,7 +6,7 @@ import inspect
 import json
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any, Dict, Protocol, cast
 
 from ....runtime_trace import (
@@ -18,6 +18,14 @@ from ....runtime_trace import (
 from .types import ToolCall, ToolCallResult
 
 logger = logging.getLogger(__name__)
+
+
+async def _write_diagnostic_trace(write: Awaitable[None]) -> None:
+    # Diagnostic projections must not abort a run; durable run/effect journals stay strict.
+    try:
+        await write
+    except Exception:
+        logger.warning("Failed to persist function-calling diagnostic trace", exc_info=True)
 
 
 class _TracingHostProtocol(Protocol):
@@ -99,7 +107,7 @@ class FunctionCallingTracingMixin:
         if writer is None or not normalized_turn_id:
             return None
         started_at_ms = int(time.time() * 1000)
-        await writer.record_span(
+        await _write_diagnostic_trace(writer.record_span(
             TraceSpanRecord(
                 span_id=self._build_iteration_span_id(normalized_turn_id, iteration),
                 trace_id=self._build_trace_id(normalized_turn_id),
@@ -114,7 +122,7 @@ class FunctionCallingTracingMixin:
                 created_at_ms=started_at_ms,
                 updated_at_ms=started_at_ms,
             )
-        )
+        ))
         return started_at_ms
 
     async def _complete_iteration_trace(
@@ -133,7 +141,7 @@ class FunctionCallingTracingMixin:
         if writer is None or not normalized_turn_id or started_at_ms is None:
             return
         ended_at_ms = int(time.time() * 1000)
-        await writer.record_span(
+        await _write_diagnostic_trace(writer.record_span(
             TraceSpanRecord(
                 span_id=self._build_iteration_span_id(normalized_turn_id, iteration),
                 trace_id=self._build_trace_id(normalized_turn_id),
@@ -152,7 +160,7 @@ class FunctionCallingTracingMixin:
                 created_at_ms=started_at_ms,
                 updated_at_ms=ended_at_ms,
             )
-        )
+        ))
 
     async def _persist_llm_trace(
         self,
@@ -205,7 +213,7 @@ class FunctionCallingTracingMixin:
                 )
             except (TypeError, ValueError):
                 result_json_str = str(result.data)
-        await writer.record_span(
+        await _write_diagnostic_trace(writer.record_span(
             TraceSpanRecord(
                 span_id=span_id,
                 trace_id=self._build_trace_id(normalized_turn_id),
@@ -224,8 +232,8 @@ class FunctionCallingTracingMixin:
                 created_at_ms=started_at_ms,
                 updated_at_ms=ended_at_ms,
             )
-        )
-        await writer.record_tool_call(
+        ))
+        await _write_diagnostic_trace(writer.record_tool_call(
             TraceToolRecord(
                 span_id=span_id,
                 trace_id=self._build_trace_id(normalized_turn_id),
@@ -240,7 +248,7 @@ class FunctionCallingTracingMixin:
                 result_preview=result_preview,
                 result_json=result_json_str,
             )
-        )
+        ))
 
     @staticmethod
     def _build_trace_id(turn_id: str) -> str:

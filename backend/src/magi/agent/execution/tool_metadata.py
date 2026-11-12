@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Mapping
 from enum import Enum
 from typing import Any
 
@@ -32,13 +33,16 @@ class ToolCapabilityMetadata:
     replay_policy: ToolEffectReplayPolicy
     permission_class: str
     supports_dry_run: bool = False
+    idempotency_key_parameter: str | None = None
 
 
 def resolve_tool_capability_metadata(
     tool_registry: Any,
     tool_name: str,
+    *,
+    arguments: Mapping[str, Any] | None = None,
 ) -> ToolCapabilityMetadata:
-    """Resolve explicit schema metadata without tool-name heuristics."""
+    """Resolve declared tool effects, narrowing only for explicit read actions."""
 
     tool = None
     getter = getattr(tool_registry, "get_tool", None)
@@ -78,12 +82,21 @@ def resolve_tool_capability_metadata(
         permission_class = "standard"
     raw_metadata = getattr(schema, "metadata", None)
     metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+    read_only_actions = metadata.get("read_only_actions")
+    action = arguments.get("action") if arguments is not None else None
+    if isinstance(read_only_actions, list) and isinstance(action, str) and action in read_only_actions:
+        effect_class = ToolEffectClass.READ_ONLY
+        replay_policy = ToolEffectReplayPolicy.READ_ONLY
+    raw_parameter = getattr(schema, "effect_idempotency_key_parameter", None)
     return ToolCapabilityMetadata(
         name=str(getattr(schema, "name", None) or tool_name),
         effect_class=effect_class,
         replay_policy=replay_policy,
         permission_class=permission_class,
         supports_dry_run=bool(metadata.get("supports_dry_run", False)),
+        idempotency_key_parameter=(
+            raw_parameter.strip() or None if isinstance(raw_parameter, str) else None
+        ),
     )
 
 

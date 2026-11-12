@@ -221,3 +221,13 @@ def test_build_tools_parameter_order_is_name_stable() -> None:
     assert names_a == ["alpha", "mango", "zebra"]
     # Same SET in a different upstream order must serialise identically.
     assert out_a == out_b
+
+
+def test_tool_progress_guidance_keeps_final_answer_self_contained() -> None:
+    layers = PromptContextRenderer().render_prompt_layers(_assembly_context(["web-search"]))
+    assert "brief user-facing progress note" in layers.working_context
+    assert "Continue the work after the note" in layers.working_context
+    assert "do not expose internal reasoning" in layers.working_context
+    assert "do not rely on the user having read a progress note" in layers.working_context
+    without_tools = PromptContextRenderer().render_prompt_layers(_assembly_context([]))
+    assert "brief user-facing progress note" not in without_tools.working_context

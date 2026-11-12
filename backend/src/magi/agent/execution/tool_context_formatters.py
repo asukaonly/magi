@@ -35,6 +35,7 @@ class ToolContextFormatterRegistry:
 
         registry.register("bash", shell_formatter)
         registry.register("powershell", shell_formatter)
+        registry.register("shell_job", shell_formatter)
         registry.register("grep", lambda data: compact_grep_tool_data(data, max_items=max_items))
         registry.register(
             "file_list", lambda data: compact_file_list_tool_data(data, max_items=max_items)
@@ -107,6 +108,10 @@ def compact_shell_tool_data(data: Dict[str, Any], *, max_text_chars: int) -> Dic
     return {
         "command": data.get("command"),
         "return_code": data.get("return_code"),
+        "command_succeeded": data.get("command_succeeded"),
+        "job_id": data.get("job_id"),
+        "status": data.get("status"),
+        "background_requested": data.get("background_requested"),
         "stdout_preview": stdout_preview,
         "stdout_preview_truncated": len(stdout) > len(stdout_preview),
         "stdout_total_bytes": data.get("stdout_total_bytes"),
