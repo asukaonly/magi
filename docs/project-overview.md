@@ -42,6 +42,10 @@ The root Cargo lockfile owns the desktop dependency graph. Tauri must be at
 least 2.11.1 for the corrected local-origin check. Keep `@tauri-apps/api` on the
 same major/minor release as the Rust `tauri` crate, updating the frontend
 manifest and lockfile together when upgrading either side to a new minor release.
+Native SQLite consumers use `rusqlite 0.41` (Rust 1.89 or newer) with bundled
+`libsqlite3-sys >=0.39.0` for RUSTSEC-2026-0459. Keep the locked `rustix` at
+least 1.1.6 and `h2` at least 0.4.16 for RUSTSEC-2026-0486 and
+RUSTSEC-2026-0258 respectively.
 The Linux GTK3 graph still requires `glib 0.18`, so the workspace overrides
 that crate with the reviewed
 upstream `VariantStrIter` safety backport in `vendor/glib`. Its archive and file
