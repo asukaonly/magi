@@ -176,7 +176,7 @@ def build_findings(
     because their referenced entity_ids had no canonical name (would
     otherwise leak raw hashes into the user-facing envelope).
     """
-    mode = str(request.query_mode or "").strip() or "exact_fact"
+    mode = str(request.query_mode or payload.trace.get("query_mode") or "").strip() or "exact_fact"
     projected = _project_payload_findings(
         payload=payload,
         request=request,
@@ -187,6 +187,7 @@ def build_findings(
     candidates = _drop_echo_findings(projected.candidates, request=request)
     selected, quota_trace = _select_findings_by_layer_quota(candidates, mode=mode)
     _attach_finding_topics(selected)
+    _attach_conversation_evidence(selected, payload=payload, request=request, mode=mode)
     _record_projection_trace(
         payload=payload,
         projection_dropped=projected.projection_dropped,
@@ -194,6 +195,28 @@ def build_findings(
         quota_trace=quota_trace,
     )
     return selected, projected.dropped_count
+
+
+def _attach_conversation_evidence(
+    findings: list[dict[str, Any]], *, payload: RetrievalPayload, request: RetrievalQuery, mode: str,
+) -> None:
+    for finding in findings:
+        if finding.get("kind") != "event":
+            continue
+        event_id = str(finding.get("feedback_ref") or "").removeprefix("event:")
+        for bundle in payload.l1_evidence_bundles:
+            if event_id not in bundle.get("hit_event_ids", []):
+                continue
+            context = _drop_echo_findings(_project_events(
+                bundle.get("answer_events", []), mode=mode,
+                explicit_chat_source=_has_explicit_chat_source(request.source_filters),
+            ), request=request)
+            if context:
+                finding["conversation_context"] = context
+                ids = {str(item.get("feedback_ref") or "").removeprefix("event:") for item in context}
+                finding["timeline"] = [item for item in payload.l1_timeline_summary
+                    if set(item.get("supporting_event_ids") or []) <= ids]
+            break
 
 
 def _project_payload_findings(

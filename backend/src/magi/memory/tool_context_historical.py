@@ -202,6 +202,18 @@ def _render_findings(
         lines: list[str] = [f"## {label}"]
         for item in items:
             line = _render_single_finding(item, max_text_chars=max_text_chars)
+            context = item.get("conversation_context") or []
+            if context:
+                line += "\n  Conversation context in time order (historical evidence):\n" + "\n".join(
+                    "  " + _render_single_finding(record, max_text_chars=max_text_chars)
+                    for record in context
+                )
+            timeline = item.get("timeline") or []
+            if timeline:
+                line += "\n  Timeline navigation (excerpts; use the records above for conditions):\n" + "\n".join(
+                    f"  - {format_timestamp(record.get('timestamp'))} speaker={record.get('author_type')}: {record.get('summary', '')}"
+                    for record in timeline
+                )
             lines.append(line)
         parts.append("\n".join(lines))
 

@@ -1866,6 +1866,8 @@ class TestServiceEvidencePackaging:
                 "author_type": "user",
             },
         ]
+        for event in session_events:
+            event.update(user_id="u1", l1_retrieval_scope="fact_authoritative")
         session_events.reverse()
         l1 = _make_l1_store(session_events)
         l1.query_events = AsyncMock(side_effect=[session_events[:1], session_events[1:]])
@@ -1890,7 +1892,8 @@ class TestServiceEvidencePackaging:
         ):
             result = await svc.query(
                 _make_request(
-                    query="Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?"
+                    query="Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?",
+                    session_id=None,
                 )
             )
 
@@ -1954,6 +1957,8 @@ class TestServiceEvidencePackaging:
                 "retrieval_trace": {"base_rrf_score": 0.9},
             }
         ]
+        for event in service_session_events + issue_session_events:
+            event.update(user_id="u1", l1_retrieval_scope="fact_authoritative")
         l1 = _make_l1_store(service_session_events + issue_session_events)
         l1.query_events = AsyncMock(side_effect=[service_session_events, issue_session_events])
         mem = _make_memory(l1=l1, l2=_make_governance_l2_store())
@@ -1979,7 +1984,8 @@ class TestServiceEvidencePackaging:
         ):
             result = await svc.query(
                 _make_request(
-                    query="What was the first issue I had with my new car after its first service?"
+                    query="What was the first issue I had with my new car after its first service?",
+                    session_id=None,
                 )
             )
 

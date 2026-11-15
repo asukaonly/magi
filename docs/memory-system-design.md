@@ -3191,6 +3191,13 @@ generic string truncation to a rendered recall. Omitted evidence cannot justify
 exhaustive claims. If governance metadata cannot fit, delivery explicitly reports
 unavailable evidence instead of silently stripping those controls.
 
+Selected L1 findings carry their governed session neighbors and chronological
+navigation into the same evidence unit. Expanded rows must pass user, source,
+domain, time, visibility and correction checks before projection. Historical
+conversation modes label corrected records; fact modes exclude them. Raw debug
+bundles are never prompt input, and source/account restrictions discard unproven
+bundles. Projection follows the resolved retrieval mode when the caller uses auto.
+
 Current implicit injection remains conservative:
 
 - Only the bounded active subset of `L0` that passes confidence and salience
