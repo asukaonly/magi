@@ -499,6 +499,8 @@ class WorkerServer:
         state_dir, resources_dir = payload["state_dir"], payload["resources_dir"]
         if payload["confinement"] == "macos-seatbelt":
             _verify_confinement(payload["probe_path"])
+        elif manifest.execution_mode == "trusted_process":
+            _configure_background_process()
         context = PluginContext(
             connection, state_dir, resources_dir, WorkerCredentials(self)
         )
@@ -565,6 +567,25 @@ def _verify_confinement(probe_path: Path) -> None:
         pass
     else:
         raise RuntimeError("Network confinement probe failed")
+
+
+def _configure_background_process() -> None:
+    if sys.platform != "darwin":
+        return
+    import ctypes
+
+    # Register before plugin imports so Cocoa cannot promote Python into a GUI app.
+    services = ctypes.CDLL(
+        "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+    )
+    process_serial_number = ctypes.c_uint32 * 2
+    transform = services.TransformProcessType
+    transform.argtypes = [ctypes.POINTER(process_serial_number), ctypes.c_uint32]
+    transform.restype = ctypes.c_int32
+    current_process = process_serial_number(0, 2)  # kCurrentProcess
+    status = transform(ctypes.byref(current_process), 2)  # kProcessTransformToBackgroundApplication
+    if status != 0:
+        raise OSError(status, "Could not configure macOS plugin worker as background-only")
 
 
 def main() -> None:
