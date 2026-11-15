@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import Any, Mapping
-
 from magi_plugin_sdk.storage_models.tool_result_metadata import (
-    TOOL_RESULT_METADATA_KEY,
-    ToolResultMetadata,
-    tool_result_metadata,
-    strip_tool_result_metadata,
+    TOOL_RESULT_METADATA_KEY as TOOL_RESULT_METADATA_KEY,
+    ToolResultMetadata as ToolResultMetadata,
+    tool_result_metadata as tool_result_metadata,
+    strip_tool_result_metadata as strip_tool_result_metadata,
 )

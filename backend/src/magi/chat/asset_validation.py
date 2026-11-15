@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.storage_models.chat_attachments import has_explicit_asset_payload_map, has_explicit_asset_payloads, has_managed_asset_payloads
+
 import hashlib
 import os
 from typing import BinaryIO
@@ -13,15 +15,7 @@ from magi.core.chat_assets.io import (
 )
 from magi.core.chat_assets.paths import is_safe_chat_asset_component
 
-
 from magi_plugin_sdk.storage_models.chat_asset_errors import ChatAssetOwnershipError
-
-
-
-
-
-
-
 
 def validate_message_asset_payloads(
     attachment_payloads: list[dict[str, object]] | None,
@@ -159,5 +153,3 @@ __all__ = [
     "has_managed_asset_payloads",
     "validate_message_asset_payloads",
 ]
-
-from magi_plugin_sdk.storage_models.chat_attachments import has_explicit_asset_payload_map, has_explicit_asset_payloads, has_managed_asset_payloads

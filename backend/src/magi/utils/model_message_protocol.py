@@ -2,21 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any
-
 from magi_plugin_sdk.storage_models.model_message_protocol import (
     protocol_complete_message_indexes,
     repair_model_message_protocol,
-    _tool_call_ids,
+    _tool_call_ids as _tool_call_ids,
 )
-
-
-
-
-
-
-
 
 __all__ = [
     "protocol_complete_message_indexes",

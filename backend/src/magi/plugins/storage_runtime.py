@@ -11,7 +11,7 @@ import sys
 from magi_plugin_sdk import Plugin
 from magi_plugin_sdk.contracts import ContributionType, PluginManifest
 from magi_plugin_sdk.runtime import PluginConnection, SDK_VERSION
-from magi_plugin_sdk.storage import StorageDomain, StorageProvider
+from magi_plugin_sdk.storage import StorageDomain
 from magi_plugin_sdk.versioning import validate_sdk_requirement
 
 from ..config.plugin_models import PluginSettings
@@ -23,7 +23,6 @@ from .discovery import build_package_states, discover_plugin_manifests
 from .package_integrity import package_identity_error, package_install_record_error
 from .process_runtime import ProcessPluginProxy
 from .storage_registry import PluginStorageRegistry, StorageContribution
-
 
 class StoragePluginRuntime:
     def __init__(

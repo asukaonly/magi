@@ -3,18 +3,14 @@
 from __future__ import annotations
 
 import time
-import uuid
-from dataclasses import dataclass
-from enum import IntEnum
-from typing import Any, Dict, Optional, TypeVar
+from typing import Any, Dict, Optional
 
 from ..events.events import Event, EventTypes
 from ..events.recall_feedback import RECALL_FEEDBACK_INTERACTION_KIND
 
-
 from magi_plugin_sdk.storage_models.events import (
-    _EnumT,
-    _LabeledIntEnum,
+    _EnumT as _EnumT,
+    _LabeledIntEnum as _LabeledIntEnum,
     IngestTarget,
     MemoryDomain,
     TomDepth,
@@ -29,7 +25,6 @@ from magi_plugin_sdk.storage_models.events import (
     generate_event_id,
     MemoryEvent,
 )
-
 
 def normalize_runtime_event(
     event: Event,

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from .relational import ChatRow
+from magi_plugin_sdk.storage_chat.serialization import (
+    _coerce_int as _coerce_int,
+    row_to_message as row_to_message,
+    normalize_message_label as normalize_message_label,
+    serialize_message_label as serialize_message_label,
+    parse_message_label as parse_message_label,
+)
 
-import json
 from pathlib import Path
 from typing import Literal
-
 
 from ...utils.runtime import RuntimePaths, get_runtime_paths
 from magi.core.chat_assets.paths import (
@@ -17,7 +21,6 @@ from magi.core.chat_assets.paths import (
     resolve_chat_derived_file,
     verified_chat_resources_dir,
 )
-from ..contracts import ChatMessageLabel, ChatMessageRecord
 
 ChatAssetKind = Literal["attachment", "derived_text"]
 
@@ -142,11 +145,3 @@ def message_asset_references(
         (asset_key, relative_path, asset_kind)
         for asset_key, (relative_path, asset_kind) in unique.items()
     )
-
-from magi_plugin_sdk.storage_chat.serialization import (
-    _coerce_int,
-    row_to_message,
-    normalize_message_label,
-    serialize_message_label,
-    parse_message_label,
-)

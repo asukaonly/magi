@@ -1,11 +1,11 @@
 """Neutral activity snapshots derived from source event payloads."""
 from __future__ import annotations
 
-from collections.abc import Mapping
+from magi_plugin_sdk.storage_models.activity_snapshot import activity_snapshot_from_metadata as activity_snapshot_from_metadata
+
 from typing import Any
 
 from magi.events.domain_payloads import SourceEventEmitted
-
 
 ACTIVITY_SNAPSHOT_METADATA_KEY = "activity_snapshot"
 
@@ -43,6 +43,3 @@ def build_source_activity_snapshot(
         },
         "provenance": dict(output.get("provenance") or {}),
     }
-
-
-from magi_plugin_sdk.storage_models.activity_snapshot import activity_snapshot_from_metadata

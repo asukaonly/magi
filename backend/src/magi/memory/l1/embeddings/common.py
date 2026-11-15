@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from enum import IntEnum
 from typing import TYPE_CHECKING, Any, Dict, List, Protocol
 
 from ...embedding.embedding_service import MemoryEmbeddingService
@@ -16,21 +15,21 @@ if TYPE_CHECKING:
     from ..ports import MemoryEventRecord, MemoryEventRepository
 
 from magi_plugin_sdk.storage_models.embedding_status import (
-    FACT_EVENTS_TABLE,
-    L1_EVENT_EMBEDDING_STATE_TABLE,
-    EMBEDDING_PROFILES_TABLE,
-    EVENT_CHUNKS_TABLE,
-    EMBEDDING_TEXT_BUILDER_VERSION,
-    EMBEDDING_STATUS_PENDING,
-    EMBEDDING_STATUS_READY,
-    EMBEDDING_STATUS_FAILED,
-    EMBEDDING_STATUS_SKIPPED,
-    EMBEDDING_STATUS_DISABLED,
-    EmbeddingStatus,
-    _EMBEDDING_STATUS_LABELS,
-    _EMBEDDING_STATUS_BY_LABEL,
-    embedding_status_code,
-    embedding_status_label,
+    FACT_EVENTS_TABLE as FACT_EVENTS_TABLE,
+    L1_EVENT_EMBEDDING_STATE_TABLE as L1_EVENT_EMBEDDING_STATE_TABLE,
+    EMBEDDING_PROFILES_TABLE as EMBEDDING_PROFILES_TABLE,
+    EVENT_CHUNKS_TABLE as EVENT_CHUNKS_TABLE,
+    EMBEDDING_TEXT_BUILDER_VERSION as EMBEDDING_TEXT_BUILDER_VERSION,
+    EMBEDDING_STATUS_PENDING as EMBEDDING_STATUS_PENDING,
+    EMBEDDING_STATUS_READY as EMBEDDING_STATUS_READY,
+    EMBEDDING_STATUS_FAILED as EMBEDDING_STATUS_FAILED,
+    EMBEDDING_STATUS_SKIPPED as EMBEDDING_STATUS_SKIPPED,
+    EMBEDDING_STATUS_DISABLED as EMBEDDING_STATUS_DISABLED,
+    EmbeddingStatus as EmbeddingStatus,
+    _EMBEDDING_STATUS_LABELS as _EMBEDDING_STATUS_LABELS,
+    _EMBEDDING_STATUS_BY_LABEL as _EMBEDDING_STATUS_BY_LABEL,
+    embedding_status_code as embedding_status_code,
+    embedding_status_label as embedding_status_label,
 )
 
 

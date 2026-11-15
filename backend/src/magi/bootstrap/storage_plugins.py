@@ -7,7 +7,6 @@ from typing import Any
 import yaml
 import json
 from magi_plugin_sdk.fs import read_managed_bytes
-from magi_plugin_sdk.storage import StorageDomain
 
 from ..config.plugin_models import PluginSettings
 from ..config.storage_models import StructuredStorageSettings
@@ -18,7 +17,6 @@ from ..utils.runtime import RuntimePaths
 from .context import RuntimeBootstrapContext, require_initialized
 from .lifecycle import LifecycleModule
 from .sqlite_storage_provider import SqliteStorageProvider
-
 
 def read_mapping(path: Path) -> dict[str, Any]:
     if not path.parent.exists():

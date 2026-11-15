@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
-
 from magi_plugin_sdk.storage_models.chat_reads import (
-    ChatAttachmentLocation,
-    ChatSessionSummary,
-    ChatSessionRenameResult,
-    SessionWorkspaceUpdateResult,
-    ChatMessageSourceIdentity,
-    ChatDisplayMessage,
-    _format_prompt_attachment_references,
-    InvalidPageCursor,
-    StalePageCursor,
+    ChatAttachmentLocation as ChatAttachmentLocation,
+    ChatSessionSummary as ChatSessionSummary,
+    ChatSessionRenameResult as ChatSessionRenameResult,
+    SessionWorkspaceUpdateResult as SessionWorkspaceUpdateResult,
+    ChatMessageSourceIdentity as ChatMessageSourceIdentity,
+    ChatDisplayMessage as ChatDisplayMessage,
+    _format_prompt_attachment_references as _format_prompt_attachment_references,
+    InvalidPageCursor as InvalidPageCursor,
+    StalePageCursor as StalePageCursor,
 )

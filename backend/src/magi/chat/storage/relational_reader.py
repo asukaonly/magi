@@ -4,12 +4,11 @@ from typing import Any
 
 from magi_plugin_sdk.storage_chat.relational_reader import RelationalChatReadRepository as SharedChatReader
 
-from ...utils.runtime import RuntimePaths, get_runtime_paths
+from ...utils.runtime import get_runtime_paths
 from ..cleanup_plan import ChatAssetInventory
 from ..workspace_preferences import RecentWorkspaceRepository
 from .host import LocalChatStorageHost
 from .relational import ChatReadDatabase
-
 
 class RelationalChatReadRepository(SharedChatReader):
     def __init__(

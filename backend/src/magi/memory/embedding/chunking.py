@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.storage_models.chunks import ChunkedText
+
 import re
 from dataclasses import dataclass
 
@@ -30,7 +32,6 @@ _SENTENCE_BOUNDARY_RE = re.compile(
 )
 
 
-from magi_plugin_sdk.storage_models.chunks import ChunkedText
 
 
 @dataclass(frozen=True, slots=True)

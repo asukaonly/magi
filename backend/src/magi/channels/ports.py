@@ -3,17 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from magi_plugin_sdk.delivery import DeliveryReceipt
-from typing import Protocol
-from .contracts import ChannelSessionMapping, ChannelBindingSettings
-
 
 from magi_plugin_sdk.storage_ports.channels import (
     ChannelSessionRepository,
     DeliveryReceiptsRepository,
     ChannelBindingSettingsRepository,
 )
-
 
 @dataclass(frozen=True)
 class ChannelRepositories:

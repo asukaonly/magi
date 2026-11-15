@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
-
 from magi_plugin_sdk.storage_models.chat_attachments import (
-    build_user_message_payload_json,
-    public_attachment_payloads,
+    build_user_message_payload_json as build_user_message_payload_json,
+    public_attachment_payloads as public_attachment_payloads,
 )

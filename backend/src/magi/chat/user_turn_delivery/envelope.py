@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 from typing import Any
 
 from ...core.runtime_namespace import DEFAULT_RUNTIME_NAMESPACE
@@ -15,7 +14,6 @@ from magi_plugin_sdk.storage_models.chat_envelope import (
     deserialize_runtime_envelope,
     runtime_workspace_path,
 )
-
 
 class InvalidUserTurnDeliveryEnvelopeError(ValueError):
     """Raised when a persisted runtime envelope cannot be replayed safely."""

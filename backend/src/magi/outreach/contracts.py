@@ -1,12 +1,16 @@
 """Producer-agnostic contracts for the proactive outreach layer."""
 from __future__ import annotations
 
+from magi_plugin_sdk.storage_models.channels import (
+    OutreachIntentConflictError as OutreachIntentConflictError,
+    OutboxEnqueueResult as OutboxEnqueueResult,
+)
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 from magi_plugin_sdk.channels import ChannelTarget
-
 
 class OutreachKind(str, Enum):
     TASK_COMPLETED = "task_completed"
@@ -33,10 +37,6 @@ class GovernorVerdict(str, Enum):
     DROP = "drop"
 
 
-from magi_plugin_sdk.storage_models.channels import (
-    OutreachIntentConflictError,
-    OutboxEnqueueResult,
-)
 
 @dataclass(frozen=True, slots=True)
 class OutreachIntent:

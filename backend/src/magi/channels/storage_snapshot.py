@@ -2,17 +2,16 @@
 
 from typing import Protocol
 from magi_plugin_sdk.storage_models.channels import (
-    SnapshotRecord,
-    SessionBindingRecord,
-    NotificationCursorRecord,
-    RelayCursorRecord,
-    BindingSettingsRecord,
-    DeliveryReceiptRecord,
-    OutreachIntentRecord,
-    OutreachReceiptRecord,
+    SnapshotRecord as SnapshotRecord,
+    SessionBindingRecord as SessionBindingRecord,
+    NotificationCursorRecord as NotificationCursorRecord,
+    RelayCursorRecord as RelayCursorRecord,
+    BindingSettingsRecord as BindingSettingsRecord,
+    DeliveryReceiptRecord as DeliveryReceiptRecord,
+    OutreachIntentRecord as OutreachIntentRecord,
+    OutreachReceiptRecord as OutreachReceiptRecord,
     ChannelStorageSnapshot
 )
-
 
 class ChannelStateTransfer(Protocol):
     async def export_state(self) -> ChannelStorageSnapshot: ...

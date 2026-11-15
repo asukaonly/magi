@@ -2,32 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol
-
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-from ..event_contracts import AuthorType, ContentType, MemoryDomain, RetentionClass
-from .embeddings.common import EmbeddingStatus
-from ..evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
-
+from typing import Protocol
 
 from magi_plugin_sdk.storage_models.event_snapshot import (
-    SnapshotRecord,
-    FactSnapshot,
-    SessionSequenceSnapshot,
-    EventEmbeddingSnapshot,
-    PayloadSnapshot,
-    CognitionHandoffSnapshot,
-    FacetSnapshot,
-    EmbeddingProfileSnapshot,
-    ChunkSnapshot,
-    EntityLinkSnapshot,
-    ProjectedEntitySnapshot,
-    EntityProjectionSnapshot,
-    SessionPreviewSnapshot,
+    SnapshotRecord as SnapshotRecord,
+    FactSnapshot as FactSnapshot,
+    SessionSequenceSnapshot as SessionSequenceSnapshot,
+    EventEmbeddingSnapshot as EventEmbeddingSnapshot,
+    PayloadSnapshot as PayloadSnapshot,
+    CognitionHandoffSnapshot as CognitionHandoffSnapshot,
+    FacetSnapshot as FacetSnapshot,
+    EmbeddingProfileSnapshot as EmbeddingProfileSnapshot,
+    ChunkSnapshot as ChunkSnapshot,
+    EntityLinkSnapshot as EntityLinkSnapshot,
+    ProjectedEntitySnapshot as ProjectedEntitySnapshot,
+    EntityProjectionSnapshot as EntityProjectionSnapshot,
+    SessionPreviewSnapshot as SessionPreviewSnapshot,
     EventStorageSnapshot,
 )
-
 
 class EventStateTransfer(Protocol):
     async def export_state(self) -> EventStorageSnapshot: ...

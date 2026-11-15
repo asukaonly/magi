@@ -16,7 +16,7 @@ from .chat_assets.paths import normalize_chat_asset_component
 from magi_plugin_sdk.subprocess import hidden_process_kwargs
 
 from magi_plugin_sdk.storage_models.chat_artifacts import (
-    _DELEGATION_ID_PATTERN,
+    _DELEGATION_ID_PATTERN as _DELEGATION_ID_PATTERN,
     CodeAgentArtifactPathError,
     WorkspaceSessionArtifactReference,
     normalize_code_agent_delegation_id,

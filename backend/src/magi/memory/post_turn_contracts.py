@@ -1,17 +1,11 @@
 """Persistence-neutral contracts for accepted conversation understanding."""
 
-from dataclasses import dataclass
 from typing import Any, Protocol
 
 from magi_plugin_sdk.storage_models.post_turn import (
     PostTurnBatchLease,
-    PostTurnLeaseLost,
+    PostTurnLeaseLost as PostTurnLeaseLost,
 )
-
-
-
-
-
 
 class PostTurnOutbox(Protocol):
     """The source owner provides durable admission, leases, and effect settlement."""

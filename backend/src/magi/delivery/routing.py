@@ -1,17 +1,15 @@
 """Resolve immutable output addresses before any provider invocation."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from magi_plugin_sdk.channels import ChannelTarget
+from magi_plugin_sdk.channels import ChannelTarget as ChannelTarget
 from magi_plugin_sdk.endpoints import EndpointRef
 
 from magi_plugin_sdk.storage_models.delivery_plan import (
     DeliveryPlan,
 )
-
 
 DeliveryTargetValidator = Callable[[tuple[EndpointRef, ...]], Awaitable[None]]
 

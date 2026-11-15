@@ -2,17 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-import json
-import re
-import time
-import unicodedata
-from typing import Any, Iterable, Protocol, cast
-from urllib.parse import urlparse
+from dataclasses import asdict
+from typing import Any, Protocol, cast
 
-from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
-
-from ..event_contracts import MemoryEvent
 from .ports import MemoryEventRecord, MemoryEventRepository
 
 from magi_plugin_sdk.storage_models.source_facets import (
@@ -20,45 +12,44 @@ from magi_plugin_sdk.storage_models.source_facets import (
     PHOTO_LOCATION_FACETS,
     BROWSER_SOURCES,
     MUSIC_SOURCES,
-    _GENERIC_PHOTO_TERMS,
+    _GENERIC_PHOTO_TERMS as _GENERIC_PHOTO_TERMS,
     SourceFacet,
-    _FacetContext,
+    _FacetContext as _FacetContext,
     normalize_facet_text,
     extract_source_facets,
-    _extract_contract_source_facets,
-    _extract_photo_source_facets,
-    _extract_photo_count_facet,
-    _extract_photo_device_facet,
-    _extract_representative_photo_facets,
-    _extract_representative_photo_location_facets,
-    _extract_representative_photo_asset_facets,
-    _extract_representative_photo_coordinate_facets,
-    _extract_photo_retrieval_term_facets,
-    _extract_browser_source_facets,
-    _extract_music_source_facets,
-    _music_text_facets,
-    _music_alias_facets,
-    _music_metric_facets,
-    _music_track_fallback_facets,
-    _metadata_from_event_dict,
-    _text_facet,
-    _context_text_facet,
-    _extract_photo_count,
-    _extract_device,
-    _iter_representative_photos,
-    _iter_retrieval_terms,
-    _provenance_from_metadata,
-    _first_text,
-    _first_float,
-    _domain_from_url,
-    _browser_title_from_content,
-    _music_track_from_content,
-    _iter_track_aliases,
-    _clean_text,
-    _coerce_float,
-    _dedupe_facets,
+    _extract_contract_source_facets as _extract_contract_source_facets,
+    _extract_photo_source_facets as _extract_photo_source_facets,
+    _extract_photo_count_facet as _extract_photo_count_facet,
+    _extract_photo_device_facet as _extract_photo_device_facet,
+    _extract_representative_photo_facets as _extract_representative_photo_facets,
+    _extract_representative_photo_location_facets as _extract_representative_photo_location_facets,
+    _extract_representative_photo_asset_facets as _extract_representative_photo_asset_facets,
+    _extract_representative_photo_coordinate_facets as _extract_representative_photo_coordinate_facets,
+    _extract_photo_retrieval_term_facets as _extract_photo_retrieval_term_facets,
+    _extract_browser_source_facets as _extract_browser_source_facets,
+    _extract_music_source_facets as _extract_music_source_facets,
+    _music_text_facets as _music_text_facets,
+    _music_alias_facets as _music_alias_facets,
+    _music_metric_facets as _music_metric_facets,
+    _music_track_fallback_facets as _music_track_fallback_facets,
+    _metadata_from_event_dict as _metadata_from_event_dict,
+    _text_facet as _text_facet,
+    _context_text_facet as _context_text_facet,
+    _extract_photo_count as _extract_photo_count,
+    _extract_device as _extract_device,
+    _iter_representative_photos as _iter_representative_photos,
+    _iter_retrieval_terms as _iter_retrieval_terms,
+    _provenance_from_metadata as _provenance_from_metadata,
+    _first_text as _first_text,
+    _first_float as _first_float,
+    _domain_from_url as _domain_from_url,
+    _browser_title_from_content as _browser_title_from_content,
+    _music_track_from_content as _music_track_from_content,
+    _iter_track_aliases as _iter_track_aliases,
+    _clean_text as _clean_text,
+    _coerce_float as _coerce_float,
+    _dedupe_facets as _dedupe_facets,
 )
-
 
 class _L1SourceFacetHostProtocol(Protocol):
     event_repository: MemoryEventRepository

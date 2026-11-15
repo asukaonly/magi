@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any
+from magi_plugin_sdk.storage_models.event_text import (
+    build_l1_embedding_text,
+    build_l1_retrieval_terms_text,
+    _get_l1_projection as _get_l1_projection,
+)
 
-from ..event_contracts import MemoryEvent
+from typing import Any
 
 L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION = "l2_edge_v1"
 L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION_V2 = "l2_edge_v2"
 
 
-from magi_plugin_sdk.storage_models.event_text import (
-    build_l1_embedding_text,
-    build_l1_retrieval_terms_text,
-    _get_l1_projection,
-)
 
 
 def build_l3_embedding_text(summary: dict[str, Any]) -> str:

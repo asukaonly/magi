@@ -2,17 +2,12 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import Field, RootModel
 
 from magi_plugin_sdk.storage_models.chat_client import (
     ClientModel,
-    TurnSnapshot,
+    TurnSnapshot as TurnSnapshot,
 )
-
-
-
-
-
 
 class TurnConfirmationRequest(ClientModel):
     kind: Literal["turn"]

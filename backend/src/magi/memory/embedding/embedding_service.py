@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
+from magi_plugin_sdk.storage_models.embedding_profile import EmbeddingProfile
+
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, TypeVar
 
 from ...config import get_config
@@ -34,7 +34,6 @@ class EmbeddingResult:
     index_identity: str | None = None
 
 
-from magi_plugin_sdk.storage_models.embedding_profile import EmbeddingProfile
 
 
 class MemoryEmbeddingService:

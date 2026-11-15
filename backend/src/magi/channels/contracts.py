@@ -1,7 +1,5 @@
 """Channel contracts - re-exported from magi-plugin-sdk."""
 
-from dataclasses import dataclass
-
 from magi_plugin_sdk.channels import (  # noqa: F401
     ChannelConfig,
     ChannelAttachmentStoreProtocol,
@@ -45,4 +43,4 @@ __all__ = [
 ]
 
 
-from magi_plugin_sdk.storage_models.channels import ChannelBindingSettings
+from magi_plugin_sdk.storage_models.channels import ChannelBindingSettings as ChannelBindingSettings

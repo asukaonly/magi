@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
-
-from .tool_result_metadata import TOOL_RESULT_METADATA_KEY
-
 from magi_plugin_sdk.storage_models.model_context_messages import (
-    _RUNTIME_WORLD_STATE_TAG,
-    _WORKING_CONTEXT_TAG,
-    _LAUNCH_CONTEXT_TAG,
-    _RUNTIME_CONTEXT_KIND_KEY,
-    _RUNTIME_MESSAGE_PROVENANCE_KEY,
+    _RUNTIME_WORLD_STATE_TAG as _RUNTIME_WORLD_STATE_TAG,
+    _WORKING_CONTEXT_TAG as _WORKING_CONTEXT_TAG,
+    _LAUNCH_CONTEXT_TAG as _LAUNCH_CONTEXT_TAG,
+    _RUNTIME_CONTEXT_KIND_KEY as _RUNTIME_CONTEXT_KIND_KEY,
+    _RUNTIME_MESSAGE_PROVENANCE_KEY as _RUNTIME_MESSAGE_PROVENANCE_KEY,
     set_runtime_message_provenance,
     runtime_message_provenance,
     build_runtime_world_state_message,
@@ -26,44 +22,9 @@ from magi_plugin_sdk.storage_models.model_context_messages import (
     latest_runtime_world_state_content,
     dynamic_context_start_index,
     current_dynamic_context_messages,
-    _is_typed_context_message,
-    _message_text,
+    _is_typed_context_message as _is_typed_context_message,
+    _message_text as _message_text,
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 __all__ = [
     "build_launch_context_message",

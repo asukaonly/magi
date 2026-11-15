@@ -1,18 +1,14 @@
 """Delivery attempts and persistence contracts, independent of transport/storage."""
 from __future__ import annotations
-from ..core.delivery_policy import LEASE_MS
 
-from dataclasses import dataclass
-from typing import Literal, Protocol
-
-from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
-from magi_plugin_sdk.endpoints import EndpointRef
-from magi_plugin_sdk.audio import AudioPlaybackState
+from magi_plugin_sdk.delivery import DeliveryContent as DeliveryContent, DeliveryReceipt as DeliveryReceipt
+from magi_plugin_sdk.endpoints import EndpointRef as EndpointRef
+from magi_plugin_sdk.audio import AudioPlaybackState as AudioPlaybackState
 
 from magi_plugin_sdk.storage_models.delivery_outbox import (
-    DeliveryState,
-    OutboundDelivery,
-    DeliveryStatus,
-    DeliveryAttemptQueue,
-    DeliveryOutbox,
+    DeliveryState as DeliveryState,
+    OutboundDelivery as OutboundDelivery,
+    DeliveryStatus as DeliveryStatus,
+    DeliveryAttemptQueue as DeliveryAttemptQueue,
+    DeliveryOutbox as DeliveryOutbox,
 )

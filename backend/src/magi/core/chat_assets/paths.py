@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from pathlib import Path
 
 from ...utils.runtime import RuntimePaths, get_runtime_paths
 
 from magi_plugin_sdk.storage_models.chat_asset_keys import (
     SAFE_CHAT_ASSET_COMPONENT_PATTERN,
-    _SAFE_CHAT_ASSET_COMPONENT,
+    _SAFE_CHAT_ASSET_COMPONENT as _SAFE_CHAT_ASSET_COMPONENT,
     normalize_chat_asset_component,
     is_safe_chat_asset_component,
     asset_scope_identity_key,
 )
-
-
 
 def verified_chat_resources_dir(runtime_paths: RuntimePaths) -> Path:
     """Return the canonical chat-resources root without following retargets."""

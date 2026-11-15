@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.storage_models.chat_asset_errors import ChatAssetDeletionError
+
 import os
 import shutil
 import stat
@@ -26,7 +28,6 @@ logger = get_logger(__name__)
 _MIN_UNOWNED_FILE_GRACE_HOURS = 25
 
 
-from magi_plugin_sdk.storage_models.chat_asset_errors import ChatAssetDeletionError
 
 
 class ChatAssetGC:

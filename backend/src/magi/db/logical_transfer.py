@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
+from magi_plugin_sdk.storage_digest import snapshot_digest
+
 from typing import Any, Protocol, TypeVar
 
 from .storage_bindings import StorageBindingFile, StorageTarget, StorageTransferIntent
-
 
 class LogicalSnapshot(Protocol):
     def model_dump(self, *, mode: str) -> dict[str, Any]: ...
@@ -22,7 +21,6 @@ class LogicalStateTransfer(Protocol[State]):
     async def import_state(self, snapshot: State, *, replace: bool = False) -> None: ...
 
 
-from magi_plugin_sdk.storage_digest import snapshot_digest
 
 
 async def cutover_logical_state(
