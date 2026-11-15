@@ -347,7 +347,7 @@ def test_post_preview_accepts_complete_persona_override() -> None:
         "/chat/preview",
         json={
             "history": [],
-            "message": {"role": "user", "content": "hi"},
+            "message": {"role": "user", "content": "hello"},
             "persona_override": {
                 "name": "Aria",
                 "identity_core": {
