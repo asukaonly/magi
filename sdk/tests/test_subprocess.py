@@ -218,9 +218,11 @@ async def test_runner_without_deadline_streams_output_and_registers_pid(tmp_path
     assert len(spawned) == 1
     assert result.returncode == 0
     assert not result.timed_out
-    assert output == {"stdout": b"output\n", "stderr": b"error\n"}
-    assert result.stdout.tail == b"ut\n"
-    assert result.stderr.tail == b"or\n"
+    stdout = f"output{os.linesep}".encode()
+    stderr = f"error{os.linesep}".encode()
+    assert output == {"stdout": stdout, "stderr": stderr}
+    assert result.stdout.tail == stdout[-3:]
+    assert result.stderr.tail == stderr[-3:]
     assert result.stdout.truncated
     assert managed_subprocess._load_registry(registry_path) == []
 
@@ -236,7 +238,7 @@ async def test_output_callback_failure_does_not_interrupt_capture():
     )
 
     assert result.returncode == 0
-    assert result.stdout.tail == b"still captured\n"
+    assert result.stdout.tail == f"still captured{os.linesep}".encode()
 
 
 @pytest.mark.asyncio
