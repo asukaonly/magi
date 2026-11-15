@@ -60,8 +60,8 @@ def test_schema_migrations_run_before_any_db_consuming_module() -> None:
     ``runtime_control_plane`` (no declared deps) once ran before migrations and
     read ``permission_rules`` before the table existed (fresh-DB startup crash).
 
-    Only the two modules that legitimately precede migrations — the orphan-process
-    sweep and core dependencies (which provides runtime paths) — may appear first.
+    Only infrastructure setup, storage-provider setup, and restore recovery may
+    precede migrations; none may consume a migrated host database.
     """
     from magi.bootstrap.builder import build_runtime_modules
     from magi.bootstrap.context import RuntimeBootstrapContext
@@ -78,10 +78,11 @@ def test_schema_migrations_run_before_any_db_consuming_module() -> None:
         "subprocess_orphan_cleanup",
         "runtime_core_dependencies",
         "runtime_initialization_state",
+        "runtime_storage_plugins",
         "runtime_memory_restore_recovery",
     ], (
         "schema migrations must run before every database consumer; only orphan "
-        "cleanup, core paths, initialization state, and memory restore recovery may precede them. "
+        "cleanup, core paths, initialization state, storage-provider setup, and memory restore recovery may precede them. "
         f"Got before-migrations: {resolved[:migrations_idx]}"
     )
 
