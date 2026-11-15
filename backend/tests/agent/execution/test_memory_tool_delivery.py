@@ -145,3 +145,26 @@ def test_requested_breadth_reaches_chat_instead_of_fixed_layer_ceiling(limit):
     rendered = deliver(asdict(recall))
     assert f"Recorded item {limit - 1:02}" in rendered
     assert payload.trace["projection_budget"] == {"candidates": 50, "limit": limit, "selected": limit}
+
+
+def test_delivery_continuation_does_not_skip_budget_omissions():
+    rendered = deliver({
+        "status": "found", "pagination": {"offset": 20, "next_offset": 40},
+        "findings": [{"kind": "event", "statement": f"Record {i} " + "中" * 1000, "memory_ref": f"e{i}"} for i in range(20)],
+    }, budget=5000)
+    page = json.loads(next(line.removeprefix("pagination: ") for line in rendered.splitlines() if line.startswith("pagination: ")))
+    assert 20 < page["next_offset"] < 40
+    assert "omitted_memory_refs" in rendered
+    assert "read_event_id=memory_ref" not in rendered  # Complete short records need no excerpt warning.
+
+
+def test_original_chunk_survives_real_projection_and_tool_message():
+    content = "START " + "原文" * 2500 + " END only if refundable."
+    recall = project_historical_recall(payload=RetrievalPayload(l1_events=[{
+        "event_id": "original", "content": content, "author_type": "user",
+        "read": {"offset": 0, "next_offset": 6000, "total_chars": 9000},
+    }], trace={"query_mode": "episode_recall"}), request=RetrievalQuery(query="read", read_event_id="original"))
+    rendered = deliver(asdict(recall))
+    assert content in rendered
+    assert 'memory_ref="original"' in rendered
+    assert '"next_offset": 6000' in rendered

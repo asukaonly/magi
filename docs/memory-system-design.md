@@ -3167,7 +3167,7 @@ The `HybridRetrievalService` orchestrates cross-layer retrieval with mode-aware 
 - Assertion findings preserve the complete fact across projection and prompt compaction: subject, predicate, scalar or polarity value, target, validity interval, context scope, and source references. A value such as `like` is not a complete preference without its object. Distinct targets or validity intervals must not collapse into one finding.
 - `memory_query` does not inherit the current chat session unless the caller explicitly provides `session_id`
 - Unconstrained `L2` lookups must not degrade into a global "recent relationships" / "recent assertions" scan
-- LLM-facing memory tool payloads should keep human-readable findings only; opaque ids stay in debug/observability channels rather than prompt context
+- LLM-facing memory tool payloads keep human-readable findings and actionable `memory_ref` read handles; internal scoring and unrelated opaque ids stay in debug/observability channels
 - the answer-facing `recall` contract may additionally expose compact `entity_refs` and `asset_refs` for reply-turn continuity and source-owned follow-up resolution, but raw local paths remain outside prompt context
 - plugins may optionally enrich these refs through a recall-artifact projection hook keyed by `source_type`; memory still owns the final query contract and chat still owns attachment import/display
 - For fact-like recall modes, answer-facing projection treats chat-derived assistant freeform replies and chat-derived user question prompts as non-authoritative artifacts. This projection hygiene is a last-mile defense; the primary defense is authoritative evidence scoping before retrieval ranking. These artifacts may remain in `L1` for audit or conversation replay, but they must not become factual `recall.findings` unless the caller explicitly asks for chat-source evidence or uses a conversation-recall mode.
@@ -3197,6 +3197,21 @@ and omitted counts, keeps attribution and coverage guidance, and never applies
 generic string truncation to a rendered recall. Omitted evidence cannot justify
 exhaustive claims. If governance metadata cannot fit, delivery explicitly reports
 unavailable evidence instead of silently stripping those controls.
+
+`memory_query` returns bounded ranked pages with `pagination.next_offset`.
+Continue with `page_offset` and the same query/source restrictions. Pagination
+requeries current authority over at most 100 candidates; it is not a durable
+snapshot or proof of exhaustive memory coverage. The final formatter moves the
+continuation back to the first omitted finding when the page exceeds its budget,
+and includes bounded omitted read handles. Candidate retrieval, projection and
+model delivery counts therefore describe distinct stages.
+
+`read_event_id=memory_ref` reads the retained original using the current principal,
+visible L1 scope and correction governance. It returns up to 6,000 original
+characters plus governed neighbors; `read_offset=read.next_offset` continues a
+long record. Historical reads label corrected evidence and do not claim current
+truth. Source-owned original reads still use `source_scope.object_id/thread_id`.
+Neither operation revives forgotten data or adds a persistent copy of it.
 
 Selected L1 findings carry their governed session neighbors and chronological
 navigation into the same evidence unit. Expanded rows must pass user, source,

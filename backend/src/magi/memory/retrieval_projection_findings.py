@@ -184,7 +184,7 @@ def build_findings(
         canonical_names=canonical_names,
     )
     _score_projected_findings(projected.candidates, payload=payload, request=request, mode=mode)
-    candidates = _drop_echo_findings(projected.candidates, request=request)
+    candidates = projected.candidates if request.read_event_id else _drop_echo_findings(projected.candidates, request=request)
     selected, quota_trace = _select_findings_by_layer_quota(candidates, mode=mode, limit=request.limit)
     payload.trace["projection_budget"] = {"candidates": len(candidates), "limit": request.limit, "selected": len(selected)}
     _attach_finding_topics(selected)
@@ -297,6 +297,7 @@ def _select_findings_by_layer_quota(
             break
         # Weighted allocation preserves mode preferences and reuses empty-layer slots.
         layer = min(available, key=lambda layer: (quota_trace[layer] + 1) / max(_LAYER_QUOTA_FLOOR, quota.get(layer, 0)))
+        by_layer[layer][quota_trace[layer]]["_rank"] = sum(quota_trace.values())
         quota_trace[layer] += 1
     selected = [item for layer, items in by_layer.items() for item in items[:quota_trace[layer]]]
     return selected, quota_trace
@@ -860,6 +861,9 @@ def _project_events(
         feedback_ref = _feedback_ref("event", item, "event_id", "id")
         if feedback_ref is not None:
             finding["feedback_ref"] = feedback_ref
+            finding["memory_ref"] = str(item.get("event_id") or item.get("id"))
+        if item.get("read"):
+            finding["read"] = item["read"]
         findings.append(finding)
     return findings
 

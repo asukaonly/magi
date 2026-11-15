@@ -35,7 +35,7 @@ def test_supported_modes_build_reachable_plans_and_cap_ranked_findings(mode):
     plan = MODE_REGISTRY[mode]
     assert plan.mode == mode
     assert plan.layer_quota and all(
-        type(n) is int and 0 < n < 32 for n in plan.layer_quota.values()
+        isinstance(n, int) and not isinstance(n, bool) and 0 < n < 32 for n in plan.layer_quota.values()
     )
     decision = RuleBasedIntentDecider().evaluate(
         IntentDeciderInput(query="codename", query_mode_hint=mode)
@@ -66,7 +66,8 @@ def test_supported_modes_build_reachable_plans_and_cap_ranked_findings(mode):
         ],
     )
     findings, dropped = build_findings(
-        payload, RetrievalQuery(query="codename", query_mode=mode, limit=1)
+        payload, RetrievalQuery(query="codename", query_mode=mode,
+                                limit=sum(max(1, plan.layer_quota.get(layer, 0)) for layer in ("L1", "L2")))
     )
     assert dropped == 0
     for layer, kind in [("L1", "event"), ("L2", "relationship")]:
@@ -75,6 +76,9 @@ def test_supported_modes_build_reachable_plans_and_cap_ranked_findings(mode):
             f"{kind}:{layer}-{i}" for i in range(31, 31 - count, -1)
         ]
         assert payload.trace["layer_quota"]["kept_per_layer"][layer] == count
+    focused, _ = build_findings(payload, RetrievalQuery(query="codename", query_mode=mode, limit=1))
+    assert len(focused) == 1
+    assert focused[0]["_rank"] == 0
     if mode == "cross_session":
         assert plan.layer_quota["L1"] > MODE_REGISTRY["current_state"].layer_quota["L1"]
         assert plan.layer_quota["L2"] >= MODE_REGISTRY["current_state"].layer_quota["L2"]

@@ -54,6 +54,15 @@ def _make_context(fake_mq=None, **kwargs):
 class TestMemoryQueryTool:
     """Tests for MemoryQueryTool."""
 
+    @pytest.mark.parametrize("params", [{"page_offset": 20}, {"read_event_id": "returned-event", "read_offset": 6000}])
+    def test_continuation_parameters_reach_the_scoped_request(self, params):
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+        mq = _make_fake_mq()
+        request = MemoryQueryTool()._build_memory_query_request(mq, {"query": "original question", **params}, _make_context(mq, env_vars={"user_id": "owner"}))
+        assert request.user_id == "owner"
+        for key, value in params.items():
+            assert getattr(request, key) == value
+
 
     @pytest.mark.parametrize("format", ["anthropic", "openai"])
     def test_exported_schema_exposes_only_supported_optional_filters(self, format):
@@ -81,6 +90,9 @@ class TestMemoryQueryTool:
             "query_mode": "string",
             "summary_categories": "array",
             "limit": "integer",
+            "page_offset": "integer",
+            "read_event_id": "string",
+            "read_offset": "integer",
             "conversation_context": "array",
         }
         assert props["conversation_context"]["items"] == {"type": "object"}

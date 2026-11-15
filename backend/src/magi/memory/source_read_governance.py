@@ -38,6 +38,7 @@ class SourceReadGovernance:
     async def visible(
         self, boundary: ReadBoundary, *, source_type: str, source_item_id: str,
         occurred_at: float | None, event_ids: list[str],
+        historical: bool = False,
     ) -> bool:
         if not await self.unchanged(boundary):
             return False
@@ -58,6 +59,6 @@ class SourceReadGovernance:
         if event_ids:
             from .hybrid_retrieval.correction_evidence_governance import decide_l1_correction_evidence
             decision = await decide_l1_correction_evidence(self.memory.l2, event_ids)
-            if decision.drop_all or decision.blocked_event_ids:
+            if decision.drop_all or (decision.blocked_event_ids and not historical):
                 return False
         return True
