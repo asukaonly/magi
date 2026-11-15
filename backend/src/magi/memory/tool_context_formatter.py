@@ -26,6 +26,7 @@ def compact_memory_tool_data(
     *,
     max_items: int,
     max_text_chars: int,
+    max_encoded_chars: int | None = None,
 ) -> Dict[str, Any]:
     """Compress memory_query tool results for LLM tool-message context."""
     if not isinstance(data, dict):
@@ -37,6 +38,7 @@ def compact_memory_tool_data(
             historical_recall,
             max_items=max_items,
             max_text_chars=max_text_chars,
+            max_encoded_chars=max_encoded_chars,
         )
         return {"recall": rendered}
 

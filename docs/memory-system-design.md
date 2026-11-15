@@ -3184,6 +3184,13 @@ Layer contributions:
 
 ### Prompt Strategy
 
+Memory tool delivery packs complete rendered evidence units into the remaining
+serialized tool-message budget (including JSON escaping). It records delivered
+and omitted counts, keeps attribution and coverage guidance, and never applies
+generic string truncation to a rendered recall. Omitted evidence cannot justify
+exhaustive claims. If governance metadata cannot fit, delivery explicitly reports
+unavailable evidence instead of silently stripping those controls.
+
 Current implicit injection remains conservative:
 
 - Only the bounded active subset of `L0` that passes confidence and salience

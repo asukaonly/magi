@@ -109,6 +109,13 @@ class FunctionCallingPostprocessor:
                 "The previous scan was blocked because the target location is ambiguous outside the current workspace. "
                 "Ask the user for an explicit path or use web-search before attempting another external local scan."
             )
+        data = getattr(result, "data", None)
+        if tool_name == "memory_query" and isinstance(data, dict) and isinstance(data.get("recall"), dict):
+            envelope = {**payload, "data": {"recall": ""}}
+            payload["data"] = compact_memory_tool_data(
+                data, max_items=self.max_items, max_text_chars=self.max_text_chars,
+                max_encoded_chars=max(0, self.max_payload_chars - self._serialized_length(envelope)),
+            )
         return self._enforce_total_payload_limit(payload)
 
     def _compact_tool_data_for_context(self, tool_name: str, data: Any) -> Any:

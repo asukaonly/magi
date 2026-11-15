@@ -24,8 +24,14 @@ def compact_historical_recall(
     *,
     max_items: int,
     max_text_chars: int,
+    max_encoded_chars: int | None = None,
 ) -> str:
     """Render historical recall as structured text for LLM consumption."""
+    if max_encoded_chars is not None:
+        return _pack_historical_recall(
+            historical_recall, max_items=max_items, max_text_chars=max_text_chars,
+            max_encoded_chars=max_encoded_chars,
+        )
     status = str(historical_recall.get("status") or "not_found")
     mode = str(historical_recall.get("query_mode") or "")
     summary = str(historical_recall.get("summary") or "")
@@ -48,6 +54,8 @@ def compact_historical_recall(
     if coverage:
         header_parts.append(f"coverage={coverage.get('kind') or 'unknown'}")
     sections.append(f"[Memory Recall] {' | '.join(header_parts)}")
+    if historical_recall.get("delivery"):
+        sections.append("delivery: " + json.dumps(historical_recall["delivery"], ensure_ascii=False))
 
     # ---- Summary ----
     if summary:
@@ -111,6 +119,51 @@ def compact_historical_recall(
     return "\n\n".join(sections)
 
 
+def _pack_historical_recall(
+    recall: dict[str, Any], *, max_items: int, max_text_chars: int, max_encoded_chars: int,
+) -> str:
+    """Fit complete evidence units into the JSON envelope, including escaping."""
+    fields = ("findings", "structured_results", "asset_refs")
+    available = {field: list(recall.get(field) or []) for field in fields}
+    selected: dict[str, list[Any]] = {field: [] for field in fields}
+
+    def render() -> str:
+        omitted = {field: len(available[field]) - len(selected[field]) for field in fields}
+        coverage = dict(recall.get("coverage") or {})
+        if any(omitted.values()):
+            coverage["can_claim_total"] = False
+        return compact_historical_recall(
+            {
+                **recall, **selected, "coverage": coverage,
+                "summary": truncate_statement(str(recall.get("summary") or ""), max_chars=max_text_chars)[0],
+                "delivery": {
+                    "returned": {field: len(selected[field]) for field in fields},
+                    "omitted": omitted,
+                    "partial": any(omitted.values()),
+                },
+            },
+            max_items=max_items, max_text_chars=max_text_chars,
+        )
+
+    def fits(text: str) -> bool:
+        return len(json.dumps(text, ensure_ascii=False)) - 2 <= max_encoded_chars
+
+    rendered = render()
+    if not fits(rendered):
+        # Do not strip governance warnings to make room for evidence.
+        notice = "[Memory Recall] delivery=unavailable; evidence omitted by context budget. Narrow the query or increase the budget. Do not infer absence or completeness."
+        return notice if fits(notice) else ""
+    for field in fields:
+        for item in available[field][:max_items]:
+            selected[field].append(item)
+            candidate = render()
+            if fits(candidate):
+                rendered = candidate
+            else:
+                selected[field].pop()
+    return rendered
+
+
 # ---------------------------------------------------------------------------
 # Internal renderers
 # ---------------------------------------------------------------------------
@@ -138,6 +191,7 @@ def _render_findings(
         by_kind.setdefault(kind, []).append(f)
 
     kind_order = ["relationship", "assertion", "reflection", "event", "source_record", "procedure"]
+    kind_order.extend(kind for kind in by_kind if kind not in kind_order)
 
     parts: list[str] = []
     for kind in kind_order:
