@@ -1,7 +1,8 @@
 //! A launch owns its report, so late work cannot overwrite a later attempt.
 
+use crate::desktop_log_history::{file_identity, FileIdentity};
 use serde::Serialize;
-use std::fs::{self, File, Metadata};
+use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
@@ -30,29 +31,6 @@ pub struct StartupReport {
     pub log_excerpt_scope: Option<String>,
     pub log_excerpt_truncated: bool,
     pub log_read_error: Option<String>,
-}
-
-#[derive(Clone, PartialEq)]
-struct FileIdentity {
-    created: Option<SystemTime>,
-    #[cfg(unix)]
-    device: u64,
-    #[cfg(unix)]
-    inode: u64,
-}
-
-impl FileIdentity {
-    fn of(metadata: &Metadata) -> Self {
-        #[cfg(unix)]
-        use std::os::unix::fs::MetadataExt;
-        Self {
-            created: metadata.created().ok(),
-            #[cfg(unix)]
-            device: metadata.dev(),
-            #[cfg(unix)]
-            inode: metadata.ino(),
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -136,8 +114,10 @@ impl StartupAttempt {
 
     /// Capture after the predecessor drains and immediately before this child starts.
     pub fn capture_log(&self, path: PathBuf) {
-        let (offset, identity) = match fs::metadata(&path) {
-            Ok(meta) => (Some(meta.len()), Some(FileIdentity::of(&meta))),
+        let snapshot = File::open(&path)
+            .and_then(|file| Ok((file.metadata()?.len(), file_identity(&file)?)));
+        let (offset, identity) = match snapshot {
+            Ok((length, identity)) => (Some(length), Some(identity)),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Some(0), None),
             Err(_) => (None, None),
         };
@@ -168,10 +148,11 @@ fn read_log(boundary: &LogBoundary, report: &mut StartupReport) -> std::io::Resu
     let mut file = File::open(&boundary.path)?;
     let metadata = file.metadata()?;
     let length = metadata.len();
+    let identity = file_identity(&file)?;
     let same_file = boundary
         .identity
         .as_ref()
-        .is_none_or(|id| *id == FileIdentity::of(&metadata));
+        .is_none_or(|id| *id == identity);
     let scoped = same_file && boundary.offset.is_some_and(|offset| offset <= length);
     let start = if scoped {
         boundary.offset.unwrap_or(0)
@@ -249,6 +230,7 @@ fn system_version() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::io::Write;
 
     #[test]

@@ -17,13 +17,13 @@ pub struct DesktopLogClearResult {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct FileIdentity {
+pub(crate) struct FileIdentity {
     first: u64,
     second: u64,
 }
 
 #[cfg(unix)]
-fn file_identity(file: &File) -> io::Result<FileIdentity> {
+pub(crate) fn file_identity(file: &File) -> io::Result<FileIdentity> {
     use std::os::unix::fs::MetadataExt;
 
     let metadata = file.metadata()?;
@@ -57,7 +57,7 @@ fn windows_file_information(
 }
 
 #[cfg(windows)]
-fn file_identity(file: &File) -> io::Result<FileIdentity> {
+pub(crate) fn file_identity(file: &File) -> io::Result<FileIdentity> {
     let information = windows_file_information(file)?;
     Ok(FileIdentity {
         first: u64::from(information.dwVolumeSerialNumber),
@@ -67,7 +67,7 @@ fn file_identity(file: &File) -> io::Result<FileIdentity> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn file_identity(_file: &File) -> io::Result<FileIdentity> {
+pub(crate) fn file_identity(_file: &File) -> io::Result<FileIdentity> {
     Err(io::Error::other("file identity is unavailable"))
 }
 

@@ -771,7 +771,9 @@ Local service log excerpts start at the byte boundary captured immediately befor
 spawning the child (or reusing it on retry), after the predecessor has drained.
 Reads include at most 64 KiB. Rotation or truncation that invalidates the boundary
 is explicitly labeled as a fallback tail; an empty current attempt never falls
-back to older startup output. Remote reports never read local service logs.
+back to older startup output. File identity comes from the opened handle on both
+Unix and Windows, so replacement does not depend on distinct creation timestamps.
+Remote reports never read local service logs.
 Displayed and copied reports use the shared credential redaction rules and mask
 common macOS, Linux and Windows home-directory paths. Arbitrary log content is
 not guaranteed to be anonymous; review a report before sharing it publicly.
