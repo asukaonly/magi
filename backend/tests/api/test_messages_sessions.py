@@ -424,15 +424,12 @@ def _insert_event(db_path: Path, event_type: str, data: dict, timestamp: float) 
 
 
 def _build_service(tmp_path: Path) -> ChatReadService:
-    from magi.chat.asset_gc import ChatAssetGC
     from magi.utils.runtime import RuntimePaths
 
-    service = build_chat_reader()
+    service = build_chat_reader(runtime_paths=RuntimePaths(tmp_path / "runtime"))
     db_path = tmp_path / "chat.sqlite3"
     service.repository.database.path = db_path
     service._l1_db_path = db_path
-    service._asset_gc = ChatAssetGC(runtime_paths=RuntimePaths(tmp_path / "runtime"))
-    service.repository._asset_inventory = service._asset_gc
 
     # Hermeticity: display-history now joins chat-trace data through the
     # container's ChatTraceReadService singleton, whose db paths freeze at
