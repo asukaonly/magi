@@ -185,7 +185,8 @@ def build_findings(
     )
     _score_projected_findings(projected.candidates, payload=payload, request=request, mode=mode)
     candidates = _drop_echo_findings(projected.candidates, request=request)
-    selected, quota_trace = _select_findings_by_layer_quota(candidates, mode=mode)
+    selected, quota_trace = _select_findings_by_layer_quota(candidates, mode=mode, limit=request.limit)
+    payload.trace["projection_budget"] = {"candidates": len(candidates), "limit": request.limit, "selected": len(selected)}
     _attach_finding_topics(selected)
     _attach_conversation_evidence(selected, payload=payload, request=request, mode=mode)
     _record_projection_trace(
@@ -280,19 +281,24 @@ def _select_findings_by_layer_quota(
     candidates: list[dict[str, Any]],
     *,
     mode: str,
+    limit: int,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     quota = _resolve_layer_quota(mode)
     by_layer: dict[str, list[dict[str, Any]]] = {}
     for candidate in candidates:
         by_layer.setdefault(str(candidate.get("source_layer") or "L1"), []).append(candidate)
 
-    selected: list[dict[str, Any]] = []
-    quota_trace: dict[str, int] = {}
-    for layer, items in by_layer.items():
+    for items in by_layer.values():
         items.sort(key=lambda x: float(x.get("_score", 0.0)), reverse=True)
-        kept = items[: max(_LAYER_QUOTA_FLOOR, int(quota.get(layer, 0)))]
-        selected.extend(kept)
-        quota_trace[layer] = len(kept)
+    quota_trace = {layer: 0 for layer in by_layer}
+    for _ in range(max(0, min(limit, len(candidates)))):
+        available = [layer for layer, items in by_layer.items() if quota_trace[layer] < len(items)]
+        if not available:
+            break
+        # Weighted allocation preserves mode preferences and reuses empty-layer slots.
+        layer = min(available, key=lambda layer: (quota_trace[layer] + 1) / max(_LAYER_QUOTA_FLOOR, quota.get(layer, 0)))
+        quota_trace[layer] += 1
+    selected = [item for layer, items in by_layer.items() for item in items[:quota_trace[layer]]]
     return selected, quota_trace
 
 

@@ -130,3 +130,18 @@ async def test_expanded_evidence_obeys_scope_and_fails_closed():
     assert [event["event_id"] for event in governed] == ["ok"]
     memory.l2.active_correction_evidence_event_ids.side_effect = RuntimeError("unavailable")
     assert await govern_recall_events(memory, events, request, time_range={}, historical=True) == []
+
+
+@pytest.mark.parametrize("limit", [1, 20, 40])
+def test_requested_breadth_reaches_chat_instead_of_fixed_layer_ceiling(limit):
+    payload = RetrievalPayload(l1_events=[
+        {"event_id": f"e{i}", "content": f"Recorded item {i:02}", "score": 0.9}
+        for i in range(50)
+    ])
+    recall = project_historical_recall(payload=payload, request=RetrievalQuery(
+        query="List recorded items", query_mode="cross_session", limit=limit,
+    ))
+    assert len(recall.findings) == limit
+    rendered = deliver(asdict(recall))
+    assert f"Recorded item {limit - 1:02}" in rendered
+    assert payload.trace["projection_budget"] == {"candidates": 50, "limit": limit, "selected": limit}

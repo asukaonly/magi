@@ -603,7 +603,7 @@ class TestPerLayerQuota:
                 for i in range(4)
             ],
         )
-        findings = build_findings(payload, _make_query(mode="unregistered-mode"))
+        findings = build_findings(payload, _make_query(mode="unregistered-mode", limit=19))
         assert [f["feedback_ref"] for f in findings] == [f"event:e{i}" for i in range(8)] + [
             f"relationship:r{i}" for i in range(6)
         ] + [f"reflection:s{i}" for i in range(3)] + [f"procedure:p{i}" for i in range(2)]

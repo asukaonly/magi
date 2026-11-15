@@ -3177,6 +3177,13 @@ The `HybridRetrievalService` orchestrates cross-layer retrieval with mode-aware 
 
 Layer contributions:
 
+Candidate over-fetch and reranker work limits are independent of the requested
+answer limit. Projection uses the requested limit as the total finding budget;
+mode layer quotas are weights, not hard ceilings. Empty layers release their
+slots, and unused fusion token allocations can fund evidence in another layer.
+The tool-message character budget remains the final delivery cap. Projection
+trace records candidate/selected counts; the prompt reports delivery omissions.
+
 - `L1` — Primary event fact recall
 - `L2` — Structured evidence (graph edges, assertions, episodes, entity facets)
 - `L3` — Compressed summary context
