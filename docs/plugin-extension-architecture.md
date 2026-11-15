@@ -211,7 +211,7 @@ owned resources before plugin shutdown; a cleanup failure blocks replacement.
 External process connections release resources through their worker lifetime,
 without requiring an RPC to an already exited worker.
 
-The public SDK is version `0.2.2`, with plugin protocol `2`. Disk manifests
+The public SDK is version `0.2.7`, with plugin protocol `2`. Disk manifests
 declare `protocol_version = 2`, `min_sdk_version`, and an execution mode
 (`restricted_process` or `trusted_process`). A package is distinct from its
 host-issued connection instances. The SDK wire contracts in
