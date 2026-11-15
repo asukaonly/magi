@@ -1248,6 +1248,8 @@ def test_eval_answer_boundary_respects_scope_prompt_visibility_and_log_policy(
     messages_seen = []
 
     class Adapter:
+        model_name = "fake-model"
+
         async def chat(self, messages, **kwargs):
             messages_seen.extend(messages)
             return answer
@@ -1345,6 +1347,8 @@ def test_memory_eval_query_api_uses_evidence_bundles_for_answer_synthesis(monkey
             )
 
     class _FakeLLMAdapter:
+        model_name = "fake-model"
+
         async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
             _ = (max_tokens, temperature, kwargs)
             prompt = messages[-1]["content"]
@@ -1449,6 +1453,8 @@ def test_memory_eval_query_api_uses_timeline_summary_for_answer_synthesis(monkey
             )
 
     class _FakeLLMAdapter:
+        model_name = "fake-model"
+
         async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
             _ = (max_tokens, temperature, kwargs)
             prompt = messages[-1]["content"]

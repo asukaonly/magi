@@ -92,6 +92,8 @@ async def test_synthesis_composes_temporal_evidence_without_claiming_answer_qual
     captured = []
 
     class Adapter:
+        model_name = "fake-model"
+
         async def chat(self, messages, **kwargs):
             captured.extend(messages)
             return "stub-response"
