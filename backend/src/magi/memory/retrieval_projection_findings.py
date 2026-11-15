@@ -20,7 +20,7 @@ from .retrieval_projection_summary import split_relationship_statement
 # Fallback per-layer quota when a mode declares none (defensive; all registry
 # modes set layer_quota in T1).
 _DEFAULT_LAYER_QUOTA: dict[str, int] = {"L1": 8, "L2": 6, "L3": 3, "L4": 2}
-# Floor so a layer that has candidates is never fully starved by a small quota.
+# Every nonempty layer competes with positive weight, subject to the total finding limit.
 _LAYER_QUOTA_FLOOR = 1
 _HISTORICAL_EVENT_MODES = frozenset(
     {"event_stream", "episode_recall", "experience_recall"}

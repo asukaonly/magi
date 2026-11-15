@@ -12,6 +12,7 @@ from magi.agent.execution.function_calling.postprocessor import FunctionCallingP
 from magi.agent.execution.function_calling.types import ToolCallResult
 from magi.memory.hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
 from magi.memory.recall_events import govern_recall_events
+from magi.memory.recall_events import read_recall_event
 from magi.memory.retrieval_projection import project_historical_recall
 from magi.memory.hybrid_retrieval.timeline_condense import build_timeline_summary
 
@@ -168,3 +169,14 @@ def test_original_chunk_survives_real_projection_and_tool_message():
     assert content in rendered
     assert 'memory_ref="original"' in rendered
     assert '"next_offset": 6000' in rendered
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("time_range", [{"relative": "invalid"}, {"unexpected": 42}])
+async def test_original_read_rejects_unrecognized_time_constraints(time_range):
+    memory = SimpleNamespace(l1=SimpleNamespace(query_events=AsyncMock()))
+    with pytest.raises(ValueError, match="Invalid time constraint"):
+        await read_recall_event(memory, RetrievalQuery(
+            query="Read the original", user_id="owner", read_event_id="reference", time_range=time_range,
+        ))
+    memory.l1.query_events.assert_not_awaited()

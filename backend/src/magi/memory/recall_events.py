@@ -45,6 +45,8 @@ async def read_recall_event(memory: Any, request: RetrievalQuery) -> RetrievalPa
     mode = request.query_mode or "episode_recall"
     historical = mode in {"episode_recall", "experience_recall", "event_stream"}
     parsed = parse_raw_time_range(request.time_range)
+    if request.time_range and parsed is None:
+        raise ValueError("Invalid time constraint for an original memory read")
     time_range = {"start": parsed.start, "end": parsed.end if parsed.end is not None else parsed.as_of} if parsed else {}
     rows = await memory.l1.query_events(
         event_id=request.read_event_id, user_id=request.user_id,
