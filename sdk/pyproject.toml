@@ -21,7 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 
-dependencies = ["pydantic>=2.5.0"]
+dependencies = ["pydantic>=2.5.0", "typing-extensions"]
 
 [project.urls]
 Homepage = "https://github.com/asukaonly/magi"

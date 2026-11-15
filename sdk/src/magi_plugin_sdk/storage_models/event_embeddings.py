@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Literal, TypedDict
+from typing import Literal
+from typing_extensions import TypedDict
 from .chunks import ChunkedText
 from .embedding_profile import EmbeddingProfile
 from .event_text import build_l1_embedding_text

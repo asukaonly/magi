@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal
+from typing_extensions import TypedDict
 from .events import MemoryEvent
 from .evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
 from .source_facets import SourceFacet
