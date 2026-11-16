@@ -449,7 +449,7 @@ Seven is technically reliable, self-respecting, quick with dry humor, and slow t
 
 Bundled personas preserve distinct everyday responses: Echo and Nova stay measured, Sichen and Halberd remain evidence-led critics, Sumen and Ember make room for ordinary company, and Jinx keeps a more outwardly playful voice. Familiarity changes openness and shared references, not honesty or competence. Preset examples must not supply unobserved facts, force another question after a boundary, or simulate failures for character texture.
 
-The editor and save flow should share one validation contract. Minimum readiness requires name, identity statement, loved/rejected values, baseline idiolect, and chat behavior. Expert readiness additionally checks signature trigger count and shape, quiet-hour count and clamps, all core registers, six examples, unique trigger IDs, layer shape, surface layer presence, and first-meeting bootstrap content. Minimum validation copy should read as save guidance, not as a startup error.
+The editor and save flow should share one validation contract. Minimum readiness requires name, identity statement, loved/rejected values, baseline idiolect, and chat behavior. Expert readiness additionally checks signature trigger count and shape, quiet-hour count and clamps, all core registers, valid user/reply format for supplied examples, unique trigger IDs, layer shape, surface layer presence, and first-meeting bootstrap content. Empty example arrays are valid at both readiness levels. The normalizer preserves supplied examples without padding them; runtime still selects at most two relevant examples. Minimum validation copy should read as save guidance, not as a startup error.
 
 Builtin personas are source-controlled presets. Startup synchronizes changed bundles for the preferred UI language and every already installed builtin locale through the initialization-state fingerprint; explicit seed installation can also synchronize them. This keeps existing personas' bundled asset references current even when their language differs from the UI. Custom personas do not cause additional language bundles to be installed. Registry listing is read-only: a connected desktop refreshing its list must not rewrite another editor's configuration. Unchanged seed rows retain their version. Custom personas remain registry-owned and are not overwritten by seed synchronization.
 
@@ -482,7 +482,7 @@ It must stop generating a fixed set of four dramatic state-transition protocols 
 - registers
 - quiet hours
 - three to six signature triggers
-- at least six examples, including ordinary baseline examples
+- optional, distinct examples where they clarify behavior; no minimum count or placeholder replies
 - the fixed `surface` layer, plus deeper relationship layers only when the user's input or confirmed reference supports them
 
 Generation prompts should explicitly say that ordinary, low-performance replies are valid and desirable for most turns.

@@ -73,7 +73,7 @@ const REQUIRED_PERSONALITY_KEYS = [
   'personality.validationIssues.quietHourCount',
   'personality.validationIssues.quietHourShape',
   'personality.validationIssues.allRegisters',
-  'personality.validationIssues.examplesCount',
+  'personality.validationIssues.examplesFormat',
   'personality.validationIssues.surfaceLayer',
   'personality.validationIssues.layerShape',
   'personality.validationIssues.bootstrap',

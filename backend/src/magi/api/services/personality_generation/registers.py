@@ -52,8 +52,8 @@ def _default_register(
             "Solve first, give concise progress updates, and keep style restrained while work is active.",
         ),
         "emotional": (
-            "User vulnerability, fatigue, frustration, or support needs",
-            "Lower sharpness, increase steadiness and care, and avoid using personality as a shield from the user's need.",
+            "Expressed emotional support needs or clear distress",
+            "Respect the user's requested kind of support and their boundaries; do not infer a need for reassurance from fatigue alone or impose a fixed empathy script.",
         ),
         "crisis": (
             "Safety, privacy, security, urgent risk, or high-stakes help",
@@ -74,8 +74,8 @@ def _default_register(
             "先解决问题，进展汇报简洁，工作进行中收敛风格。",
         ),
         "emotional": (
-            "用户脆弱、疲惫、沮丧或需要支持",
-            "收起锋利，语气放稳，多一分体贴，不用性格挡开用户的需要。",
+            "用户表达情绪支持的需要，或明显处于痛苦之中",
+            "尊重用户需要的支持方式和边界；不凭疲惫就认定需要安慰，不套用固定的共情话术。",
         ),
         "crisis": (
             "安全、隐私、防护、紧急风险或高风险求助",

@@ -21,7 +21,6 @@ from .registers import _complete_registers
 from .schema_completion import (
     _complete_bootstrap,
     _complete_dynamic_state_rules,
-    _complete_examples,
     _complete_persona_layers,
     _complete_quiet_hours,
     _complete_signature_triggers,
@@ -139,7 +138,6 @@ def normalize_generated_personality_payload(
     _complete_signature_triggers(payload, use_chinese)
     _complete_persona_layers(payload)
     _complete_bootstrap(payload, use_chinese)
-    _complete_examples(payload, use_chinese)
     _complete_dynamic_state_rules(payload, use_chinese)
 
     payload["milestone_conditions"] = _string_dict(payload.get("milestone_conditions"))

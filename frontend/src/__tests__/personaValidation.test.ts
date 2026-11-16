@@ -18,11 +18,11 @@ const completeConfig = (): PersonalityConfig => ({
     structural_quirks: ['uses compact paragraphs'],
   },
   registers: {
-    chat: { description: 'Daily conversation', behavior: 'Stay ordinary and present.', examples: ['chat 1', 'chat 2'] },
-    analysis: { description: 'Reasoning', behavior: 'Explain tradeoffs clearly.', examples: ['analysis 1'] },
-    task: { description: 'Execution', behavior: 'Solve first.', examples: ['task 1'] },
-    emotional: { description: 'Support', behavior: 'Lower sharpness.', examples: ['emotional 1'] },
-    crisis: { description: 'Urgent help', behavior: 'Safety first.', examples: ['crisis 1'] },
+    chat: { description: 'Daily conversation', behavior: 'Stay ordinary and present.', examples: [] },
+    analysis: { description: 'Reasoning', behavior: 'Explain tradeoffs clearly.', examples: [] },
+    task: { description: 'Execution', behavior: 'Solve first.', examples: [] },
+    emotional: { description: 'Support', behavior: 'Lower sharpness.', examples: [] },
+    crisis: { description: 'Urgent help', behavior: 'Safety first.', examples: [] },
   },
   quiet_hours: [
     { condition: 'Focused work', clamps: { persona_intensity_max: 1 } },
@@ -55,7 +55,7 @@ describe('validatePersonalityConfig', () => {
     expect(report.expertIssues.map((item) => item.key)).toContain('bootstrap');
   });
 
-  it('accepts a complete persona config', () => {
+  it('accepts a complete persona config without examples', () => {
     const report = validatePersonalityConfig(completeConfig());
 
     expect(report.isMinimumReady).toBe(true);
@@ -63,4 +63,26 @@ describe('validatePersonalityConfig', () => {
     expect(report.minimumIssues).toHaveLength(0);
     expect(report.expertIssues).toHaveLength(0);
   });
+
+  it.each(['[User: Thanks.]\nGlad it helped.', '[User: What is [0] for?]\nThe first item.'])(
+    'accepts one concrete example without requiring more: %s', (example) => {
+      const config = completeConfig();
+      config.registers.chat.examples = [example];
+
+      expect(validatePersonalityConfig(config).isExpertReady).toBe(true);
+    },
+  );
+
+  it.each(['Reply naturally.', '[User: Thanks.]', '[User: ]\nWelcome.', '[User: Thanks.]\n   '])(
+    'reports an incomplete example without blocking minimum readiness: %s',
+    (example) => {
+      const config = completeConfig();
+      config.registers.chat.examples = [example];
+
+      const report = validatePersonalityConfig(config);
+
+      expect(report.isMinimumReady).toBe(true);
+      expect(report.expertIssues.map((item) => item.key)).toEqual(['examples_format']);
+    },
+  );
 });

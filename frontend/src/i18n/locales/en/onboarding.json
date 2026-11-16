@@ -1109,7 +1109,7 @@
       "quietHourCount": "two restraint rules",
       "quietHourShape": "complete restraint rules",
       "allRegisters": "all conversation modes",
-      "examplesCount": "six conversation examples",
+      "examplesFormat": "examples need a user message and an actual reply",
       "surfaceLayer": "base deep persona layer",
       "layerShape": "complete deep persona layers",
       "bootstrap": "first-meeting bootstrap"
