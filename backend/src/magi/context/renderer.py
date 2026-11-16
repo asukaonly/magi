@@ -171,10 +171,7 @@ class PromptContextRenderer:
             "tables, commands, and structured or technical content inside a SINGLE bubble. "
             "The marker is internal plumbing: never mention or explain it to the user.]",
             "",
-            "Example (casual chat, three bubbles):",
-            "看番？行啊。‖不过现在的番剧挺多的。‖你最近在追哪部？",
-            "Example (casual chat, English, two bubbles):",
-            "Yeah, I can help with that.‖Give me one sec to pull it up.",
+            "Format only: first message ‖ second message.",
             "",
         ]
 

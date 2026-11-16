@@ -148,6 +148,12 @@ async def test_seven_prompt_keeps_ordinary_chat_low_intensity() -> None:
     assert "你喜欢吃什么" not in prompt
     assert "## Persona Trigger Candidates" not in prompt
     assert "所有阴阳怪气消失" not in prompt
+    assert "the persona may respond with practical help, humor, or listening" in prompt
+    assert "an explicit request for depth is not required" in prompt
+    assert "correct mistakes at every relationship depth" in prompt
+    assert "Contrast Examples" not in prompt
+    assert "4 PM." not in prompt
+    assert "看番？行啊" not in prompt
 
 
 @pytest.mark.asyncio

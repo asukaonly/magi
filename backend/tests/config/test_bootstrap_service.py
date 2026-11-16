@@ -254,9 +254,10 @@ class TestBootstrapOpening:
         assert "You care about: 逻辑密度" in prompt
         assert "You push back on: 靠资历压人" in prompt
         assert "What you notice first about someone: 先看论证的隐含假设" in prompt
-        # Few-shot voice anchor pulled from the chat register.
-        assert "voice anchors" in prompt
-        assert "你是不是 AI" in prompt
+        # Opening voice comes from the persona, not unrelated conversation examples.
+        assert "voice anchors" not in prompt
+        assert "你是不是 AI" not in prompt
+        assert "Do not invent shared" in prompt
         # Layer 2: onboarding goals are subordinate to staying in character.
         assert "subordinate to staying in character" in prompt
         assert ("用户关注或偏好：DIIV" in prompt) is (source in {"portrait", "both"})
