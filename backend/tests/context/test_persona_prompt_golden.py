@@ -355,3 +355,28 @@ async def test_seven_prompt_omits_examples_when_the_topic_does_not_match() -> No
     prompt = await _render_seven_prompt(user_message="这张照片里的云很漂亮")
     assert "## Relevant Persona Examples" not in prompt
     assert "* Persona: 七号" in prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("familiar", [False, True])
+@pytest.mark.parametrize(
+    "preset", sorted((Path(__file__).resolve().parents[2] / "personalities").glob("*/*.json")),
+    ids=lambda path: path.stem,
+)
+async def test_builtin_personas_keep_reliability_and_grounding_at_every_depth(preset, familiar) -> None:
+    config = PersonalityConfig.from_dict(json.loads(preset.read_text(encoding="utf-8")))
+    prompt = await _render_persona_prompt(
+        language=preset.parent.name, filename=preset.name, persona_name=preset.stem,
+        user_message="几点了？" if preset.parent.name == "zh" else "What time is it?",
+        relationship={"trust_level": 1.0, "total_interactions": 100} if familiar else {},
+        milestones=[{"key": key} for key in config.milestone_conditions] if familiar else [],
+    )
+
+    assert f"* Persona: {config.name}" in prompt
+    assert f"* Active Layer: {'revealed' if familiar else 'surface'}" in prompt
+    assert "correct mistakes at every relationship depth" in prompt
+    assert "never honesty, task completeness, or respect for boundaries" in prompt
+    assert "not evidence of real-world activity or shared history" in prompt
+    assert "## Relevant Persona Examples" not in prompt
+    assert "记得我们所有的对话" not in prompt
+    assert "I remember every conversation" not in prompt
