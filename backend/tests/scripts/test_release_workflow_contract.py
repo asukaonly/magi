@@ -18,6 +18,46 @@ def _workflow_jobs():
     return yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
 
 
+@pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped"])
+def test_ci_summary_requires_selected_jobs_to_succeed(tmp_path, result):
+    jobs = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    aggregate = jobs["ci-result"]
+    assert aggregate["if"] == "always()"
+    plan = {"changes": {"result": "success", "outputs": {"backend": "true"}}}
+    for name in aggregate["needs"]:
+        if name != "changes":
+            plan[name] = {"result": result if name == "backend" else "skipped"}
+    command = aggregate["steps"][0]["run"]
+    completed = subprocess.run(
+        ["bash", "-euc", command], cwd=tmp_path, capture_output=True, text=True,
+        env={**os.environ, "JOB_RESULTS": json.dumps(plan)}, timeout=10,
+    )
+    assert (completed.returncode == 0) == (result == "success"), completed.stderr
+    marker = jobs["full-validation"]
+    assert marker["needs"] == ["changes", "ci-result"]
+    assert marker["if"] == "needs.changes.outputs.full == 'true'"
+
+
+@pytest.mark.parametrize("event", ["push", "pull_request", "schedule", "workflow_dispatch"])
+def test_backend_test_command_respects_scope_and_nightly_order(monkeypatch, event):
+    jobs = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    backend = jobs["backend"]
+    step = next(step for step in backend["steps"] if step["name"] == "Run backend test suite")
+    assert backend["timeout-minutes"] == 105
+    assert step["timeout-minutes"] == "${{ github.event_name == 'schedule' && 90 || 45 }}"
+    commands = []
+    monkeypatch.setenv("BACKEND_TEST_TARGETS", '["tests/speech", "tests/api"]')
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event)
+    monkeypatch.setattr(subprocess, "call", lambda command: commands.append(command) or 0)
+    script = step["run"].split("\n", 1)[1].rsplit("PYTEST", 1)[0]
+    with pytest.raises(SystemExit) as result:
+        exec(script, {})
+    assert result.value.code == 0
+    assert commands[0][1:5] == ["-m", "pytest", "tests/speech", "tests/api"]
+    assert ("-n" in commands[0]) == (event != "schedule")
+    assert "faulthandler_timeout=120" in commands[0]
+
+
 def _command_double(directory, name, source):
     path = directory / name
     path.write_text(f"#!{sys.executable}\n" + source, encoding="utf-8")
@@ -29,6 +69,8 @@ def _command_double(directory, name, source):
     "run_case,accepted",
     [
         ("success", True),
+        ("partial", False),
+        ("older_full", True),
         ("wrong_commit", False),
         ("failed", False),
         ("different_workflow", False),
@@ -54,6 +96,8 @@ def test_release_ci_verifier_executes_exact_commit_policy(tmp_path, run_case, ac
             }
         ]
     )
+    if run_case == "older_full":
+        rows.insert(0, {**rows[0], "databaseId": 456})
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _command_double(
@@ -62,8 +106,12 @@ def test_release_ci_verifier_executes_exact_commit_policy(tmp_path, run_case, ac
         """
 import json, os, subprocess, sys
 args = sys.argv[1:]
-assert args[:2] == ["run", "list"], args
 assert args[args.index("--repo") + 1] == "owner/repo"
+if args[:2] == ["run", "view"]:
+    assert '"Full validation"' in args[args.index("--jq") + 1]
+    print("0" if os.environ["RUN_CASE"] == "partial" or args[2] == "456" else "1")
+    sys.exit(0)
+assert args[:2] == ["run", "list"], args
 rows = json.loads(os.environ["FAKE_RUNS"])
 for flag, key in [("--workflow", "workflow"), ("--commit", "headSha"), ("--status", "conclusion")]:
     if flag in args:
@@ -90,13 +138,14 @@ else:
             "GITHUB_SHA": "release-commit",
             "FAKE_RUNS": json.dumps(rows),
             "REAL_JQ": jq,
+            "RUN_CASE": run_case,
         },
     )
     assert (result.returncode == 0) is accepted, result.stdout + result.stderr
     if accepted:
         assert "123" in result.stdout
     else:
-        assert "No successful ci.yml run" in result.stderr
+        assert "No successful full ci.yml run" in result.stderr
 
 
 _RELEASE_DOUBLE = """
@@ -131,10 +180,21 @@ elif name == "gh":
         assert args[args.index("--workflow") + 1] == "ci.yml"
         expected_head = os.environ["EXPECTED_CI_HEAD"]
         assert f'.headSha=="{expected_head}"' in args[args.index("-q") + 1], args
-        print("" if os.environ["FAKE_CI"] == "missing" else "123")
+        if "--event" in args:
+            assert args[args.index("--event") + 1] == "workflow_dispatch"
+            print("" if os.environ["FAKE_CI"] == "full_missing" else "124")
+        else:
+            print("" if os.environ["FAKE_CI"] == "missing" else "123")
     elif args[:2] == ["run", "watch"]:
-        assert args == ["run", "watch", "123", "--exit-status"]
-        sys.exit(1 if os.environ["FAKE_CI"] == "failure" else 0)
+        assert args[2] in {"123", "124"} and args[3:] == ["--exit-status"]
+        failed = os.environ["FAKE_CI"] == "failure" or (args[2] == "124" and os.environ["FAKE_CI"] == "full_failure")
+        sys.exit(1 if failed else 0)
+    elif args[:2] == ["run", "view"]:
+        assert '\"Full validation\"' in args[args.index("--jq") + 1]
+        partial = os.environ["FAKE_CI"] in {"partial", "full_failure", "full_missing", "full_unconfirmed"}
+        print("0" if (args[2] == "123" and partial) or os.environ["FAKE_CI"] == "full_unconfirmed" else "1")
+    elif args[:2] == ["workflow", "run"]:
+        assert args == ["workflow", "run", "ci.yml", "--ref", "main"]
     else:
         raise AssertionError(args)
 elif name not in {"python", "sleep"}:
@@ -227,17 +287,21 @@ def test_release_preflight_blocks_mutations_until_branch_policy_passes(
         )
 
 
-@pytest.mark.parametrize("ci", ["success", "failure", "missing"])
+@pytest.mark.parametrize("ci", ["success", "partial", "failure", "missing", "full_failure", "full_missing", "full_unconfirmed"])
 def test_release_creates_tag_only_after_successful_remote_ci(tmp_path, ci):
     result, calls = _run_release_script(tmp_path, state="aligned", ci=ci)
     assert ["git", "push", "origin", "main"] in calls
     tag_calls = [call for call in calls if call[:2] == ["git", "tag"]]
-    if ci == "success":
-        assert result.returncode == 0
+    if ci in {"success", "partial"}:
+        assert result.returncode == 0, result.stdout + result.stderr
         assert len(tag_calls) == 1
-        assert calls.index(["gh", "run", "watch", "123", "--exit-status"]) < calls.index(
-            tag_calls[0]
-        )
+        assert calls.index(["gh", "run", "watch", "123", "--exit-status"]) < calls.index(tag_calls[0])
+        dispatch = [call for call in calls if call[:2] == ["gh", "workflow"]]
+        if ci == "partial":
+            assert dispatch == [["gh", "workflow", "run", "ci.yml", "--ref", "main"]]
+            assert calls.index(["gh", "run", "watch", "124", "--exit-status"]) < calls.index(tag_calls[0])
+        else:
+            assert dispatch == []
     else:
         assert result.returncode != 0
         assert tag_calls == []

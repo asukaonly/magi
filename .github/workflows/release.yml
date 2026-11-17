@@ -23,7 +23,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          run_id="$(
+          run_ids="$(
             gh run list \
               --repo "${GITHUB_REPOSITORY}" \
               --workflow ci.yml \
@@ -31,13 +31,18 @@ jobs:
               --status success \
               --limit 20 \
               --json databaseId,headSha \
-              --jq '[.[] | select(.headSha == env.GITHUB_SHA)][0].databaseId'
+              --jq '.[] | select(.headSha == env.GITHUB_SHA) | .databaseId'
           )"
-          if [ -z "${run_id}" ]; then
-            echo "No successful ci.yml run found for release commit ${GITHUB_SHA}." >&2
-            exit 1
-          fi
-          echo "Release commit ${GITHUB_SHA} passed CI in run ${run_id}."
+          for run_id in ${run_ids}; do
+            full="$(gh run view "${run_id}" --repo "${GITHUB_REPOSITORY}" --json jobs \
+              --jq '[.jobs[] | select(.name == "Full validation" and .conclusion == "success")] | length')"
+            if [ "${full}" = "1" ]; then
+              echo "Release commit ${GITHUB_SHA} passed full CI in run ${run_id}."
+              exit 0
+            fi
+          done
+          echo "No successful full ci.yml run found for release commit ${GITHUB_SHA}." >&2
+          exit 1
 
   publish-tauri:
     name: Build desktop candidate (${{ matrix.label }})

@@ -8,13 +8,43 @@ on:
   schedule:
     # Nightly canonical full run (single-process backstop) at 02:00 CST / 18:00 UTC.
     - cron: '0 18 * * *'
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Select validation scope
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+      backend: ${{ steps.scope.outputs.backend }}
+      frontend: ${{ steps.scope.outputs.frontend }}
+      plugin_runtime: ${{ steps.scope.outputs.plugin_runtime }}
+      gateway: ${{ steps.scope.outputs.gateway }}
+      desktop: ${{ steps.scope.outputs.desktop }}
+      rust_security: ${{ steps.scope.outputs.rust_security }}
+      backend_targets: ${{ steps.scope.outputs.backend_targets }}
+    steps:
+      - name: Checkout complete diff history
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Check immutable GitHub Action pins
+        run: python3 scripts/check-workflow-action-pins.py
+      - name: Test change selection
+        run: python3 backend/tests/scripts/test_ci_scope.py
+      - name: Select jobs and backend tests
+        id: scope
+        run: python3 scripts/ci_scope.py
+
   plugin-runtime:
+    needs: changes
+    if: needs.changes.outputs.plugin_runtime == 'true'
     name: Paired real workers (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
@@ -65,6 +95,8 @@ jobs:
           retention-days: 14
 
   frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     name: Frontend validation
     runs-on: ubuntu-latest
 
@@ -99,6 +131,9 @@ jobs:
         run: npm run check:full
 
   backend:
+    timeout-minutes: 105
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     name: Backend validation
     runs-on: ubuntu-latest
 
@@ -157,21 +192,27 @@ jobs:
 
       - name: Run backend test suite
         working-directory: backend
-        # The full suite exceeds 10,000 tests. Hosted runners can need more
-        # than 15 minutes; keep a bounded budget without truncating coverage.
-        timeout-minutes: 45
-        # PR + push to main: run the full suite in parallel (pytest-xdist) for
-        # fast full-coverage feedback. Nightly (schedule): canonical single-process
-        # run as a backstop in case parallelism ever masks an ordering-dependent
-        # failure. Coverage is identical across both; only the runner differs.
-        # Bound queued work so fail-fast does not drain hundreds of extra tests.
-        # Keep test names and stalled-thread traces even when a runner times out.
+        # Nightly keeps the single-process ordering backstop with room for runner variance.
+        timeout-minutes: ${{ github.event_name == 'schedule' && 90 || 45 }}
+        env:
+          BACKEND_TEST_TARGETS: ${{ needs.changes.outputs.backend_targets }}
         run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            python -m pytest -vv --tb=short --maxfail=1 --durations=20 -o faulthandler_timeout=120
-          else
-            python -m pytest -n auto --maxschedchunk=16 -vv --tb=short --maxfail=1 --durations=20 -o faulthandler_timeout=120
-          fi
+          python - <<'PYTEST'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          targets = json.loads(os.environ["BACKEND_TEST_TARGETS"])
+          if not targets:
+              raise SystemExit("Backend validation requires a non-empty test selection")
+          command = [sys.executable, "-m", "pytest", *targets]
+          if os.environ["GITHUB_EVENT_NAME"] != "schedule":
+              command += ["-n", "auto", "--maxschedchunk=16"]
+          command += ["-vv", "--tb=short", "--maxfail=1", "--durations=20",
+                      "-o", "faulthandler_timeout=120"]
+          raise SystemExit(subprocess.call(command))
+          PYTEST
 
       - name: Run headless evaluation client tests
         run: python -m pytest -q benchmark/tests
@@ -193,6 +234,8 @@ jobs:
         run: python scripts/export-python-openapi.py --output /tmp/magi-python-openapi.json
 
   rust-security:
+    needs: changes
+    if: needs.changes.outputs.rust_security == 'true'
     name: Rust dependency security
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -231,6 +274,8 @@ jobs:
         run: python3 scripts/check-rust-github-advisories.py
 
   gateway:
+    needs: changes
+    if: needs.changes.outputs.gateway == 'true'
     name: Gateway validation (${{ matrix.name }})
     strategy:
       fail-fast: false
@@ -273,6 +318,8 @@ jobs:
           .lifecycle-venv/bin/python scripts/smoke-service-lifecycle.py --executable target/debug/magi-server
 
   desktop-shell:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     name: Desktop shell validation (${{ matrix.name }})
     strategy:
       fail-fast: false
@@ -325,3 +372,41 @@ jobs:
 
       - name: Check independent service
         run: cargo check --locked -p magi-server
+
+  ci-result:
+    name: CI result
+    if: always()
+    needs: [changes, plugin-runtime, frontend, backend, rust-security, gateway, desktop-shell]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful selected jobs
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          jobs = json.loads(os.environ["JOB_RESULTS"])
+          required = {"changes"}
+          scope = jobs["changes"]["outputs"]
+          for name, output in {
+              "backend": "backend", "frontend": "frontend", "plugin-runtime": "plugin_runtime",
+              "gateway": "gateway", "desktop-shell": "desktop", "rust-security": "rust_security",
+          }.items():
+              if scope.get(output) == "true":
+                  required.add(name)
+          failed = [name for name, job in jobs.items()
+                    if job["result"] != "success"
+                    and (name in required or job["result"] != "skipped")]
+          if failed:
+              raise SystemExit(f"Validation did not complete successfully: {failed}")
+          PY
+
+  full-validation:
+    name: Full validation
+    needs: [changes, ci-result]
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Complete cross-platform validation passed for this commit."

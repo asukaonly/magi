@@ -22,11 +22,11 @@ Current release expectations are:
 
 - official desktop release targets are macOS Apple Silicon and Windows x64; standalone Mac service packages target Apple Silicon. Releases after v0.1.30 no longer build or officially validate Intel Mac packages. Existing release assets are retained; generic build tooling may still accept Intel targets for contributor builds
 - macOS candidate builds use the supported `macos-15` Apple Silicon runner image; retired runner labels must be updated before a release
-- maintainers run `scripts/bump-release.sh` only from an up-to-date `main` branch; the script synchronizes version metadata, pushes `main`, and gates tag creation on a successful `ci.yml` run for the exact release commit
-- `release.yml` independently verifies that exact-commit CI result before any platform build, so a manually pushed tag cannot bypass the validation gate
+- maintainers run `scripts/bump-release.sh` only from an up-to-date `main` branch; the script synchronizes version metadata, pushes `main`, and gates tag creation on a successful full `ci.yml` run for the exact release commit. If a resume commit has only scoped checks, the script dispatches and waits for a full run before tagging
+- `release.yml` independently requires the successful `Full validation` job for that exact commit before any platform build, so a scoped green run or a manually pushed tag cannot bypass the full validation gate
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
 - the full frontend, backend, API-contract, Rust gateway, and desktop-shell validation suite belongs to `ci.yml`; release jobs consume that result instead of repeating the same checks on every platform
-- backend CI logs each test identity and emits thread traces after two minutes in one test. Parallel scheduling limits queued batches to 16 tests so the first failure can finish promptly without draining hundreds of already assigned cases; successful runs still execute the complete suite
+- backend CI logs each test identity, reports the slowest tests and emits thread traces after two minutes in one test. Parallel scheduling limits queued batches to 16 tests so the first failure can finish promptly without draining hundreds of already assigned cases
 - frontend contributors and CI share `npm run check:full`: application and build/test configuration type checks, lint, import boundaries, generated contracts, translation keys/interpolation, component tests, and the production build; `npm run check` runs the static checks only. These checks do not replace a packaged desktop smoke test.
 - each platform release job prepares its native dependencies and plugin runtime, then the Tauri build hook builds the frontend and shared Rust/Python service bundle exactly once before producing the desktop bundle
 - standalone Mac package metadata reads the service protocol from the bundled executable and rejects an executable whose version differs from the release version
@@ -35,6 +35,35 @@ Current release expectations are:
 - if installation fails after the desktop disconnects its service, recovery goes through the app bootstrap to replace runtime credentials, API clients and event streams; remote services are never stopped by a desktop update
 - the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration, startup runs a delayed background check, and packaged builds reuse the app-level network proxy for updater requests when configured
 - macOS signing and notarization should be supplied through repository secrets before shipping public releases to end users
+
+### CI scope and schedules
+
+`ci.yml` uses `scripts/ci_scope.py` to select validation from the complete push
+diff or the pull request merge-base diff, including deletions and both sides of
+renames. The `Select validation scope` job records the selected jobs and backend
+test directories in the run summary. `CI result` is the stable aggregate check:
+every selected job must succeed; intentionally unselected jobs may be skipped.
+
+- Frontend source changes run the complete frontend gate. Desktop host changes
+  also run desktop platform checks and Rust security; shared Rust changes run
+  gateway/desktop matrices, Rust security and backend script contract tests.
+- Backend changes run backend static/API-contract checks and paired plugin
+  workers. Media, MCP and speech changes select their feature/caller test groups
+  plus API, bootstrap, runtime and integration checks. Shared backend code
+  (including agent, memory, tools, skills and configuration) keeps the full
+  backend suite. Test-only changes select the owning test directory; shared
+  fixtures and missing/deleted test directories fall back to the full suite.
+- SDK, shared contracts/configuration, backend dependency metadata, version, CI/scripts,
+  unknown paths or an unavailable diff baseline trigger full validation.
+  Frontend and Rust dependency metadata run their affected language/platform
+  gates. Documentation-only changes skip expensive jobs, except runtime
+  architecture documentation which has executable backend contract tests.
+- Every night at 02:00 Asia/Shanghai (`0 18 * * *` UTC), all jobs run. Backend
+  tests run in one process to catch order/shared-state issues, with a 90-minute
+  test limit and a 105-minute job limit including setup and contract checks.
+- Manual `workflow_dispatch` runs all jobs with parallel backend tests, as do
+  full push/PR runs. Other backend runs use the selected test groups in parallel
+  with a 45-minute test limit. Full runs include all dependency security audits.
 
 ### Dependency security
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Bump the repo version on main, commit, run a fast local sanity check, push main,
-# then GATE ON THE REMOTE CI RUN: only after ci.yml goes green do we create and
+# then GATE ON THE REMOTE CI RUN: only after full ci.yml validation passes do we create and
 # push the release tag (v*), which triggers release.yml's desktop builds.
 #
 # Why remote-CI-gated: CI installs the supported dependencies in a clean
@@ -123,6 +123,28 @@ if ! gh run watch "${RUN_ID}" --exit-status; then
   echo ">>> CI FAILED. The commit is pushed on ${BRANCH}, but NO tag was created" >&2
   echo ">>> (release.yml NOT triggered). Fix forward, then run: $0 resume" >&2
   exit 1
+fi
+
+# A resume commit can have only scoped push checks; releases still require all jobs.
+FULL_QUERY='[.jobs[] | select(.name == "Full validation" and .conclusion == "success")] | length'
+if [[ "$(gh run view "${RUN_ID}" --json jobs --jq "${FULL_QUERY}")" != "1" ]]; then
+  echo ">>> Requesting full CI for release commit ${HEAD_SHA} ..."
+  gh workflow run ci.yml --ref "${BRANCH}"
+  FULL_RUN_ID=""
+  for attempt in {1..30}; do
+    sleep 2
+    FULL_RUN_ID="$(gh run list --branch "${BRANCH}" --workflow ci.yml --event workflow_dispatch --limit 20 \
+      --json databaseId,headSha -q "[.[] | select(.headSha==\"${HEAD_SHA}\")][0].databaseId")"
+    [[ -n "${FULL_RUN_ID}" ]] && break
+  done
+  if [[ -z "${FULL_RUN_ID}" ]] || ! gh run watch "${FULL_RUN_ID}" --exit-status; then
+    echo "ERROR: full CI did not pass for ${HEAD_SHA}; no tag was created. Retry with: $0 resume" >&2
+    exit 1
+  fi
+  if [[ "$(gh run view "${FULL_RUN_ID}" --json jobs --jq "${FULL_QUERY}")" != "1" ]]; then
+    echo "ERROR: CI did not confirm full validation; no tag was created." >&2
+    exit 1
+  fi
 fi
 
 # --- CI green -> tag + push tag (triggers release.yml) --------------------
