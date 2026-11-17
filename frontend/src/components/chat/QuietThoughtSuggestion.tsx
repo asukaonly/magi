@@ -10,25 +10,38 @@ export function QuietThoughtSuggestion({ busy, onDiscuss }: { busy: boolean; onD
   const attempted = useRef(false);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
-    const invalidate = () => { setThought(null); setRevision((value) => value + 1); };
+    const invalidate = (event: Event) => {
+      const detail: unknown = event instanceof CustomEvent ? event.detail : null;
+      if (event.type === APP_EVENTS.CENTER_STATE_CHANGED && detail && typeof detail === 'object'
+        && 'resource' in detail && typeof detail.resource === 'string'
+        && !['memory', 'personality', 'personas', 'config'].includes(detail.resource)) return;
+      setThought(null); setRevision((value) => value + 1);
+    };
+    const visibilityChanged = () => setRevision((value) => value + 1);
     window.addEventListener(APP_EVENTS.CENTER_STATE_CHANGED, invalidate);
     window.addEventListener(APP_EVENTS.CENTER_MAINTENANCE, invalidate);
+    document.addEventListener('visibilitychange', visibilityChanged);
     return () => {
       window.removeEventListener(APP_EVENTS.CENTER_STATE_CHANGED, invalidate);
       window.removeEventListener(APP_EVENTS.CENTER_MAINTENANCE, invalidate);
+      document.removeEventListener('visibilitychange', visibilityChanged);
     };
   }, []);
   useEffect(() => {
     if (busy || attempted.current) return;
     const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      if (document.visibilityState !== 'visible') return;
-      attempted.current = true;
+    let pending = false;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible' || pending || attempted.current) return;
+      pending = true;
       void personaThoughtsApi.share(controller.signal).then((result) => {
-        if (!controller.signal.aborted) setThought(result);
-      }).catch(() => { /* Optional sharing must not interrupt the conversation. */ });
+        if (!controller.signal.aborted && result) {
+          attempted.current = true; window.clearInterval(timer); setThought(result);
+        }
+      }).catch(() => { /* Optional sharing must not interrupt the conversation. */ })
+        .finally(() => { pending = false; });
     }, 30_000);
-    return () => { window.clearTimeout(timer); controller.abort(); };
+    return () => { window.clearInterval(timer); controller.abort(); };
   }, [busy, revision]);
   if (busy || !thought) return null;
   return <aside aria-label={t('personality.thoughts.title')} className="mx-6 mb-2 rounded-xl border border-border/50 p-3">

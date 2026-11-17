@@ -1121,6 +1121,12 @@ it into a chat draft after selecting that persona. An empty list is normal; a fa
 background run is distinguished from no material. No unread badges are generated
 for internal thoughts. Application-only sharing observes its own daily limit and
 never changes explicitly requested reminder behavior.
+While chat stays visible and idle, an empty sharing check is retried every 30
+seconds so newly available thoughts or newly enabled sharing do not require a
+page reload. These reads do not invoke a model. Returning from a hidden page
+starts a new 30-second idle period; unrelated notification changes do not remove
+a displayed thought. Memory, persona, configuration and maintenance changes
+still withdraw the displayed interpretation conservatively.
 
 ## Memory System
 

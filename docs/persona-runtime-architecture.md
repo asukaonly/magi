@@ -627,7 +627,7 @@ These checks should be maintained as prompt fixtures or tests during the impleme
 
 Background reflection and proactive sharing are independent, opt-in personality
 settings. A system-owned scheduler target checks every 15 minutes and defers while
-foreground agents are busy or new evidence is less than 15 minutes old. Reflection
+foreground agents are busy or the last captured chat activity is less than 15 minutes old. Reflection
 uses the memory-summarizer scenario, including its provider-plan admission rules.
 A daily, user-scoped attempt limit spans personas; generation and evidence review
 share one reflection attempt. No tools or external discovery run in this workflow.
