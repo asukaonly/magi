@@ -6039,7 +6039,39 @@
       "english": "English",
       "japanese": "日本語"
     },
-    "noAvatar": "未设置头像"
+    "noAvatar": "未设置头像",
+    "thoughts": {
+      "title": "最近的想法",
+      "settingsTitle": "思考与互动",
+      "enable": "后台整理与思考",
+      "enableDescription": "空闲时回看允许用于记忆的对话和资料，形成供后续交流使用的想法。会调用你配置的后台模型并产生用量；关闭后不再生成新想法。",
+      "share": "主动分享想法",
+      "shareDescription": "使用 Magi 时，可以呈现一条值得聊的想法。不发送桌面或外部通知，也不影响你明确设置的提醒。",
+      "sources": "管理资料来源",
+      "usage": "查看模型用量",
+      "limits": "后台用量限制",
+      "dailyLimit": "每天最多思考次数",
+      "localLimit": "没有新材料时不会调用模型。服务停止或设备休眠时暂停，恢复后不会补发过时消息。",
+      "loadFailed": "暂时无法读取想法",
+      "actionFailed": "操作未完成，请重试",
+      "loading": "正在读取…",
+      "empty": "有值得保留的新想法时，会出现在这里。",
+      "disabled": "可以开启后台整理与思考，让之后的交流接续此前的认识。",
+      "settings": "前往思考设置",
+      "runFailed": "最近一次整理未完成，请检查后台模型设置；系统会在之后重试。",
+      "discuss": "聊聊这个",
+      "evidence": "查看依据",
+      "dismiss": "不再使用这个判断",
+      "switchFirst": "切换到此人格后继续聊",
+      "discussPrompt": "想和你继续聊聊「{{topic}}」。你之前的想法是：\n{{content}}",
+      "insertDraft": "放入输入框",
+      "cancel": "暂时不聊",
+      "kinds": {
+        "perspective": "看法",
+        "self_review": "反思",
+        "open_question": "未解的问题"
+      }
+    }
   },
   "plugins": {
     "trust": {

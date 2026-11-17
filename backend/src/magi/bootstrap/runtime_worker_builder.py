@@ -19,6 +19,7 @@ from .maintenance import OtherDependenciesModule, RuntimeOperationalGCScheduleRe
 from .runtime_tools import RuntimeFirstPartyToolsModule
 from ..personal_tasks.lifecycle import PersonalTasksModule
 from .personal_tasks import PersonalTaskRemindersModule
+from .persona_reflection import PersonaReflectionModule, forget_persona_reflections
 from .schedule_readiness import schedule_target_ready
 
 from ..core.logger import get_logger
@@ -250,6 +251,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         MemoryStoreModule(
             context,
             portrait_projection_refresh_registrar=lambda memory: configure_user_projection_runtime(context, memory),
+            external_derivation_cleanup=lambda event_ids: forget_persona_reflections(context, event_ids),
         ),
         MemoryProcessingModule(context),
         PluginActivationModule(context),
@@ -336,6 +338,7 @@ def _build_exports_and_maintenance_modules(
         ChannelsModule(context, synthesize=synthesize_delivery),
         OutreachModule(context),
         PersonalTaskRemindersModule(context),
+        PersonaReflectionModule(context),
         SchedulerActivationModule(context),
         SourceSyncExecutorModule(context),
     ]

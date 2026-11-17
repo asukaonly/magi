@@ -622,3 +622,38 @@ Seven should behave like this after migration:
 - crisis: minimal, calm, operational guidance with no performance
 
 These checks should be maintained as prompt fixtures or tests during the implementation.
+
+## Background reflection and recent thoughts
+
+Background reflection and proactive sharing are independent, opt-in personality
+settings. A system-owned scheduler target checks every 15 minutes and defers while
+foreground agents are busy or new evidence is less than 15 minutes old. Reflection
+uses the memory-summarizer scenario, including its provider-plan admission rules.
+A daily, user-scoped attempt limit spans personas; generation and evidence review
+share one reflection attempt. No tools or external discovery run in this workflow.
+
+`PersonaJournalService` now produces structured perspectives, self-reviews and open
+questions from eligible L1 records. Chat evidence must belong to the captured
+persona and a completed, visible turn. Memory owns source reads, correction and
+forget barriers. Exact citations and an independent model review must pass before
+publication. Model review is a fallible screening step, not factual proof.
+
+The growth-memory owner stores thoughts and bounded-run receipts in dedicated
+tables, independently of relationship counters and milestones. Existing ungrounded
+journal milestones remain historical records and are not injected into prompts.
+User suppression is durable by persona and topic. Missing or modified evidence,
+changed memory-governance revisions and edited personas invalidate active thoughts.
+All writes recheck the memory epoch, evidence, persona revision and current flags.
+The first implementation conservatively invalidates thoughts on any subject revision;
+finer dependency tracking can replace this only with equivalent correction coverage.
+
+Chat context retrieves at most two currently valid thoughts with lexical topic
+matches. Interpretations remain subordinate to current instructions and factual
+memory. Disabling new background reflection preserves existing thoughts; disabling
+persona state memory also prevents their prompt use and proactive sharing.
+
+The persona page exposes recent thoughts, evidence, discussion drafts and suppression.
+Discussion never auto-sends a user message. Opt-in proactive sharing offers at most
+one recent thought per rolling day, after a visible chat page has been quiet for
+30 seconds. It is an application card, not a transcript message or OS/channel push.
+The service cannot reflect while stopped or while the host sleeps.

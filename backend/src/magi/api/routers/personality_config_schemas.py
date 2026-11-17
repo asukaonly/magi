@@ -353,13 +353,6 @@ class BootstrapInitRequest(BaseModel):
     user_id: str = Field(default="default_user")
 
 
-class JournalReflectRequest(BaseModel):
-    persona_name: Optional[str] = Field(None, description="Persona to reflect as; defaults to current")
-    emotional_state: Optional[Dict[str, Any]] = None
-    relationship: Optional[Dict[str, Any]] = None
-    recent_milestones: Optional[List[Dict[str, Any]]] = None
-
-
 class PersonalityDiff(BaseModel):
     field: str = Field(..., description="Field path")
     field_label: str = Field(..., description="Field display label")

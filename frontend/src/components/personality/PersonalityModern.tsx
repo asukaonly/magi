@@ -26,6 +26,7 @@ import {
 import { cn } from '@/lib/utils';
 import { personasApi } from '@/api/modules/personas';
 import PersonalityDetailEditor from '@/components/PersonalityDetailEditor';
+import { PersonaThoughts } from './PersonaThoughts';
 import {
   usePersonality,
   getInitials,
@@ -403,6 +404,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
             ) : null}
           </section>
 
+          {!isNewMode && selectedId && detailReady ? <PersonaThoughts key={selectedId} personaId={selectedId} canDiscuss={selectedId === currentId} /> : null}
           {loading ? (
             <div className="flex min-h-[360px] items-center justify-center rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.42)]">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />

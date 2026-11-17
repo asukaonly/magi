@@ -277,7 +277,9 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/generation-jobs": {"POST"},
         "/generation-jobs/{job_id}": {"GET"},
         "/bootstrap/init": {"POST"},
-        "/journal/reflect": {"POST"},
+        "/reflections/{persona_id}": {"GET"},
+        "/reflections/share": {"POST"},
+        "/reflections/{persona_id}/{thought_id}": {"GET", "DELETE"},
     },
     "personality_presets": {
         "/": {"GET"},

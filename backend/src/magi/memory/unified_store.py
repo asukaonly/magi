@@ -144,6 +144,7 @@ class UnifiedMemoryStore(
         if enable_l1 and event_repository is None:
             raise ValueError("Enabled L1 memory requires an event repository")
         self.storage_usage = storage_usage
+        self.external_derivation_cleanup = None
         paths = self._resolve_memory_store_paths(
             db_path=db_path,
             persist_dir=persist_dir,

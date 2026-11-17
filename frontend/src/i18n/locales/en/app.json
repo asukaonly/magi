@@ -6041,7 +6041,39 @@
       "english": "English",
       "japanese": "Japanese"
     },
-    "noAvatar": "No avatar selected"
+    "noAvatar": "No avatar selected",
+    "thoughts": {
+      "title": "Recent thoughts",
+      "settingsTitle": "Thinking and interaction",
+      "enable": "Reflect in the background",
+      "enableDescription": "Review conversations and sources allowed for memory during quiet periods, for use in later conversations. Uses your configured background model and its usage allowance. Turning this off stops new thoughts.",
+      "share": "Share thoughts proactively",
+      "shareDescription": "While you use Magi, surface an occasional thought worth discussing. No desktop or external notifications. Explicit reminders keep their own settings.",
+      "sources": "Manage sources",
+      "usage": "View model usage",
+      "limits": "Background usage limits",
+      "dailyLimit": "Maximum reflections per day",
+      "localLimit": "No model calls without new material. Pauses while the service is stopped or the device sleeps, without sending outdated updates on return.",
+      "loadFailed": "Thoughts could not be loaded",
+      "actionFailed": "The action failed. Please retry.",
+      "loading": "Loading…",
+      "empty": "New thoughts worth keeping will appear here.",
+      "disabled": "Enable background reflection to build on earlier conversations.",
+      "settings": "Open thinking settings",
+      "runFailed": "The last reflection did not finish. Check the background model settings; another attempt will follow later.",
+      "discuss": "Discuss this",
+      "evidence": "View evidence",
+      "dismiss": "Stop using this interpretation",
+      "switchFirst": "Switch to this persona to discuss",
+      "discussPrompt": "Let’s continue discussing “{{topic}}”. Your earlier thought was:\n{{content}}",
+      "insertDraft": "Add to message",
+      "cancel": "Not now",
+      "kinds": {
+        "perspective": "Perspective",
+        "self_review": "Reflection",
+        "open_question": "Open question"
+      }
+    }
   },
   "plugins": {
     "trust": {

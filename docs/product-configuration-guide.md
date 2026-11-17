@@ -1106,6 +1106,22 @@ The custom personality editor should progressively expose:
 - dynamic-state rules that map mood, energy, and stress into concrete behavior changes
 - few-shot examples by register, including ordinary baseline examples
 
+### Thinking and interaction
+
+Personality settings expose **Reflect in the background** and **Share thoughts
+proactively**, both off by default. Enabling reflection explains that already
+memory-eligible conversations and sources are sent to the configured background
+model and consume usage. The advanced limit is 1–12 reflection attempts per day,
+default 2; source management and model usage link to their existing surfaces.
+Changing notification permission does not enable either feature.
+
+The persona page shows **Recent thoughts** with perspective, reflection and open
+question labels. Users can inspect evidence, stop using an interpretation, or carry
+it into a chat draft after selecting that persona. An empty list is normal; a failed
+background run is distinguished from no material. No unread badges are generated
+for internal thoughts. Application-only sharing observes its own daily limit and
+never changes explicitly requested reminder behavior.
+
 ## Memory System
 
 Memory facts in Manage Memory, Pending, Overview, About You, Knowledge and Recall

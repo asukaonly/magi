@@ -361,6 +361,9 @@ class PersonalitySettings(BaseModel):
     enable_state_memory: bool = Field(default=True)
     enable_state_transition: bool = Field(default=True)
     enable_deep_persona: bool = Field(default=True)
+    enable_background_reflection: bool = Field(default=False)
+    enable_proactive_sharing: bool = Field(default=False)
+    reflection_daily_limit: int = Field(default=2, ge=1, le=12)
 
     @model_validator(mode="after")
     def normalize_runtime_feature_dependencies(self) -> "PersonalitySettings":

@@ -224,6 +224,30 @@ async def test_persisted_claim_requires_owner_even_for_optional_source() -> None
 
 
 @pytest.mark.asyncio
+async def test_external_derivatives_are_retried_after_source_is_hidden(tmp_path, monkeypatch):
+    db_path = tmp_path / "memory.db"
+    await _create_memory_schema(db_path)
+    memory = _UnifiedHarness(db_path)
+    attempts = []
+
+    async def cleanup(event_ids):
+        assert memory.l1.events["evt-1"]["deleted_at"] is not None
+        attempts.append(event_ids)
+        if len(attempts) == 1:
+            raise RuntimeError("External cleanup unavailable")
+
+    async def forget_mood(_store, _event_ids):
+        return 0
+
+    memory.external_derivation_cleanup = cleanup
+    monkeypatch.setattr(DailyMoodAggregateStore, "forget_source_events", forget_mood)
+    with pytest.raises(RuntimeError, match="External cleanup unavailable"):
+        await memory.forget_source_event("evt-1")
+    assert await memory.forget_source_event("evt-1") is True
+    assert attempts == [["evt-1", "turn-1"], ["evt-1", "turn-1"]]
+
+
+@pytest.mark.asyncio
 async def test_unified_forgetting_hides_l1_before_retrying_failed_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

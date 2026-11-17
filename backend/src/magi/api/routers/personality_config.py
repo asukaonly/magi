@@ -44,13 +44,13 @@ from ..services.personality_generation import (
 from ..services.personality_generation_intent import resolve_persona_generation_intent
 from ..services.personality_adjustment import adjust_personality_config
 from ..services.personality_registry import sanitize_persona_slug, save_personality_config_to_registry
-from .personality_bootstrap_routes import api_bootstrap_init, api_journal_reflect, personality_bootstrap_router
+from .persona_reflections import persona_reflections_router
+from .personality_bootstrap_routes import api_bootstrap_init, personality_bootstrap_router
 from .personality_config_common import (
     _build_diffs,
     _flatten_dict,
     _get_bootstrap_service,
     _get_growth_engine,
-    _get_journal_service,
     _get_runtime_status_snapshot,
     _normalize_avatar_in_payload,
     _normalize_generated_personality_payload,
@@ -90,7 +90,6 @@ from .personality_config_schemas import (
     BootstrapInitRequest,
     IdentityCoreModel,
     IdiolectModel,
-    JournalReflectRequest,
     PersonaAdjustmentRequest,
     PersonaGenerationIntentModel,
     PersonaIntentResolveRequest,
@@ -137,6 +136,7 @@ FIELD_LABELS: Dict[str, str] = {
 
 personality_config_router.include_router(personality_config_core_router)
 personality_config_router.include_router(personality_bootstrap_router)
+personality_config_router.include_router(persona_reflections_router)
 
 __all__ = [
     "AIGenerateRequest",
@@ -150,7 +150,6 @@ __all__ = [
     "HTTPException",
     "IdentityCoreModel",
     "IdiolectModel",
-    "JournalReflectRequest",
     "LLMSettings",
     "PersonaAdjustmentRequest",
     "PersonaJournalService",
@@ -179,7 +178,6 @@ __all__ = [
     "_flatten_dict",
     "_get_bootstrap_service",
     "_get_growth_engine",
-    "_get_journal_service",
     "_get_runtime_status_snapshot",
     "_normalize_avatar_in_payload",
     "_normalize_generated_personality_payload",
@@ -198,7 +196,6 @@ __all__ = [
     "api_bootstrap_init",
     "api_get_current_personality",
     "api_get_greeting",
-    "api_journal_reflect",
     "api_set_current_personality",
     "asyncio",
     "build_personality_diffs",

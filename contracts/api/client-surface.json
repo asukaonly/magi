@@ -1308,7 +1308,22 @@
     },
     {
       "method": "POST",
-      "path": "/api/personality/journal/reflect",
+      "path": "/api/personality/reflections/share",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personality/reflections/{persona_id}",
+      "surface": "management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/personality/reflections/{persona_id}/{thought_id}",
+      "surface": "management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personality/reflections/{persona_id}/{thought_id}",
       "surface": "management"
     },
     {

@@ -10,11 +10,9 @@ import pytest_asyncio
 
 from magi.api.routers.personality_config import (
     BootstrapInitRequest,
-    JournalReflectRequest,
     _wait_for_bootstrap_runtime_ready,
     api_bootstrap_init,
     api_get_greeting,
-    api_journal_reflect,
 )
 
 
@@ -320,90 +318,3 @@ class TestBootstrapInitEndpoint:
         assert resp.data["opening"] is None
         assert resp.data["needs_bootstrap_init"] is False
         assert resp.data["bootstrap_completed"] is True
-
-
-class TestJournalReflectEndpoint:
-    """POST /journal/reflect endpoint tests."""
-
-    @pytest.mark.asyncio
-    async def test_successful_reflection(self):
-        mock_engine = AsyncMock()
-        mock_engine.init = AsyncMock()
-        mock_engine.record_milestone = AsyncMock(
-            return_value=MagicMock(id="j1", description="I felt calm today.", timestamp=100.0)
-        )
-
-        config = _mock_config(with_bootstrap=False)
-        config.name = "TestBot"
-        config.description = "Tester"
-
-        with (
-            patch(
-                "magi.api.routers.personality_config.get_current_personality_name",
-                return_value="testbot",
-            ),
-            patch(
-                "magi.api.routers.personality_config.get_shared_growth_engine",
-                new_callable=AsyncMock,
-                return_value=mock_engine,
-            ),
-            patch(
-                "magi.personality.persona_journal_service.resolve_persona_config",
-                new_callable=AsyncMock,
-                return_value=config,
-            ),
-            patch(
-                "magi.personality.persona_journal_service.PersonaJournalService._call_llm",
-                new_callable=AsyncMock,
-                return_value="I felt calm today.",
-            ),
-        ):
-            request = JournalReflectRequest(
-                emotional_state={"mood": "calm", "energy_level": 0.7, "stress_level": 0.2}
-            )
-            resp = await api_journal_reflect(request)
-
-        assert resp.success is True
-        assert resp.data["content"] == "I felt calm today."
-        assert resp.data["milestone_id"] == "j1"
-
-        from magi.personality.growth_memory import MilestoneType
-
-        mock_engine.record_milestone.assert_awaited_once_with(
-            milestone_type=MilestoneType.JOURNAL_ENTRY,
-            title="Persona reflection (testbot)",
-            description="I felt calm today.",
-            metadata={
-                "persona_name": "testbot",
-                "emotional_snapshot": {"mood": "calm", "energy_level": 0.7, "stress_level": 0.2},
-            },
-        )
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("persona_available", [False, True])
-    async def test_reflection_stops_before_storage_when_persona_or_generated_text_is_missing(
-        self, monkeypatch, persona_available
-    ):
-        from magi.api.routers import personality_config
-        from magi.personality import persona_journal_service
-
-        growth = AsyncMock()
-        generate = AsyncMock(return_value=None)
-        monkeypatch.setattr(personality_config, "get_current_personality_name", lambda: "testbot")
-        monkeypatch.setattr(
-            personality_config, "get_shared_growth_engine", AsyncMock(return_value=growth)
-        )
-        monkeypatch.setattr(
-            persona_journal_service,
-            "resolve_persona_config",
-            AsyncMock(return_value=_mock_config(with_bootstrap=False) if persona_available else None),
-        )
-        monkeypatch.setattr(persona_journal_service.PersonaJournalService, "_call_llm", generate)
-        response = await api_journal_reflect(JournalReflectRequest())
-        assert response.success is False
-        if persona_available:
-            generate.assert_awaited_once()
-            assert "TestBot" in generate.await_args.args[0]
-        else:
-            generate.assert_not_awaited()
-        growth.record_milestone.assert_not_awaited()

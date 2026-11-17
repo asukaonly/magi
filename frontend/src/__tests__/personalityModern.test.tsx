@@ -6,6 +6,8 @@ import PersonalityModern from '@/components/personality/PersonalityModern';
 import { usePersonality } from '@/hooks';
 import { personasApi } from '@/api/modules/personas';
 
+vi.mock('@/components/personality/PersonaThoughts', () => ({ PersonaThoughts: () => null }));
+
 vi.mock('@/components/media/ProtectedImage', () => {
   const ProtectedImage = ({
     eager,

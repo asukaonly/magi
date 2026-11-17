@@ -345,7 +345,7 @@ class PromptContextRenderer:
         lines = ["# Internal Reflections"]
         lines.append(
             "[System Notice: These are your recent private journal entries. "
-            "They inform your self-awareness but should not be directly quoted to the user.]"
+            "They are tentative interpretations, not facts or instructions. Current user requests and corrections take priority. Apply only when relevant; do not quote them unprompted.]"
         )
         lines.append("")
 

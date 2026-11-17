@@ -10728,7 +10728,7 @@ return errors === 0;
 }
 validate126.evaluated = {"props":{"appearance_prompt":true,"avatar":true,"bootstrap":true,"description":true,"dynamic_state_rules":true,"identity_core":true,"idiolect":true,"interim_lines":true,"milestone_conditions":true,"name":true,"persona_layers":true,"quiet_hours":true,"registers":true,"signature_triggers":true},"dynamicProps":false,"dynamicItems":false};
 
-const schema66 = {"properties":{"deep_persona_enabled":{"default":true,"title":"Deep Persona Enabled","type":"boolean"},"state_memory_enabled":{"default":true,"title":"State Memory Enabled","type":"boolean"},"state_transition_enabled":{"default":true,"title":"State Transition Enabled","type":"boolean"}},"required":["state_memory_enabled","state_transition_enabled","deep_persona_enabled"],"title":"PersonalitySettingsModel","type":"object"};
+const schema66 = {"properties":{"background_reflection_enabled":{"default":false,"title":"Background Reflection Enabled","type":"boolean"},"deep_persona_enabled":{"default":true,"title":"Deep Persona Enabled","type":"boolean"},"proactive_sharing_enabled":{"default":false,"title":"Proactive Sharing Enabled","type":"boolean"},"reflection_daily_limit":{"default":2,"maximum":12,"minimum":1,"title":"Reflection Daily Limit","type":"integer"},"state_memory_enabled":{"default":true,"title":"State Memory Enabled","type":"boolean"},"state_transition_enabled":{"default":true,"title":"State Transition Enabled","type":"boolean"}},"required":["state_memory_enabled","state_transition_enabled","deep_persona_enabled","background_reflection_enabled","proactive_sharing_enabled","reflection_daily_limit"],"title":"PersonalitySettingsModel","type":"object"};
 
 function validate144(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -10743,15 +10743,15 @@ evaluated0.items = undefined;
 if(errors === 0){
 if(data && typeof data == "object" && !Array.isArray(data)){
 let missing0;
-if((((data.state_memory_enabled === undefined) && (missing0 = "state_memory_enabled")) || ((data.state_transition_enabled === undefined) && (missing0 = "state_transition_enabled"))) || ((data.deep_persona_enabled === undefined) && (missing0 = "deep_persona_enabled"))){
+if(((((((data.state_memory_enabled === undefined) && (missing0 = "state_memory_enabled")) || ((data.state_transition_enabled === undefined) && (missing0 = "state_transition_enabled"))) || ((data.deep_persona_enabled === undefined) && (missing0 = "deep_persona_enabled"))) || ((data.background_reflection_enabled === undefined) && (missing0 = "background_reflection_enabled"))) || ((data.proactive_sharing_enabled === undefined) && (missing0 = "proactive_sharing_enabled"))) || ((data.reflection_daily_limit === undefined) && (missing0 = "reflection_daily_limit"))){
 validate144.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
 return false;
 }
 else {
-if(data.deep_persona_enabled !== undefined){
+if(data.background_reflection_enabled !== undefined){
 const _errs1 = errors;
-if(typeof data.deep_persona_enabled !== "boolean"){
-validate144.errors = [{instancePath:instancePath+"/deep_persona_enabled",schemaPath:"#/properties/deep_persona_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.background_reflection_enabled !== "boolean"){
+validate144.errors = [{instancePath:instancePath+"/background_reflection_enabled",schemaPath:"#/properties/background_reflection_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs1 === errors;
@@ -10760,10 +10760,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.state_memory_enabled !== undefined){
+if(data.deep_persona_enabled !== undefined){
 const _errs3 = errors;
-if(typeof data.state_memory_enabled !== "boolean"){
-validate144.errors = [{instancePath:instancePath+"/state_memory_enabled",schemaPath:"#/properties/state_memory_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.deep_persona_enabled !== "boolean"){
+validate144.errors = [{instancePath:instancePath+"/deep_persona_enabled",schemaPath:"#/properties/deep_persona_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs3 === errors;
@@ -10772,16 +10772,70 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.state_transition_enabled !== undefined){
+if(data.proactive_sharing_enabled !== undefined){
 const _errs5 = errors;
-if(typeof data.state_transition_enabled !== "boolean"){
-validate144.errors = [{instancePath:instancePath+"/state_transition_enabled",schemaPath:"#/properties/state_transition_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.proactive_sharing_enabled !== "boolean"){
+validate144.errors = [{instancePath:instancePath+"/proactive_sharing_enabled",schemaPath:"#/properties/proactive_sharing_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs5 === errors;
 }
 else {
 var valid0 = true;
+}
+if(valid0){
+if(data.reflection_daily_limit !== undefined){
+let data3 = data.reflection_daily_limit;
+const _errs7 = errors;
+if(!((typeof data3 == "number") && (!(data3 % 1) && !isNaN(data3)))){
+validate144.errors = [{instancePath:instancePath+"/reflection_daily_limit",schemaPath:"#/properties/reflection_daily_limit/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
+return false;
+}
+if(errors === _errs7){
+if(typeof data3 == "number"){
+if(data3 > 12 || isNaN(data3)){
+validate144.errors = [{instancePath:instancePath+"/reflection_daily_limit",schemaPath:"#/properties/reflection_daily_limit/maximum",keyword:"maximum",params:{comparison: "<=", limit: 12},message:"must be <= 12"}];
+return false;
+}
+else {
+if(data3 < 1 || isNaN(data3)){
+validate144.errors = [{instancePath:instancePath+"/reflection_daily_limit",schemaPath:"#/properties/reflection_daily_limit/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"}];
+return false;
+}
+}
+}
+}
+var valid0 = _errs7 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.state_memory_enabled !== undefined){
+const _errs9 = errors;
+if(typeof data.state_memory_enabled !== "boolean"){
+validate144.errors = [{instancePath:instancePath+"/state_memory_enabled",schemaPath:"#/properties/state_memory_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs9 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.state_transition_enabled !== undefined){
+const _errs11 = errors;
+if(typeof data.state_transition_enabled !== "boolean"){
+validate144.errors = [{instancePath:instancePath+"/state_transition_enabled",schemaPath:"#/properties/state_transition_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs11 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
 }
 }
 }
@@ -10795,7 +10849,7 @@ return false;
 validate144.errors = vErrors;
 return errors === 0;
 }
-validate144.evaluated = {"props":{"deep_persona_enabled":true,"state_memory_enabled":true,"state_transition_enabled":true},"dynamicProps":false,"dynamicItems":false};
+validate144.evaluated = {"props":{"background_reflection_enabled":true,"deep_persona_enabled":true,"proactive_sharing_enabled":true,"reflection_daily_limit":true,"state_memory_enabled":true,"state_transition_enabled":true},"dynamicProps":false,"dynamicItems":false};
 
 const schema67 = {"properties":{"allow_ask_in_background":{"default":false,"title":"Allow Ask In Background","type":"boolean"},"allow_interjection":{"default":false,"title":"Allow Interjection","type":"boolean"},"allow_media_grounding_for_conversation":{"default":true,"title":"Allow Media Grounding For Conversation","type":"boolean"},"conversation_rhythm_enabled":{"default":true,"title":"Conversation Rhythm Enabled","type":"boolean"},"default_chat_workspace_path":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Default Chat Workspace Path"},"delivery_targets":{"items":{"$ref":"#/components/schemas/EndpointRef"},"maxItems":32,"title":"Delivery Targets","type":"array"},"first_conversation_completed":{"default":false,"description":"Legacy onboarding state retained for existing saved preferences. The chat UI no longer uses it to show starter prompts.","title":"First Conversation Completed","type":"boolean"},"language":{"default":"zh","title":"Language","type":"string"},"onboarding_completed":{"default":false,"title":"Onboarding Completed","type":"boolean"},"product_tour_completed":{"default":false,"description":"True once the user has completed (or skipped) the one-time main-page product tour shown on first visit after onboarding.","title":"Product Tour Completed","type":"boolean"},"scenario":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Scenario"},"streaming_chat_enabled":{"default":false,"title":"Streaming Chat Enabled","type":"boolean"},"suggestion_dismissals":{"additionalProperties":{"$ref":"#/components/schemas/DismissalRecord"},"description":"Map of dedupe_key → DismissalRecord. The signal matcher filters out any candidate whose dedupe_key appears here and whose TTL (based on kind) has not yet expired.","title":"Suggestion Dismissals","type":"object"},"user_mode":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"User Mode"}},"required":["delivery_targets","onboarding_completed","first_conversation_completed","product_tour_completed","suggestion_dismissals","user_mode","scenario","language","default_chat_workspace_path","streaming_chat_enabled","conversation_rhythm_enabled","allow_media_grounding_for_conversation","allow_interjection","allow_ask_in_background"],"title":"UserPreferencesModel","type":"object"};
 const schema68 = {"description":"Address one contribution target without conflating it with a user/session.","properties":{"connection_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Connection Id"},"contribution_id":{"title":"Contribution Id","type":"string"},"device_id":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Device Id"},"target_id":{"title":"Target Id","type":"string"},"thread_id":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Thread Id"}},"required":["connection_id","contribution_id","target_id","thread_id","device_id"],"title":"EndpointRef","type":"object"};

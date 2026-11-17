@@ -23,6 +23,7 @@ class ScheduledTargetType(str, Enum):
     MEMORY_L3_MAINTENANCE = "memory_l3_maintenance"
     MEMORY_L4_MAINTENANCE = "memory_l4_maintenance"
     USER_AGENT_TASK = "user_agent_task"
+    PERSONA_REFLECTION = "persona_reflection"
     PERSONAL_TASK_REMINDER = "personal_task_reminder"
     PERSONAL_TASK_RECONCILE = "personal_task_reconcile"
     TIMELINE_DIARY_NARRATIVE = "timeline_diary_narrative"

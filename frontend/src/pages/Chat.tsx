@@ -9,6 +9,8 @@ import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useChatComposerController } from '@/hooks/useChatComposerController';
 import { ComposerDeliveryControl } from '@/components/chat/ComposerDeliveryControl';
+import { SuggestedChatDraft } from '@/components/chat/SuggestedChatDraft';
+import { QuietThoughtSuggestion } from '@/components/chat/QuietThoughtSuggestion';
 import type { PendingAskAnswerPayload } from '@/hooks/useChatSendMessage';
 import { useChatMessageOverlays } from '@/hooks/useChatMessageOverlays';
 import { useChatMessageMutations } from '@/hooks/useChatMessageMutations';
@@ -1318,6 +1320,9 @@ export const ChatPage: React.FC = () => {
         onStartRecallFeedback={startRecallFeedback}
       />
 
+      <QuietThoughtSuggestion busy={sendingMessage || waitingForReply || Boolean(inputValue || activePendingAsk || recallFeedbackDraft || activeFirstContextQuestion)} onDiscuss={setInputValue} />
+      <SuggestedChatDraft disabled={sendingMessage || Boolean(activePendingAsk || recallFeedbackDraft || activeFirstContextQuestion)}
+        onInsert={(text) => setInputValue(inputValue ? `${inputValue}\n${text}` : text)} />
       <ChatComposerPane
         deliverySlot={<ComposerDeliveryControl
           value={deliveryTargets}

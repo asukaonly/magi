@@ -121,12 +121,6 @@ async def _resolve_persona_id(persona_name: str) -> str:
         return ""
 
 
-async def _get_journal_service():
-    """Create a PersonaJournalService wired to the shared growth engine."""
-    legacy = legacy_personality_config_module()
-    engine = await legacy._get_growth_engine()
-    return legacy.PersonaJournalService(growth_engine=engine)
-
 
 def sanitize_filename(name: str) -> str:
     legacy = legacy_personality_config_module()
@@ -306,7 +300,6 @@ __all__ = [
     "_get_bootstrap_service",
     "_fetch_bootstrap_memory_snippet",
     "_get_growth_engine",
-    "_get_journal_service",
     "_get_runtime_status_snapshot",
     "_normalize_avatar_in_payload",
     "_normalize_generated_personality_payload",

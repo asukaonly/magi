@@ -11,7 +11,6 @@ from ... import i18n as core_i18n
 from .personality_config_common import legacy_personality_config_module
 from .personality_config_schemas import (
     BootstrapInitRequest,
-    JournalReflectRequest,
     PersonalityResponse,
 )
 
@@ -173,50 +172,5 @@ async def api_bootstrap_init(request: BootstrapInitRequest):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@personality_bootstrap_router.post(
-    "/journal/reflect",
-    response_model=PersonalityResponse,
-    summary="Trigger a persona journal reflection",
-    description="Generate a persona-perspective reflection entry and store it as a milestone.",
-)
-async def api_journal_reflect(request: JournalReflectRequest):
-    legacy = legacy_personality_config_module()
-    try:
-        persona_name = request.persona_name or legacy.get_current_personality_name()
-        journal_svc = await legacy._get_journal_service()
 
-        entry = await journal_svc.generate_reflection(
-            persona_name=persona_name,
-            emotional_state=request.emotional_state,
-            relationship=request.relationship,
-            recent_milestones=request.recent_milestones,
-        )
-
-        if entry is None:
-            return PersonalityResponse(
-                success=False,
-                message=core_i18n.t(
-                    "personality.journal.reflection_generation_failed",
-                    fallback="Reflection generation failed",
-                ),
-                data=None,
-            )
-
-        return PersonalityResponse(
-            success=True,
-            message=core_i18n.t(
-                "personality.journal.reflection_generated",
-                fallback="Journal reflection generated",
-            ),
-            data={
-                "milestone_id": entry.milestone_id,
-                "content": entry.content,
-                "timestamp": entry.timestamp,
-            },
-        )
-    except Exception as exc:
-        legacy.logger.error("Journal reflection failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-__all__ = ["api_bootstrap_init", "api_journal_reflect", "personality_bootstrap_router"]
+__all__ = ["api_bootstrap_init", "personality_bootstrap_router"]

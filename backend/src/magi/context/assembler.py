@@ -14,7 +14,6 @@ from .renderer import PromptContextRenderer as PromptContextRenderer
 from .runtime_world_state import build_runtime_system_context
 from .self_memory import PromptSelfMemoryMixin
 from .user_profile_service import UserProfileService
-from ..personality.persona_journal_service import PersonaJournalService
 
 
 IDENTITY_TEMPLATE = "\n".join(
@@ -51,8 +50,8 @@ BOUNDARY_TEMPLATE = "\n".join(
 class PromptContextAssembler(PromptSelfMemoryMixin):
     """Builds reusable modular prompt contexts."""
 
-    def __init__(self, persona_journal_service=None, user_profile_service=None):
-        self.persona_journal_service: PersonaJournalService | None = persona_journal_service
+    def __init__(self, persona_journal_service_factory=None, user_profile_service=None):
+        self.persona_journal_service_factory = persona_journal_service_factory
         self.user_profile_service: UserProfileService | None = user_profile_service
 
     async def assemble(

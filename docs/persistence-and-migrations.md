@@ -351,7 +351,7 @@ the new files and finishes removing plaintext rollback artifacts.
 | `data/app/persona_registry.db` | personality | personas, active persona, source-linked reference dossiers for generated personas |
 | `data/memory/behavior_evolution.db` | personality | historical task interactions, category statistics, and behavior profiles; no runtime collection or inference |
 | `data/memory/emotional_state.db` | personality | emotional state KV + events |
-| `data/memory/growth_memory.db` | personality | milestones, relationships, personality evolution |
+| `data/memory/growth_memory.db` | personality | milestones, relationships, personality evolution, evidence-backed persona thoughts and bounded reflection attempt receipts |
 | `runtime/scheduler.db` | scheduler | schedules, execution history, source sync jobs |
 
 | `runtime/bootstrap_state.db` | bootstrap | completed revisions, content fingerprints, attempts, and errors for versioned startup work |
@@ -1693,3 +1693,9 @@ Plugin source migration v3 assigns a monotonic `read_order` to retained revision
 Its content-free sequence survives connection clears so pagination never reuses
 identities after `VACUUM` or a clear/reimport. Cursor order describes source revision
 admission order, not the time of the underlying health activity.
+
+Growth-memory revision `v3_persona_reflections` adds persona/user-scoped thoughts
+and reflection attempt receipts. No journal text is promoted to evidence-backed
+thoughts during migration. Full learned-growth clear removes both tables alongside
+milestones. Source and correction eligibility is rechecked by the memory owner at
+read and write boundaries; user-dismissed topics remain suppressed across new runs.
