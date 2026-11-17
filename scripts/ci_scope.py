@@ -13,7 +13,7 @@ JOBS = ("backend", "frontend", "plugin_runtime", "gateway", "desktop", "rust_sec
 # Shared runtime, storage, model and configuration changes use the full backend suite.
 # Feature groups include their callers and public API/lifecycle boundaries.
 FEATURE_TESTS = {
-    "media": ("media", "awareness", "chat", "agent", "api", "plugins", "tools"),
+    "media": ("media", "timeline", "awareness", "chat", "agent", "api", "plugins", "tools"),
     "mcp": ("mcp", "tools", "agent", "api", "plugins", "skills"),
     "speech": ("speech", "media", "tools", "api", "plugins"),
 }

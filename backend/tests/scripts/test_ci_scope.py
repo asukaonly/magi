@@ -51,6 +51,10 @@ class TestScope(unittest.TestCase):
         plan = scope.select_scope(["backend/src/magi/api/routes.py"], ROOT)
         self.assertTrue(all(plan[job] for job in ("frontend", "gateway", "desktop")))
 
+    def test_media_changes_include_timeline_consumers(self):
+        plan = scope.select_scope(["backend/src/magi/media/selector.py"], ROOT)
+        self.assertIn("tests/timeline", plan["backend_targets"])
+
     def test_test_only_changes_and_union(self):
         plan = scope.select_scope([
             "backend/tests/memory/test_store.py", "backend/tests/chat/test_session.py",
