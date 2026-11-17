@@ -5,7 +5,10 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { PersonaThoughts } from '@/components/personality/PersonaThoughts';
 import { personaThoughtsApi } from '@/api/modules/personaThoughts';
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({
+  t: (key: string) => key === 'memory.sources.chat' ? '对话' : key,
+  i18n: { language: 'zh-CN' },
+}) }));
 vi.mock('@/api/modules/personaThoughts', () => ({ personaThoughtsApi: { list: vi.fn(), get: vi.fn(), dismiss: vi.fn() } }));
 const thought = { id: 't1', persona_id: 'p1', created_at: 1700000000, status: 'active' as const,
   kind: 'perspective' as const, topic: 'Maintenance', content: 'Consider maintenance costs.', applicability: 'Engineering decisions',
@@ -26,6 +29,7 @@ it('shows evidence on demand and removes a suppressed interpretation', async () 
   expect(personaThoughtsApi.get).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'personality.thoughts.evidence' }));
   await screen.findByText('Please consider maintenance.');
+  expect(screen.getByText(`对话 · ${new Date(1700000000 * 1000).toLocaleString('zh-CN')}`)).toBeInTheDocument();
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   vi.mocked(personaThoughtsApi.list).mockResolvedValue({ ...page, items: [] });

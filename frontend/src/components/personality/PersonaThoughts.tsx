@@ -9,6 +9,7 @@ import { InlineLoadError } from '@/components/ui/inline-load-error';
 import { useAppNavigate } from '@/hooks/useAppNavigate';
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { asEventHandler } from '@/utils/as-event-handler';
+import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 
 export function PersonaThoughts({ personaId, canDiscuss }: { personaId: string; canDiscuss: boolean }) {
   const { t } = useTranslation('app');
@@ -68,8 +69,9 @@ export function PersonaThoughts({ personaId, canDiscuss }: { personaId: string; 
 }
 
 function ThoughtEvidence({ detail }: { detail: PersonaThoughtDetail }) {
+  const { t, i18n } = useTranslation('app');
   return <div className="space-y-4">{detail.evidence.map((item) => <article key={item.event_id} className="space-y-2">
-    <p className="text-xs text-muted-foreground">{item.source} · {new Date(item.occurred_at * 1000).toLocaleString()}</p>
+    <p className="text-xs text-muted-foreground">{getMemorySourceLabel(t, item.source)} · {new Date(item.occurred_at * 1000).toLocaleString(i18n.language)}</p>
     <p className="whitespace-pre-wrap text-sm leading-6">{item.content}</p>
   </article>)}</div>;
 }
