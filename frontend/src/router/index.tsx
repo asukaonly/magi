@@ -3,7 +3,7 @@ import { useExpertMode } from '@/hooks/useExpertMode';
  * Router configuration.
  */
 import React from 'react';
-import { createBrowserRouter, Navigate, RouterProvider, useRouteError } from 'react-router';
+import { createBrowserRouter, isRouteErrorResponse, Navigate, RouterProvider, useRouteError } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import MainLayout from '../components/layout/MainLayout';
 import OnboardingLoadError from '../components/onboarding/OnboardingLoadError';
@@ -11,6 +11,7 @@ import { configApi } from '../api/modules/config';
 import { LoadingSpinner } from '../components/ui/loading-spinner';
 import { STORAGE_KEYS } from '../constants/app';
 import { sanitizeOnboardingProgressStorage } from '../components/onboarding/onboardingStorage';
+import { getErrorMessage } from '@/utils/error-handler';
 
 const ChatPage = React.lazy(() =>
   import('../pages/Chat').then((m) => ({ default: m.ChatPage }))
@@ -176,7 +177,9 @@ const OnboardingGuard: React.FC<{
 function RouteErrorFallback() {
   const { t } = useTranslation('app');
   const error = useRouteError();
-  const message = error instanceof Error ? error.message : String(error);
+  const message = isRouteErrorResponse(error)
+    ? `${error.status} ${error.statusText}`
+    : getErrorMessage(error) ?? (typeof error === 'string' ? error : t('shell.routeErrorTitle'));
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background p-8 text-foreground">
       <h1 className="text-xl font-semibold">{t('shell.routeErrorTitle')}</h1>

@@ -90,6 +90,15 @@ describe('app shell routing', () => {
     window.history.replaceState({}, '', '/chat');
   });
 
+  it('shows the route status for an unknown path instead of stringifying the response object', async () => {
+    window.history.replaceState({}, '', '/missing-page');
+    vi.resetModules();
+    const { default: AppRouter } = await import('@/router');
+    await act(async () => { render(<AppRouter />); });
+    expect(await screen.findByText('404 Not Found')).toBeInTheDocument();
+    expect(screen.queryByText('[object Object]')).not.toBeInTheDocument();
+  });
+
   it('renders memory routes and personality as dedicated routes instead of through the chat page', async () => {
     window.history.replaceState({}, '', '/memory/overview');
     vi.resetModules();

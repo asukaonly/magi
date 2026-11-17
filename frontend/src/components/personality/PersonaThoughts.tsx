@@ -10,6 +10,7 @@ import { useAppNavigate } from '@/hooks/useAppNavigate';
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { asEventHandler } from '@/utils/as-event-handler';
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
+import { useChatShellStore } from '@/stores/chat-shell';
 
 export function PersonaThoughts({ personaId, canDiscuss }: { personaId: string; canDiscuss: boolean }) {
   const { t } = useTranslation('app');
@@ -46,7 +47,11 @@ export function PersonaThoughts({ personaId, canDiscuss }: { personaId: string; 
     {thoughts.data && thoughts.data.items.length === 0 ? <p className="text-sm text-muted-foreground">
       {t(thoughts.data.enabled ? 'personality.thoughts.empty' : 'personality.thoughts.disabled')}
     </p> : null}
-    {!thoughts.data?.enabled ? <Button variant="ghost" onClick={() => navigate('/settings?section=personalitySettings')}>{t('personality.thoughts.settings')}</Button> : null}
+    {!thoughts.data?.enabled ? <Button variant="ghost" onClick={() => {
+      const shell = useChatShellStore.getState();
+      shell.setSettingsNavigationIntent({ section: 'personalitySettings' });
+      shell.setActivePanel('settings');
+    }}>{t('personality.thoughts.settings')}</Button> : null}
     {!thoughts.isError && thoughts.data?.items.slice(0, 12).map((thought) => <article key={thought.id} className="space-y-2 border-t border-border/40 pt-3">
       <div className="flex items-center justify-between gap-3"><h3 className="font-medium">{thought.topic}</h3><span className="text-xs text-muted-foreground">{t(`personality.thoughts.kinds.${thought.kind}`)}</span></div>
       <p className="whitespace-pre-wrap text-sm leading-6">{thought.content}</p>

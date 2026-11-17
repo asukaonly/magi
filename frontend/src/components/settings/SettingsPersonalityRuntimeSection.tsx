@@ -5,6 +5,7 @@ import { SettingsGroup, SettingsSectionShell } from '@/components/settings/Setti
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Link } from 'react-router';
+import { useChatShellStore } from '@/stores/chat-shell';
 
 interface SettingsPersonalityRuntimeSectionProps {
   draftConfig: SystemConfig;
@@ -64,7 +65,7 @@ export function SettingsPersonalityRuntimeSection({
             onCheckedChange={(checked) => patchDraftConfig((draft) => { draft.personalitySettings.proactive_sharing_enabled = checked; })} />
         </div>
         <div className="flex gap-4 text-sm"><Link className="underline" to="/memory/sources">{t('personality.thoughts.sources')}</Link>
-          <Link className="underline" to="/settings?section=statisticsLlm">{t('personality.thoughts.usage')}</Link></div>
+          <button type="button" className="underline" onClick={() => useChatShellStore.getState().setSettingsNavigationIntent({ section: 'statisticsLlm' })}>{t('personality.thoughts.usage')}</button></div>
         <details className="pt-3 text-sm"><summary className="cursor-pointer">{t('personality.thoughts.limits')}</summary>
           <label className="mt-3 flex items-center justify-between gap-4">{t('personality.thoughts.dailyLimit')}
             <Input className="w-24" type="number" min={1} max={12} value={draftConfig.personalitySettings.reflection_daily_limit}

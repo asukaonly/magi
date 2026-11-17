@@ -1,6 +1,7 @@
 import { ttsConfiguration } from './fixtures/tts';
 import { useEffect } from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,6 +19,7 @@ import { sourcesApi } from '@/api/modules/sources';
 import { skillsApi } from '@/api/modules/skills';
 import { toolsApi } from '@/api/modules/tools';
 import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
+import { useChatShellStore } from '@/stores/chat-shell';
 import { readDevicePreferences } from '@/runtime/device-preferences';
 import { planFor } from './fixtures/pluginInstallPlan';
 
@@ -713,6 +715,7 @@ const skillsFixture = [
 
 describe('settings page draft saving', () => {
   beforeEach(() => {
+    useChatShellStore.setState({ activePanel: 'none', settingsNavigationIntent: null });
     useDesktopPreferencesStore.setState({ autoStartSyncFailed: false });
     vi.clearAllMocks();
     vi.spyOn(XMLHttpRequest.prototype, 'open');
@@ -3404,6 +3407,24 @@ describe('settings page draft saving', () => {
     expect(await screen.findByText('personality-modern:embedded')).toBeInTheDocument();
     expect(screen.getByTestId('settings-section-content')).not.toHaveClass('max-w-3xl');
     expect(screen.queryByRole('button', { name: 'settings.actions.save' })).not.toBeInTheDocument();
+  });
+
+  it('follows thinking and usage navigation in the open dialog while retaining the draft', async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={['/chat']}><SettingsCenterDialog open onOpenChange={vi.fn()} /></MemoryRouter>);
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+    act(() => useChatShellStore.getState().setSettingsNavigationIntent({ section: 'personalitySettings' }));
+    const reflection = await screen.findByRole('switch', { name: 'personality.thoughts.enable' });
+    expect(screen.getByRole('button', { name: 'settings.tabs.personality' })).toHaveAttribute('aria-expanded', 'true');
+    await user.click(reflection);
+    expect(reflection).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'personality.thoughts.usage' }));
+    expect(await screen.findByTestId('llm-statistics-section')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.tabs.statistics' })).toHaveAttribute('aria-expanded', 'true');
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.personalitySettings' }));
+    expect(await screen.findByRole('switch', { name: 'personality.thoughts.enable' })).toBeChecked();
+    expect(configApi.update).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled();
   });
 
   it('does not expose the system settings entry in user-facing navigation', async () => {

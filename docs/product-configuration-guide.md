@@ -1115,6 +1115,11 @@ model and consume usage. The advanced limit is 1–12 reflection attempts per da
 default 2; source management and model usage link to their existing surfaces.
 Changing notification permission does not enable either feature.
 
+Recent thoughts opens Thinking settings through the settings dialog navigation;
+the model-usage shortcut selects the statistics section in the same dialog.
+Section changes preserve unsaved configuration and leave the underlying page
+unchanged. Settings has no standalone `/settings` route.
+
 The persona page shows **Recent thoughts** with perspective, reflection and open
 question labels. Users can inspect evidence, stop using an interpretation, or carry
 it into a chat draft after selecting that persona. An empty list is normal; a failed

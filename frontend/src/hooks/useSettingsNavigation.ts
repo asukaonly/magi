@@ -1,5 +1,6 @@
-import { type Dispatch, type SetStateAction, useCallback, useMemo, useState } from 'react';
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useState } from 'react';
 import { useChatShellStore } from '@/stores/chat-shell';
+import { NAV_ITEMS, isNavGroup } from '@/constants/settings';
 
 interface UseSettingsNavigationReturn {
   activeSection: string;
@@ -35,6 +36,17 @@ export function useSettingsNavigation(): UseSettingsNavigationReturn {
     settingsNavigationIntent?.source || initialSearchParams.get('source')
   );
   const [channelsSelection, setChannelsSelection] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!settingsNavigationIntent) return;
+    const { section, source } = settingsNavigationIntent;
+    if (section) {
+      setActiveSection(section);
+      const group = NAV_ITEMS.find((item) => isNavGroup(item) && item.children.some((child) => child.id === section));
+      if (group) setExpandedGroups((previous) => ({ ...previous, [group.id]: true }));
+    }
+    setTimelineSelection(source ?? null);
+  }, [settingsNavigationIntent]);
 
   const usesInnerPaneScroll = useMemo(
     () => activeSection === 'llmProviders' || activeSection === 'toolsSkills',
