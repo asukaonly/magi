@@ -66,6 +66,15 @@ it('does not present read failures as an empty watch list', async () => {
   expect(screen.queryByText('attentionWatches.empty')).not.toBeInTheDocument();
 });
 
+it('withdraws the result badge and discussion action when supporting evidence changes', async () => {
+  vi.spyOn(attentionWatchesApi, 'list').mockResolvedValue({ items: [{ ...watch, status: 'matched', check_status: 'invalidated' }], sources: ['chat'], next_offset: null });
+  show();
+  await screen.findByText('attentionWatches.statuses.withdrawn');
+  expect(screen.queryByText('attentionWatches.statuses.matched')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'attentionWatches.discuss' })).not.toBeInTheDocument();
+  expect(screen.getByText('attentionWatches.checks.invalidated')).toBeInTheDocument();
+});
+
 it('lets the user replace a source that no longer has authorized material', async () => {
   vi.spyOn(attentionWatchesApi, 'list').mockResolvedValue({ items: [watch], sources: ['notes'], next_offset: null });
   show();

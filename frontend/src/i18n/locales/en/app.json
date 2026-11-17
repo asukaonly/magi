@@ -6822,6 +6822,7 @@
       "paused": "Paused",
       "stopped": "Stopped",
       "matched": "Result ready",
+      "withdrawn": "Result withdrawn",
       "expired": "Expired"
     },
     "checks": {

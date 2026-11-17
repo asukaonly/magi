@@ -105,8 +105,9 @@ function WatchCard({ watch, selected, pending, onAction, onEdit, onDelete, onCha
   const { t, i18n } = useTranslation('app');
   const navigate = useAppNavigate();
   const formatTime = (value: number) => new Date(value * 1000).toLocaleString(i18n.language);
+  const status = watch.status === 'matched' && watch.check_status === 'invalidated' ? 'withdrawn' : watch.status;
   return <article className={`space-y-3 rounded-xl border p-4 ${selected ? 'border-primary' : 'border-border/60'}`}>
-    <div className="flex justify-between gap-3"><h2 className="font-medium">{watch.title}</h2><span className="text-xs text-muted-foreground">{t(`attentionWatches.statuses.${watch.status}`)}</span></div>
+    <div className="flex justify-between gap-3"><h2 className="font-medium">{watch.title}</h2><span className="text-xs text-muted-foreground">{t(`attentionWatches.statuses.${status}`)}</span></div>
     <p className="whitespace-pre-wrap text-sm">{watch.condition}</p>
     <p className="text-xs text-muted-foreground">{watch.sources.map((source) => getMemorySourceLabel(t, source)).join(' · ')}</p>
     <p className="text-xs text-muted-foreground">{watch.last_checked_at ? t('attentionWatches.lastChecked', { time: formatTime(watch.last_checked_at) }) : t('attentionWatches.notChecked')}

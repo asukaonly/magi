@@ -6820,6 +6820,7 @@
       "paused": "已暂停",
       "stopped": "已结束",
       "matched": "已有结果",
+      "withdrawn": "结果已撤回",
       "expired": "已到期"
     },
     "checks": {
