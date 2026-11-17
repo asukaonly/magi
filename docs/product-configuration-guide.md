@@ -2717,6 +2717,10 @@ proactive-sharing switches. Disabling persona sharing does not cancel requested
 watches or reminders. Results invalidated by source deletion/correction are
 withdrawn; the page distinguishes failed evaluation, withdrawn results, empty
 state and unavailable reads. Offline time does not promise real-time monitoring.
+When discussing explicit watches, the assistant must query their current state
+before claiming progress or a last check. No notification does not prove that
+the watched event has not happened: source freshness, service availability and
+check budgets limit coverage.
 
 ### Native shared-data view
 
