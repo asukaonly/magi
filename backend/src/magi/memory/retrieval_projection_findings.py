@@ -20,7 +20,7 @@ from .retrieval_projection_summary import split_relationship_statement
 # Fallback per-layer quota when a mode declares none (defensive; all registry
 # modes set layer_quota in T1).
 _DEFAULT_LAYER_QUOTA: dict[str, int] = {"L1": 8, "L2": 6, "L3": 3, "L4": 2}
-# Floor so a layer that has candidates is never fully starved by a small quota.
+# Every nonempty layer competes with positive weight, subject to the total finding limit.
 _LAYER_QUOTA_FLOOR = 1
 _HISTORICAL_EVENT_MODES = frozenset(
     {"event_stream", "episode_recall", "experience_recall"}
@@ -176,7 +176,7 @@ def build_findings(
     because their referenced entity_ids had no canonical name (would
     otherwise leak raw hashes into the user-facing envelope).
     """
-    mode = str(request.query_mode or "").strip() or "exact_fact"
+    mode = str(request.query_mode or payload.trace.get("query_mode") or "").strip() or "exact_fact"
     projected = _project_payload_findings(
         payload=payload,
         request=request,
@@ -184,9 +184,11 @@ def build_findings(
         canonical_names=canonical_names,
     )
     _score_projected_findings(projected.candidates, payload=payload, request=request, mode=mode)
-    candidates = _drop_echo_findings(projected.candidates, request=request)
-    selected, quota_trace = _select_findings_by_layer_quota(candidates, mode=mode)
+    candidates = projected.candidates if request.read_event_id else _drop_echo_findings(projected.candidates, request=request)
+    selected, quota_trace = _select_findings_by_layer_quota(candidates, mode=mode, limit=request.limit)
+    payload.trace["projection_budget"] = {"candidates": len(candidates), "limit": request.limit, "selected": len(selected)}
     _attach_finding_topics(selected)
+    _attach_conversation_evidence(selected, payload=payload, request=request, mode=mode)
     _record_projection_trace(
         payload=payload,
         projection_dropped=projected.projection_dropped,
@@ -194,6 +196,28 @@ def build_findings(
         quota_trace=quota_trace,
     )
     return selected, projected.dropped_count
+
+
+def _attach_conversation_evidence(
+    findings: list[dict[str, Any]], *, payload: RetrievalPayload, request: RetrievalQuery, mode: str,
+) -> None:
+    for finding in findings:
+        if finding.get("kind") != "event":
+            continue
+        event_id = str(finding.get("feedback_ref") or "").removeprefix("event:")
+        for bundle in payload.l1_evidence_bundles:
+            if event_id not in bundle.get("hit_event_ids", []):
+                continue
+            context = _drop_echo_findings(_project_events(
+                bundle.get("answer_events", []), mode=mode,
+                explicit_chat_source=_has_explicit_chat_source(request.source_filters),
+            ), request=request)
+            if context:
+                finding["conversation_context"] = context
+                ids = {str(item.get("feedback_ref") or "").removeprefix("event:") for item in context}
+                finding["timeline"] = [item for item in payload.l1_timeline_summary
+                    if set(item.get("supporting_event_ids") or []) <= ids]
+            break
 
 
 def _project_payload_findings(
@@ -257,19 +281,25 @@ def _select_findings_by_layer_quota(
     candidates: list[dict[str, Any]],
     *,
     mode: str,
+    limit: int,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     quota = _resolve_layer_quota(mode)
     by_layer: dict[str, list[dict[str, Any]]] = {}
     for candidate in candidates:
         by_layer.setdefault(str(candidate.get("source_layer") or "L1"), []).append(candidate)
 
-    selected: list[dict[str, Any]] = []
-    quota_trace: dict[str, int] = {}
-    for layer, items in by_layer.items():
+    for items in by_layer.values():
         items.sort(key=lambda x: float(x.get("_score", 0.0)), reverse=True)
-        kept = items[: max(_LAYER_QUOTA_FLOOR, int(quota.get(layer, 0)))]
-        selected.extend(kept)
-        quota_trace[layer] = len(kept)
+    quota_trace = {layer: 0 for layer in by_layer}
+    for _ in range(max(0, min(limit, len(candidates)))):
+        available = [layer for layer, items in by_layer.items() if quota_trace[layer] < len(items)]
+        if not available:
+            break
+        # Weighted allocation preserves mode preferences and reuses empty-layer slots.
+        layer = min(available, key=lambda layer: (quota_trace[layer] + 1) / max(_LAYER_QUOTA_FLOOR, quota.get(layer, 0)))
+        by_layer[layer][quota_trace[layer]]["_rank"] = sum(quota_trace.values())
+        quota_trace[layer] += 1
+    selected = [item for layer, items in by_layer.items() for item in items[:quota_trace[layer]]]
     return selected, quota_trace
 
 
@@ -831,6 +861,9 @@ def _project_events(
         feedback_ref = _feedback_ref("event", item, "event_id", "id")
         if feedback_ref is not None:
             finding["feedback_ref"] = feedback_ref
+            finding["memory_ref"] = str(item.get("event_id") or item.get("id"))
+        if item.get("read"):
+            finding["read"] = item["read"]
         findings.append(finding)
     return findings
 

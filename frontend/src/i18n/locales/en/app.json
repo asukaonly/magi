@@ -231,7 +231,8 @@
       "background": "Background tasks",
       "schedules": "Schedule config",
       "activity": "Schedule history",
-      "personal": "My to-dos"
+      "personal": "My to-dos",
+      "watches": "Watching"
     },
     "settings": "Settings",
     "personaCompanion": {
@@ -411,7 +412,9 @@
         "source_sync": "Source Sync",
         "memory_l2_maintenance": "L2 Memory Maintenance",
         "memory_l3_summary": "L3 Summary Generation",
-        "user_agent_task": "Agent Task"
+        "user_agent_task": "Agent Task",
+        "persona_reflection": "Persona reflection",
+        "attention_watch": "Watch condition check"
       },
       "targetKinds": {
         "prompt": "Prompt",
@@ -6029,7 +6032,7 @@
       "quietHourCount": "two restraint rules",
       "quietHourShape": "complete restraint rules",
       "allRegisters": "all conversation modes",
-      "examplesCount": "six conversation examples",
+      "examplesFormat": "examples need a user message and an actual reply",
       "surfaceLayer": "base deep persona layer",
       "layerShape": "complete deep persona layers",
       "bootstrap": "first-meeting bootstrap"
@@ -6041,7 +6044,39 @@
       "english": "English",
       "japanese": "Japanese"
     },
-    "noAvatar": "No avatar selected"
+    "noAvatar": "No avatar selected",
+    "thoughts": {
+      "title": "Recent thoughts",
+      "settingsTitle": "Thinking and interaction",
+      "enable": "Reflect in the background",
+      "enableDescription": "Review conversations and sources allowed for memory during quiet periods, for use in later conversations. Uses your configured background model and its usage allowance. Turning this off stops new thoughts.",
+      "share": "Share thoughts proactively",
+      "shareDescription": "While you use Magi, surface an occasional thought worth discussing. No desktop or external notifications. Explicit reminders keep their own settings.",
+      "sources": "Manage sources",
+      "usage": "View model usage",
+      "limits": "Background usage limits",
+      "dailyLimit": "Maximum reflections per day",
+      "localLimit": "No model calls without new material. Pauses while the service is stopped or the device sleeps, without sending outdated updates on return.",
+      "loadFailed": "Thoughts could not be loaded",
+      "actionFailed": "The action failed. Please retry.",
+      "loading": "Loading…",
+      "empty": "New thoughts worth keeping will appear here.",
+      "disabled": "Enable background reflection to build on earlier conversations.",
+      "settings": "Open thinking settings",
+      "runFailed": "The last reflection did not finish. Check the background model settings; another attempt will follow later.",
+      "discuss": "Discuss this",
+      "evidence": "View evidence",
+      "dismiss": "Stop using this interpretation",
+      "switchFirst": "Switch to this persona to discuss",
+      "discussPrompt": "Let’s continue discussing “{{topic}}”. Your earlier thought was:\n{{content}}",
+      "insertDraft": "Add to message",
+      "cancel": "Not now",
+      "kinds": {
+        "perspective": "Perspective",
+        "self_review": "Reflection",
+        "open_question": "Open question"
+      }
+    }
   },
   "plugins": {
     "trust": {
@@ -6752,5 +6787,56 @@
       "source": "External source"
     },
     "currentProject": "Current project"
+  },
+  "attentionWatches": {
+    "create": "Keep an eye on something",
+    "edit": "Edit watch",
+    "save": "Save and start watching",
+    "pause": "Pause",
+    "resume": "Watch again",
+    "stop": "Stop watching",
+    "delete": "Delete",
+    "watchItem": "Watch this item",
+    "loading": "Loading watches…",
+    "empty": "Ask Magi to keep an eye on something. Matching new material will appear here.",
+    "scope": "Watch newly captured material from selected sources. A match prepares a result, notifies you in the app, and ends this watch. You can start watching again.",
+    "editorHint": "Describe what should prompt an update, and choose the sources Magi may check.",
+    "budget": "Up to 10 active watches. Each is checked at most hourly while the service runs, with at most 2 model evaluations per day. Uses your configured model allowance. Does not search websites or run while the service sleeps. Each evaluation checks up to 24 newly captured records; high-volume sources can accumulate a backlog. Delayed device records captured before material already checked are not rechecked.",
+    "fields": {
+      "title": "What to watch",
+      "condition": "When to tell me",
+      "sources": "Sources to check",
+      "expires": "Watch until (optional)"
+    },
+    "noSources": "No saved sources are available yet. Connect a source and save material first.",
+    "linked": "Linked to the original task. Watching stops when that task is completed, cancelled or deleted.",
+    "loadFailed": "Watches could not be loaded. Refresh to retry.",
+    "actionFailed": "The operation did not finish, or this watch changed. Check the refreshed content before retrying.",
+    "deleteConfirm": "Delete “{{title}}” and its result?",
+    "lastChecked": "Last checked: {{time}}",
+    "notChecked": "Waiting for the next check",
+    "expires": "Until {{time}}",
+    "invalidExpiry": "Choose a future time, or leave this empty.",
+    "statuses": {
+      "active": "Watching",
+      "paused": "Paused",
+      "stopped": "Stopped",
+      "matched": "Result ready",
+      "withdrawn": "Result withdrawn",
+      "expired": "Expired"
+    },
+    "checks": {
+      "failed": "The last evaluation did not finish. It will retry when the allowance permits.",
+      "invalidated": "Supporting material changed and the previous result was withdrawn. Edit the condition to watch again."
+    },
+    "discuss": "Discuss this",
+    "discussPrompt": "Let’s discuss the result for “{{title}}”:\n{{result}}",
+    "notificationTitle": "A watched condition has been met",
+    "notificationBody": "Magi found matching new material. Open the result to inspect its evidence.",
+    "openResult": "View watch result",
+    "previous": "Previous",
+    "next": "Next",
+    "limits": "Check frequency and scope",
+    "sourceUnavailable": "Some sources no longer have authorized material. Deselect them and choose available sources."
   }
 }

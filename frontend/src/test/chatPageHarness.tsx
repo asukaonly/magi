@@ -23,6 +23,9 @@ import {
 } from '@/api/modules/control';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { personasApi } from '@/api/modules/personas';
+
+vi.mock('@/components/chat/SuggestedChatDraft', () => ({ SuggestedChatDraft: () => null }));
+vi.mock('@/components/chat/QuietThoughtSuggestion', () => ({ QuietThoughtSuggestion: () => null }));
 import { applyRealtimeStoreProjection } from '@/realtime/store-projection';
 import {
   saveRetryableChatSends,

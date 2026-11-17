@@ -60,6 +60,7 @@ async def test_time_range_and_correction_lineage_apply_to_live_versions(runtime_
     assert await governance.visible(boundary, **args)
     l2.active_correction_evidence_event_ids.return_value = {"old-version"}
     assert not await governance.visible(boundary, **args)
+    assert await governance.visible(boundary, **args, historical=True)
     l2.active_correction_evidence_event_ids.return_value = set()
     async with sqlite_connection_async(path) as db:
         await db.execute("""INSERT INTO memory_forget_operations
@@ -72,5 +73,6 @@ async def test_time_range_and_correction_lineage_apply_to_live_versions(runtime_
     assert not await governance.unchanged(boundary)
     boundary = await governance.capture()
     assert not await governance.visible(boundary, **args)
+    assert not await governance.visible(boundary, **args, historical=True)
     assert not await governance.visible(boundary, **{**args, "occurred_at": None})
     assert await governance.visible(boundary, **{**args, "occurred_at": 120})

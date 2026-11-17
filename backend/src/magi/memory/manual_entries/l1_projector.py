@@ -29,8 +29,6 @@ from ..event_contracts import (
     MemoryEvent,
     RetentionClass,
     TomDepth,
-    author_type_code,
-    content_type_code,
 )
 from .evidence import project_rich_text_evidence
 from .models import ManualEntry
@@ -159,8 +157,8 @@ def _build_memory_event(
         task_id=None,
         content=entry.body,
         pinned_payload=pinned_payload,
-        author_type=author_type_code(AuthorType.USER),
-        content_type=content_type_code(ContentType.TEXT),
+        author_type=AuthorType.USER.label,
+        content_type=ContentType.TEXT.label,
         importance_score=0.75,  # user-authored = high baseline importance
         level=0,
         idempotency_key=_idempotency_key(entry, predecessor_event_id),

@@ -292,6 +292,9 @@ class PersonalitySettingsModel(BaseModel):
     state_memory_enabled: bool = Field(default=True)
     state_transition_enabled: bool = Field(default=True)
     deep_persona_enabled: bool = Field(default=True)
+    background_reflection_enabled: bool = Field(default=False)
+    proactive_sharing_enabled: bool = Field(default=False)
+    reflection_daily_limit: int = Field(default=2, ge=1, le=12)
 
     def normalized(self) -> "PersonalitySettingsModel":
         """Apply dependency rules so child features never outlive state memory."""
@@ -300,6 +303,9 @@ class PersonalitySettingsModel(BaseModel):
                 state_memory_enabled=False,
                 state_transition_enabled=False,
                 deep_persona_enabled=False,
+                background_reflection_enabled=self.background_reflection_enabled,
+                proactive_sharing_enabled=self.proactive_sharing_enabled,
+                reflection_daily_limit=self.reflection_daily_limit,
             )
         return self
 

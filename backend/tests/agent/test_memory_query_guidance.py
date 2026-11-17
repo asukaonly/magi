@@ -88,7 +88,7 @@ def _build_handler():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("selected_tools", [["memory_query"], ["web-search"], []])
+@pytest.mark.parametrize("selected_tools", [["memory_query"], ["web-search"], [], ["personal_task_query", "attention_watch_query"]])
 async def test_selected_capabilities_control_guidance_in_prepared_working_context(selected_tools):
     from magi.agent.task_agents.handlers.contracts import TurnAdmissionDecision
     from magi.agent.task_agents.handlers.handler_helpers import (
@@ -120,6 +120,11 @@ async def test_selected_capabilities_control_guidance_in_prepared_working_contex
     assert MEMORY_QUERY_GUIDANCE_BLOCK not in request.system_prompt
     assert MEMORY_QUERY_GUIDANCE_BLOCK not in request.runtime_world_state
     assert request.selected_tools == selected_tools
+    watch_guidance = "No notification is not evidence that an event did not happen"
+    assert (watch_guidance in request.working_context) == ("personal_task_query" in selected_tools)
+    if "personal_task_query" in selected_tools:
+        assert "Query attention_watch_query before claiming" in request.working_context
+        assert "Never imply continuous coverage" in request.working_context
     assert handler._deps.context_service.calls[0]["tools"] == selected_tools
     schema = MemoryQueryTool().to_claude_format()["input_schema"]
     for parameter in ("query", "query_mode"):

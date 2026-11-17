@@ -392,7 +392,10 @@
         "signature_triggers": []
       },
       "personalitySettings": {
+        "background_reflection_enabled": false,
         "deep_persona_enabled": true,
+        "proactive_sharing_enabled": false,
+        "reflection_daily_limit": 2,
         "state_memory_enabled": true,
         "state_transition_enabled": true
       },
@@ -818,7 +821,10 @@
           "signature_triggers": []
         },
         "personalitySettings": {
+          "background_reflection_enabled": false,
           "deep_persona_enabled": true,
+          "proactive_sharing_enabled": false,
+          "reflection_daily_limit": 2,
           "state_memory_enabled": true,
           "state_transition_enabled": true
         },

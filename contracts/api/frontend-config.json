@@ -2945,10 +2945,27 @@
       },
       "PersonalitySettingsModel": {
         "properties": {
+          "background_reflection_enabled": {
+            "default": false,
+            "title": "Background Reflection Enabled",
+            "type": "boolean"
+          },
           "deep_persona_enabled": {
             "default": true,
             "title": "Deep Persona Enabled",
             "type": "boolean"
+          },
+          "proactive_sharing_enabled": {
+            "default": false,
+            "title": "Proactive Sharing Enabled",
+            "type": "boolean"
+          },
+          "reflection_daily_limit": {
+            "default": 2,
+            "maximum": 12,
+            "minimum": 1,
+            "title": "Reflection Daily Limit",
+            "type": "integer"
           },
           "state_memory_enabled": {
             "default": true,
@@ -2964,7 +2981,10 @@
         "required": [
           "state_memory_enabled",
           "state_transition_enabled",
-          "deep_persona_enabled"
+          "deep_persona_enabled",
+          "background_reflection_enabled",
+          "proactive_sharing_enabled",
+          "reflection_daily_limit"
         ],
         "title": "PersonalitySettingsModel",
         "type": "object"

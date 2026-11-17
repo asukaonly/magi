@@ -1106,6 +1106,28 @@ The custom personality editor should progressively expose:
 - dynamic-state rules that map mood, energy, and stress into concrete behavior changes
 - few-shot examples by register, including ordinary baseline examples
 
+### Thinking and interaction
+
+Personality settings expose **Reflect in the background** and **Share thoughts
+proactively**, both off by default. Enabling reflection explains that already
+memory-eligible conversations and sources are sent to the configured background
+model and consume usage. The advanced limit is 1–12 reflection attempts per day,
+default 2; source management and model usage link to their existing surfaces.
+Changing notification permission does not enable either feature.
+
+The persona page shows **Recent thoughts** with perspective, reflection and open
+question labels. Users can inspect evidence, stop using an interpretation, or carry
+it into a chat draft after selecting that persona. An empty list is normal; a failed
+background run is distinguished from no material. No unread badges are generated
+for internal thoughts. Application-only sharing observes its own daily limit and
+never changes explicitly requested reminder behavior.
+While chat stays visible and idle, an empty sharing check is retried every 30
+seconds so newly available thoughts or newly enabled sharing do not require a
+page reload. These reads do not invoke a model. Returning from a hidden page
+starts a new 30-second idle period; unrelated notification changes do not remove
+a displayed thought. Memory, persona, configuration and maintenance changes
+still withdraw the displayed interpretation conservatively.
+
 ## Memory System
 
 Memory facts in Manage Memory, Pending, Overview, About You, Knowledge and Recall
@@ -2670,6 +2692,35 @@ Chroma namespace rejects a different remote endpoint identity instead of silentl
 leaving its existing data behind. Remote access can fail independently of source
 persistence: failed projection operations remain durable and are retried. The
 storage adapter filters obsolete revisions before returning search results.
+
+### Explicit attention watches
+
+Tasks → Watching (`/tasks/watches`) holds explicit “keep an eye on this” requests.
+Users can create one in chat or the page, choose a condition and saved-source
+scope, optionally set an expiry, and edit/pause/resume/stop/delete it. Personal
+task detail can open a linked watch; closing or deleting that item stops the
+watch. No assistant-inferred interest silently becomes a standing instruction.
+
+The page explains the operating limits: only material captured after creation or
+resume, no autonomous website search, at most one hourly inspection while the
+service runs, two model evaluations per watch per rolling day, and 24 captured
+records per evaluation. High-volume sources can accumulate a backlog. Delayed
+device records older than the capture cursor are not checked retrospectively.
+There are at most ten active watches. The existing memory-summarizer model handles condition
+checks and a second review for positive results; usage is billed through the
+existing provider and usage reporting.
+
+A match appears with its evidence and a discussion action. An application-center
+notification links to it, and the watch finishes until the user resumes it.
+This explicit delegation is independent of persona background-reflection and
+proactive-sharing switches. Disabling persona sharing does not cancel requested
+watches or reminders. Results invalidated by source deletion/correction are
+withdrawn; the page distinguishes failed evaluation, withdrawn results, empty
+state and unavailable reads. Offline time does not promise real-time monitoring.
+When discussing explicit watches, the assistant must query their current state
+before claiming progress or a last check. No notification does not prove that
+the watched event has not happened: source freshness, service availability and
+check budgets limit coverage.
 
 ### Native shared-data view
 

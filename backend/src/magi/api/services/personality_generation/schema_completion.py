@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable
+from typing import Any, Dict
 
 from ...routers.personality_config_schemas import (
     LayerModifiersModel,
@@ -13,7 +13,6 @@ from .normalization_primitives import (
     _ensure_dict,
     _ensure_list,
     _string_dict,
-    _string_list,
 )
 
 
@@ -311,67 +310,3 @@ def _complete_bootstrap(
             f"{bootstrap['style_instruction']} Keep the opening grounded in this "
             f"identity: {identity_statement[:160]}"
         )
-
-
-def _complete_examples(
-    payload: Dict[str, Any],
-    use_chinese: bool = False,
-) -> None:
-    registers = _ensure_dict(payload, "registers")
-    total_examples = sum(
-        len(_string_list(item.get("examples")))
-        for item in registers.values()
-        if isinstance(item, dict)
-    )
-    if total_examples >= 6:
-        return
-    if use_chinese:
-        fallbacks: dict[str, Iterable[str]] = {
-            "chat": [
-                "[User: 随便聊聊。]\nGood: 简短自然地接住话题，有存在感但不堆口头禅。",
-                "[User: 说点什么吧。]\nGood: 日常、低压力的回应，只带一点这个人格的痕迹。",
-            ],
-            "analysis": [
-                "[User: 帮我比较这几个方案。]\nGood: 讲清利弊、给出明确倾向，风格让位于判断。"
-            ],
-            "task": ["[User: 帮我修这个 bug。]\nGood: 聚焦进展和具体步骤，不绕弯表演。"],
-            "emotional": ["[User: 我好累。]\nGood: 语气放稳、收起锋利，给一个实际可做的小建议。"],
-            "crisis": ["[User: 出急事了。]\nGood: 简短、具体、以安全为先，不开玩笑。"],
-        }
-    else:
-        fallbacks = {
-            "chat": [
-                "[User: Just checking in.]\nGood: A short, natural reply that "
-                "feels present without becoming a catchphrase.",
-                "[User: Tell me something small.]\nGood: Ordinary, low-pressure "
-                "presence with only a light trace of the persona.",
-            ],
-            "analysis": [
-                "[User: Compare these options.]\nGood: Clear tradeoffs, a point "
-                "of view, and restrained persona texture."
-            ],
-            "task": [
-                "[User: Fix this bug.]\nGood: Focused progress, concrete steps, "
-                "and no performative detours."
-            ],
-            "emotional": [
-                "[User: I'm exhausted.]\nGood: Steady care, less sharpness, and "
-                "one practical next step."
-            ],
-            "crisis": [
-                "[User: This is urgent.]\nGood: Brief safety-first guidance with "
-                "no jokes or theatrical style."
-            ],
-        }
-    for register, examples in fallbacks.items():
-        item = registers.get(register)
-        if not isinstance(item, dict):
-            continue
-        current = _string_list(item.get("examples"))
-        for example in examples:
-            if total_examples >= 6:
-                break
-            if example not in current:
-                current.append(example)
-                total_examples += 1
-        item["examples"] = current

@@ -233,6 +233,7 @@ export const PersonalTasksPage = () => {
           <div className="flex flex-wrap gap-2">
             <Button disabled={pending} onClick={() => { void continueItem(current.item); }}><MessageCircle className="mr-2 h-4 w-4" />{t('personalTasks.continue')}</Button>
             <Button variant="outline" onClick={() => setEditor({item: current.item})}>{t('personalTasks.edit')}</Button>
+            {!['completed', 'cancelled'].includes(current.item.status) ? <Button variant="outline" onClick={() => navigate(`/tasks/watches?item=${encodeURIComponent(current.item.id)}`)}>{t('attentionWatches.watchItem')}</Button> : null}
             {current.item.status !== 'completed' ? <Button variant="outline" disabled={pending} onClick={() => { void updateItem(current.item, 'completed'); }}>{t('personalTasks.complete')}</Button> : null}
             <Button variant="ghost" onClick={() => setDeleting(current.item)}>{t('personalTasks.delete')}</Button>
           </div>

@@ -11,6 +11,7 @@ from ..core.logger import get_logger
 
 from .models import ItemPatch, MutationResult, TaskMutation, TaskNotFoundError, TaskReference
 from .store import PersonalTaskStore
+from .watch_models import WatchMutation, WatchMutationResult
 
 logger = get_logger(__name__)
 
@@ -78,6 +79,15 @@ class PersonalTaskService:
                 assigned_id=item_id,
             )
         return await self._after_commit(user_id, result)
+
+    async def mutate_watch(self, user_id: str, command: WatchMutation) -> WatchMutationResult:
+        generation = self._generation
+        if self._clearing:
+            raise RuntimeError("Personal task writes are paused for data clearing")
+        async with self.lock:
+            if generation != self._generation:
+                raise RuntimeError("Attention watch operation crossed a data clear")
+            return await self.store.mutate_watch(user_id, command)
 
     async def _after_commit(self, user_id: str, result: MutationResult) -> MutationResult:
         if self.on_changed:

@@ -441,9 +441,15 @@ The top-level `description` should be treated as selector and card summary text,
 
 Each runtime example uses `[User: ...]`, a newline, and the actual good reply. Example selection compares only the user cue with the current message, never the assistant reply or a negative demonstration. It selects at most two examples using conservative lexical similarity (exact normalized matches or token Dice similarity of at least 0.5); ties retain declaration order. Empty, malformed, and unrelated examples are omitted, even when fewer than two examples exist. There is no first-example fallback or extra model call. Paraphrases with little shared wording may receive no example; persona behavior and idiolect still apply.
 
+Shared conversation rules enforce truthfulness, privacy, task completeness, and explicit user needs. They do not prescribe one emotional response or a hard conversational length for every persona. Ambiguous complaints can invite practical help, humor, or listening according to the persona and context. Relationship depth and simulated mood never unlock honesty or reduce task reliability. Fictional backstory does not establish real activities or shared memories.
+
+The normal reply prompt has no permanent generic dialogue demonstrations. Segmentation has one format-only example. First-contact openings use identity, idiolect, first-contact instructions, and governed context without borrowing the first chat examples. The ordinary turn selector still includes zero to two relevant examples and omits unrelated ones.
+
 Seven is technically reliable, self-respecting, quick with dry humor, and slow to approach people or express closeness. Her everyday voice stays sharp without a mandatory closing joke. Practical problem-solving may precede recognition of an implicit emotional need, but explicit needs must be respected rather than deliberately missed. Familiarity reduces defensiveness and permits quiet company, uncertainty, and memory-grounded shared jokes; it does not automatically make her sweeter or more proactive. Her low ordinary chattiness does not limit detailed technical answers, and reserved initiation must not suppress explicit reminders or assigned work. Identity, relationships, and memories retain their existing owners and identifiers.
 
-The editor and save flow should share one validation contract. Minimum readiness requires name, identity statement, loved/rejected values, baseline idiolect, and chat behavior. Expert readiness additionally checks signature trigger count and shape, quiet-hour count and clamps, all core registers, six examples, unique trigger IDs, layer shape, surface layer presence, and first-meeting bootstrap content. Minimum validation copy should read as save guidance, not as a startup error.
+Bundled personas preserve distinct everyday responses: Echo and Nova stay measured, Sichen and Halberd remain evidence-led critics, Sumen and Ember make room for ordinary company, and Jinx keeps a more outwardly playful voice. Familiarity changes openness and shared references, not honesty or competence. Preset examples must not supply unobserved facts, force another question after a boundary, or simulate failures for character texture. Missing recall leaves a past conversation unconfirmed; it must not become invented amnesia, off-screen experiences, or certainty that the conversation never happened. The preset design notes must follow these same constraints.
+
+The editor and save flow should share one validation contract. Minimum readiness requires name, identity statement, loved/rejected values, baseline idiolect, and chat behavior. Expert readiness additionally checks signature trigger count and shape, quiet-hour count and clamps, all core registers, valid user/reply format for supplied examples, unique trigger IDs, layer shape, surface layer presence, and first-meeting bootstrap content. Empty example arrays are valid at both readiness levels. The normalizer preserves supplied examples without padding them; runtime still selects at most two relevant examples. Minimum validation copy should read as save guidance, not as a startup error.
 
 Builtin personas are source-controlled presets. Startup synchronizes changed bundles for the preferred UI language and every already installed builtin locale through the initialization-state fingerprint; explicit seed installation can also synchronize them. This keeps existing personas' bundled asset references current even when their language differs from the UI. Custom personas do not cause additional language bundles to be installed. Registry listing is read-only: a connected desktop refreshing its list must not rewrite another editor's configuration. Unchanged seed rows retain their version. Custom personas remain registry-owned and are not overwritten by seed synchronization.
 
@@ -476,7 +482,7 @@ It must stop generating a fixed set of four dramatic state-transition protocols 
 - registers
 - quiet hours
 - three to six signature triggers
-- at least six examples, including ordinary baseline examples
+- optional, distinct examples where they clarify behavior; no minimum count or placeholder replies
 - the fixed `surface` layer, plus deeper relationship layers only when the user's input or confirmed reference supports them
 
 Generation prompts should explicitly say that ordinary, low-performance replies are valid and desirable for most turns.
@@ -616,3 +622,38 @@ Seven should behave like this after migration:
 - crisis: minimal, calm, operational guidance with no performance
 
 These checks should be maintained as prompt fixtures or tests during the implementation.
+
+## Background reflection and recent thoughts
+
+Background reflection and proactive sharing are independent, opt-in personality
+settings. A system-owned scheduler target checks every 15 minutes and defers while
+foreground agents are busy or the last captured chat activity is less than 15 minutes old. Reflection
+uses the memory-summarizer scenario, including its provider-plan admission rules.
+A daily, user-scoped attempt limit spans personas; generation and evidence review
+share one reflection attempt. No tools or external discovery run in this workflow.
+
+`PersonaJournalService` now produces structured perspectives, self-reviews and open
+questions from eligible L1 records. Chat evidence must belong to the captured
+persona and a completed, visible turn. Memory owns source reads, correction and
+forget barriers. Exact citations and an independent model review must pass before
+publication. Model review is a fallible screening step, not factual proof.
+
+The growth-memory owner stores thoughts and bounded-run receipts in dedicated
+tables, independently of relationship counters and milestones. Existing ungrounded
+journal milestones remain historical records and are not injected into prompts.
+User suppression is durable by persona and topic. Missing or modified evidence,
+changed memory-governance revisions and edited personas invalidate active thoughts.
+All writes recheck the memory epoch, evidence, persona revision and current flags.
+The first implementation conservatively invalidates thoughts on any subject revision;
+finer dependency tracking can replace this only with equivalent correction coverage.
+
+Chat context retrieves at most two currently valid thoughts with lexical topic
+matches. Interpretations remain subordinate to current instructions and factual
+memory. Disabling new background reflection preserves existing thoughts; disabling
+persona state memory also prevents their prompt use and proactive sharing.
+
+The persona page exposes recent thoughts, evidence, discussion drafts and suppression.
+Discussion never auto-sends a user message. Opt-in proactive sharing offers at most
+one recent thought per rolling day, after a visible chat page has been quiet for
+30 seconds. It is an application card, not a transcript message or OS/channel push.
+The service cannot reflect while stopped or while the host sleeps.

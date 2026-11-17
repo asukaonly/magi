@@ -1109,7 +1109,7 @@
       "quietHourCount": "两条收敛规则",
       "quietHourShape": "完整收敛规则",
       "allRegisters": "全部对话模式",
-      "examplesCount": "六条对话示例",
+      "examplesFormat": "示例需包含具体用户输入和实际回复",
       "surfaceLayer": "基础深层人格",
       "layerShape": "完整深层人格",
       "bootstrap": "首次见面引导"

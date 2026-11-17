@@ -719,9 +719,21 @@ def test_normalize_generated_personality_payload_completes_sparse_payload() -> N
     assert [item["layer_id"] for item in payload["persona_layers"]] == ["surface"]
     assert payload["bootstrap"]["opening_line"]
     assert set(payload["dynamic_state_rules"]) == {"low_energy", "high_stress", "positive_mood"}
-    assert sum(len(item["examples"]) for item in payload["registers"].values()) >= 6
+    assert all(not item["examples"] for item in payload["registers"].values())
 
     assert payload["idiolect"]["chattiness"] == 0.5
+
+
+def test_normalize_generated_personality_payload_preserves_examples_without_padding() -> None:
+    from magi.api.routers.personality_config import normalize_generated_personality_payload
+
+    example = "[User: Thanks.]\nGlad it helped."
+    payload = normalize_generated_personality_payload(
+        {"name": "Sparse", "registers": {"chat": {"examples": [example]}}}
+    )
+
+    assert payload["registers"]["chat"]["examples"] == [example]
+    assert sum(len(item["examples"]) for item in payload["registers"].values()) == 1
 
 
 def test_normalize_generated_personality_payload_cleans_generation_quality_issues() -> None:

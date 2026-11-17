@@ -17,7 +17,7 @@ def personal_port(memory_port):
     service = PersonalRetrievalService(
         memory=SimpleNamespace(query=query), registry=SourceRegistry(), store=None,
         get_connection=lambda _: None,
-        governance=SimpleNamespace(capture=AsyncMock(return_value=0), unchanged=AsyncMock(return_value=True)),
+        governance=SimpleNamespace(capture=AsyncMock(return_value=0), unchanged=AsyncMock(return_value=True), visible=AsyncMock(return_value=True)),
         resolve_names=memory_port.get_canonical_names,
     )
     async def retrieve(request, *, source_scope, retrieval_policy, context):

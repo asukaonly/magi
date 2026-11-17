@@ -93,12 +93,11 @@ export const validatePersonalityConfig = (config: PersonalityConfig): PersonaVal
     expertIssues.push(issue('all_registers', 'personality.validationIssues.allRegisters', 'expert'));
   }
 
-  const exampleCount = REQUIRED_PERSONA_REGISTERS.reduce((total, key) => {
-    const register = config.registers[key];
-    return total + nonEmptyCount(register?.examples || []);
-  }, 0);
-  if (exampleCount < 6) {
-    expertIssues.push(issue('examples_count', 'personality.validationIssues.examplesCount', 'expert'));
+  const hasMalformedExample = Object.values(config.registers).some((register) =>
+    register.examples.some((example) => hasText(example) && !/^\s*\[User:\s*\S[\s\S]*?\]\s*\n\s*\S/.test(example)),
+  );
+  if (hasMalformedExample) {
+    expertIssues.push(issue('examples_format', 'personality.validationIssues.examplesFormat', 'expert'));
   }
 
   if (!config.persona_layers.some((item) => item.layer_id === 'surface')) {

@@ -335,11 +335,19 @@ class HybridRetrievalPostProcessingMixin:
             query=request.query,
             user_id=request.user_id,
         )
+        from ..recall_events import govern_recall_events
+
+        historical = str(request.query_mode or payload.trace.get("query_mode") or "") in _HISTORICAL_L1_EVENT_MODES
+        for bundle in payload.l1_evidence_bundles:
+            bundle["answer_events"] = await govern_recall_events(
+                host._memory, bundle["events"], request,
+                time_range=payload.trace.get("resolved_time_range") or {}, historical=historical,
+            )
         payload.trace["l1_evidence_bundle_count"] = len(payload.l1_evidence_bundles)
         payload.trace["l1_evidence_bundle_sessions_total"] = len(_session_ids(pre_fusion_l1_events))
         payload.l1_timeline_summary = build_timeline_summary(
             question=request.query,
-            evidence_bundles=payload.l1_evidence_bundles,
+            evidence_bundles=[{**bundle, "events": bundle["answer_events"]} for bundle in payload.l1_evidence_bundles],
         )
 
     def _update_post_processing_trace(self, payload: RetrievalPayload) -> None:

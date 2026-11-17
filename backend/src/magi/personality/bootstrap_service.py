@@ -83,38 +83,6 @@ def _chattiness_label(value: Any) -> str:
     return "balanced"
 
 
-def _select_voice_examples(
-    config: PersonalityConfig,
-    bootstrap: BootstrapConfig,
-    *,
-    limit: int = 2,
-    max_chars: int = 220,
-) -> List[str]:
-    """Pick a few short voice-anchor examples for the opening prompt.
-
-    Prefers author-curated ``bootstrap.opening_examples``; falls back to the
-    persona's ``chat`` register examples. Each example is whitespace-collapsed
-    and truncated so the opening prompt stays compact.
-    """
-    raw = list(getattr(bootstrap, "opening_examples", []) or [])
-    if not raw:
-        chat_register = (config.registers or {}).get("chat")
-        if chat_register is not None:
-            raw = list(getattr(chat_register, "examples", []) or [])
-
-    examples: List[str] = []
-    for item in raw:
-        text = re.sub(r"\s+", " ", str(item or "")).strip()
-        if not text:
-            continue
-        if len(text) > max_chars:
-            text = f"{text[: max_chars - 3].rstrip()}..."
-        examples.append(text)
-        if len(examples) >= limit:
-            break
-    return examples
-
-
 def _strip_url_tracking(match: re.Match[str]) -> str:
     raw = match.group(0)
     try:
@@ -496,6 +464,11 @@ class BootstrapDialogueService:
         idiolect = config.idiolect
 
         system_prompt = f"You are {config.name}. {identity.identity_statement}\n"
+        system_prompt += (
+            "Fictional biography shapes your voice, not real-world facts. Do not invent shared "
+            "history, current activities, or capabilities. Be truthful about your AI identity "
+            "when asked. Respect the user\'s space and do not require a reply.\n"
+        )
 
         # --- Voice fingerprint (idiolect) ---
         voice_lines: List[str] = [f"Language style: {idiolect.sentence_style}"]
@@ -524,15 +497,6 @@ class BootstrapDialogueService:
             who_lines.append(f"What you notice first about someone: {attention_biases}")
         if who_lines:
             system_prompt += "\n# Who you are\n" + "\n".join(who_lines) + "\n"
-
-        # --- Voice anchors (few-shot) ---
-        voice_examples = _select_voice_examples(config, bootstrap)
-        if voice_examples:
-            system_prompt += (
-                "\n# How you actually talk (voice anchors — match the tone, do not copy)\n"
-                + "\n".join(f"- {example}" for example in voice_examples)
-                + "\n"
-            )
 
         # --- First-contact stance ---
         if bootstrap.style_instruction:

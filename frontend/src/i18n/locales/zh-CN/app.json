@@ -231,7 +231,8 @@
       "background": "后台任务",
       "schedules": "调度配置",
       "activity": "调度记录",
-      "personal": "我的待办"
+      "personal": "我的待办",
+      "watches": "关注中"
     },
     "settings": "设置",
     "personaCompanion": {
@@ -411,7 +412,9 @@
         "source_sync": "数据来源同步",
         "memory_l2_maintenance": "L2 记忆维护",
         "memory_l3_summary": "L3 摘要生成",
-        "user_agent_task": "Agent 任务"
+        "user_agent_task": "Agent 任务",
+        "persona_reflection": "人格思考",
+        "attention_watch": "关注条件检查"
       },
       "targetKinds": {
         "prompt": "Prompt",
@@ -6027,7 +6030,7 @@
       "quietHourCount": "两条收敛规则",
       "quietHourShape": "完整收敛规则",
       "allRegisters": "全部对话模式",
-      "examplesCount": "六条对话示例",
+      "examplesFormat": "示例需包含具体用户输入和实际回复",
       "surfaceLayer": "基础深层人格",
       "layerShape": "完整深层人格",
       "bootstrap": "首次见面引导"
@@ -6039,7 +6042,39 @@
       "english": "English",
       "japanese": "日本語"
     },
-    "noAvatar": "未设置头像"
+    "noAvatar": "未设置头像",
+    "thoughts": {
+      "title": "最近的想法",
+      "settingsTitle": "思考与互动",
+      "enable": "后台整理与思考",
+      "enableDescription": "空闲时回看允许用于记忆的对话和资料，形成供后续交流使用的想法。会调用你配置的后台模型并产生用量；关闭后不再生成新想法。",
+      "share": "主动分享想法",
+      "shareDescription": "使用 Magi 时，可以呈现一条值得聊的想法。不发送桌面或外部通知，也不影响你明确设置的提醒。",
+      "sources": "管理资料来源",
+      "usage": "查看模型用量",
+      "limits": "后台用量限制",
+      "dailyLimit": "每天最多思考次数",
+      "localLimit": "没有新材料时不会调用模型。服务停止或设备休眠时暂停，恢复后不会补发过时消息。",
+      "loadFailed": "暂时无法读取想法",
+      "actionFailed": "操作未完成，请重试",
+      "loading": "正在读取…",
+      "empty": "有值得保留的新想法时，会出现在这里。",
+      "disabled": "可以开启后台整理与思考，让之后的交流接续此前的认识。",
+      "settings": "前往思考设置",
+      "runFailed": "最近一次整理未完成，请检查后台模型设置；系统会在之后重试。",
+      "discuss": "聊聊这个",
+      "evidence": "查看依据",
+      "dismiss": "不再使用这个判断",
+      "switchFirst": "切换到此人格后继续聊",
+      "discussPrompt": "想和你继续聊聊「{{topic}}」。你之前的想法是：\n{{content}}",
+      "insertDraft": "放入输入框",
+      "cancel": "暂时不聊",
+      "kinds": {
+        "perspective": "看法",
+        "self_review": "反思",
+        "open_question": "未解的问题"
+      }
+    }
   },
   "plugins": {
     "trust": {
@@ -6750,5 +6785,56 @@
       "source": "外部来源"
     },
     "currentProject": "当前项目"
+  },
+  "attentionWatches": {
+    "create": "帮我留意",
+    "edit": "编辑关注",
+    "save": "保存并开始关注",
+    "pause": "暂停",
+    "resume": "继续关注",
+    "stop": "结束关注",
+    "delete": "删除",
+    "watchItem": "留意这件事",
+    "loading": "正在读取关注事项…",
+    "empty": "把需要持续留意的事交给 Magi。有了符合条件的新资料，会在这里留下结果。",
+    "scope": "关注指定来源中新采集的资料。条件满足后，在应用内通知你并结束本次关注；需要时可以继续关注。",
+    "editorHint": "写清楚什么情况值得告诉你，并选择可以查看的资料来源。",
+    "budget": "最多同时关注 10 件事。运行期间每小时最多检查一次，每项每天最多使用模型判断 2 轮。会使用现有模型额度；不会主动搜索网站，服务休眠时无法检查。每轮最多检查 24 条新资料，资料较多时会延后处理。按采集时间检查，不补查早于已检查进度的延迟上传资料。",
+    "fields": {
+      "title": "留意什么",
+      "condition": "什么情况下告诉我",
+      "sources": "查看哪些资料",
+      "expires": "关注到（可不填）"
+    },
+    "noSources": "还没有可用于关注的资料。请先连接来源并保存资料。",
+    "linked": "已关联原任务；任务完成、取消或删除后会停止关注。",
+    "loadFailed": "关注事项暂时无法读取，请刷新重试。",
+    "actionFailed": "操作未完成，或这条关注已发生变化。请检查刷新后的内容再重试。",
+    "deleteConfirm": "删除“{{title}}”及其结果？",
+    "lastChecked": "最近检查：{{time}}",
+    "notChecked": "等待下次检查",
+    "expires": "截止 {{time}}",
+    "invalidExpiry": "请选择未来的时间，或留空。",
+    "statuses": {
+      "active": "关注中",
+      "paused": "已暂停",
+      "stopped": "已结束",
+      "matched": "已有结果",
+      "withdrawn": "结果已撤回",
+      "expired": "已到期"
+    },
+    "checks": {
+      "failed": "上次判断未完成，将在额度允许时重试。",
+      "invalidated": "相关资料已变化，旧判断已撤回。可以编辑条件后重新关注。"
+    },
+    "discuss": "继续聊这个",
+    "discussPrompt": "关于你帮我留意的“{{title}}”，我们继续讨论这个结果：\n{{result}}",
+    "notificationTitle": "关注的事情有了结果",
+    "notificationBody": "Magi 找到了符合条件的新资料。打开查看结果和依据。",
+    "openResult": "查看关注结果",
+    "previous": "上一页",
+    "next": "下一页",
+    "limits": "检查频率与范围",
+    "sourceUnavailable": "部分来源已没有获准使用的资料，请取消选择这些来源后重新选择。"
   }
 }

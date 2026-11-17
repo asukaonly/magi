@@ -189,6 +189,9 @@ class HybridRetrievalService(
 
     async def query(self, request: RetrievalQuery) -> RetrievalPayload:
         """Execute a layer-aware retrieval query."""
+        if request.read_event_id:
+            from ..recall_events import read_recall_event
+            return await read_recall_event(self._memory, request)
         self._refresh_runtime_config()
         self._refresh_handlers()
         request = await self._resolve_context_scope(request)

@@ -58,6 +58,51 @@ def setup_service(tmp_path, payload):
 
 
 @pytest.mark.asyncio
+async def test_bounded_pages_recheck_memory_and_never_claim_exhaustive(tmp_path):
+    payload = RetrievalPayload(l1_events=[
+        {"event_id": f"event-{index}", "content": f"Historical item {index}", "score": 1 - index / 100}
+        for index in range(45)
+    ])
+    service, _, _ = setup_service(tmp_path, payload)
+    refs = []
+    for offset in (0, 20, 40):
+        recall = (await service.retrieve(RetrievalQuery(query="List historical items", limit=20, page_offset=offset), retrieval_policy="memory_only"))["recall"]
+        refs.extend(finding["memory_ref"] for finding in recall["findings"])
+        assert recall["pagination"]["next_offset"] == (offset + 20 if offset < 40 else None)
+        assert recall["coverage"]["can_claim_total"] is False
+        assert service.memory.query.call_args.args[0].limit == 100
+    assert len(refs) == len(set(refs)) == 45
+    service.governance.unchanged.return_value = False
+    recall = (await service.retrieve(RetrievalQuery(query="List historical items", page_offset=20)))["recall"]
+    assert recall["findings"] == []
+
+
+@pytest.mark.asyncio
+async def test_pending_forget_blocks_local_event_and_neighbor_before_delivery(tmp_path):
+    primary = {"event_id": "primary", "content": "Original plan", "author_type": "user"}
+    neighbor = {"event_id": "forgotten", "content": "Private neighbor", "author_type": "user"}
+    payload = RetrievalPayload(l1_events=[primary], l1_evidence_bundles=[{
+        "hit_event_ids": ["primary"], "answer_events": [neighbor],
+    }], trace={"query_mode": "episode_recall"})
+    service, _, _ = setup_service(tmp_path, payload)
+    async def visible(boundary, **kwargs):
+        return "forgotten" not in kwargs["event_ids"]
+    service.governance.visible.side_effect = visible
+    recall = (await service.retrieve(RetrievalQuery(query="Read the plan")))["recall"]
+    assert recall["findings"] == []
+    assert "Private neighbor" not in str(recall)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("params", [{"page_offset": -1}, {"page_offset": 100}, {"limit": 101}, {"read_offset": 1}, {"read_event_id": "a", "page_offset": 1}])
+async def test_invalid_continuations_are_rejected_before_query(tmp_path, params):
+    service, _, _ = setup_service(tmp_path, RetrievalPayload())
+    with pytest.raises(ValueError):
+        await service.retrieve(RetrievalQuery(query="test", **params))
+    service.memory.query.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_stable_historical_mail_uses_memory_without_network(tmp_path):
     service, registry, connections = setup_service(tmp_path, local_payload([local_event()]))
     source = make_source(registry, connections)
@@ -76,6 +121,17 @@ async def test_current_reply_targets_thread_and_deduplicates_stored_message(tmp_
     assert result["recall"]["freshness"]["satisfied"]
     assert len(result["recall"]["findings"]) == 1
     assert result["recall"]["findings"][0]["origin"] == "source"
+
+
+@pytest.mark.asyncio
+async def test_verified_source_stays_on_first_page_ahead_of_retained_evidence(tmp_path):
+    service, registry, connections = setup_service(tmp_path, local_payload(
+        [local_event("private", text="Old private plan"), local_event()], freshness="current",
+    ))
+    make_source(registry, connections, query=AsyncMock(side_effect=source_result))
+    recall = (await service.retrieve(RetrievalQuery(query="Current plan", limit=1)))["recall"]
+    assert recall["findings"][0]["origin"] == "source"
+    assert recall["pagination"]["next_offset"] == 1
 
 
 @pytest.mark.asyncio

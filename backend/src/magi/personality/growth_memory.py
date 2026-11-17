@@ -50,6 +50,8 @@ class GrowthMemoryEngine(GrowthOutcomePersistenceMixin, GrowthRelationshipMixin)
                 "personality_evolution",
                 "growth_statistics",
                 "persona_outcome_receipts",
+                "persona_reflections",
+                "persona_reflection_runs",
             ):
                 cursor = await db.execute(f"DELETE FROM {table_name}")
                 deleted += max(0, int(cursor.rowcount or 0))

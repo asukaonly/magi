@@ -14,6 +14,9 @@ export const DEFAULT_PERSONALITY_SETTINGS_CONFIG: PersonalitySettingsConfig = {
   state_memory_enabled: true,
   state_transition_enabled: true,
   deep_persona_enabled: true,
+  background_reflection_enabled: false,
+  proactive_sharing_enabled: false,
+  reflection_daily_limit: 2,
 };
 
 export type UserMode = 'quick' | 'expert' | null;

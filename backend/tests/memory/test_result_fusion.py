@@ -39,13 +39,13 @@ class TestEstimateTokens:
 
 class TestTruncateToBudget:
     @pytest.mark.parametrize(
-        "budget,expected_count", [(-1, 0), (0, 0), (2, 0), (3, 1), (6, 1), (7, 2), (8, 3), (100, 3)]
+        "budget,indices", [(-1, []), (0, []), (2, [2]), (3, [0]), (6, [0, 2]), (7, [0, 1]), (8, [0, 1, 2]), (100, [0, 1, 2])]
     )
-    def test_preserves_the_largest_fitting_prefix(self, budget, expected_count):
+    def test_skips_oversized_records_without_starving_later_evidence(self, budget, indices):
         items = [{"content": "abc"}, {"content": "defg"}, {"content": "h"}]
         assert (
             truncate_to_budget(items, budget_tokens=budget, char_per_token=1.0)
-            == items[:expected_count]
+            == [items[index] for index in indices]
         )
 
 
@@ -85,12 +85,12 @@ class TestDedup:
 class TestTokenBudget:
     @pytest.mark.parametrize(
         "configured,override,expected_count",
-        [(100, None, 5), (40, None, 2), (100, 40, 2), (40, 100, 5)],
+        [(100, None, 6), (40, None, 4), (100, 40, 4), (40, 100, 6)],
     )
     def test_l1_selection_honors_configured_or_explicit_budget(
         self, configured, override, expected_count
     ):
-        # Each record costs ten characters; L1 receives half the total budget.
+        # Each record costs ten characters; empty layers release their allocations.
         rows = [{"event_id": f"e{i}", "content": "abcdefgh"} for i in range(6)]
         config = RetrievalConfig(default_max_tokens=configured, char_per_token_ratio=1.0)
         result = ResultFusion(config).apply(RetrievalPayload(l1_events=rows), max_tokens=override)
@@ -99,13 +99,13 @@ class TestTokenBudget:
     @pytest.mark.parametrize(
         "with_l0,with_l2,l1_count,l3_count",
         [
-            (False, False, 5, 2),
-            (True, False, 4, 1),
-            (False, True, 5, 1),
-            (True, True, 4, 1),
+            (False, False, 6, 3),
+            (True, False, 6, 2),
+            (False, True, 6, 2),
+            (True, True, 5, 1),
         ],
     )
-    def test_layer_costs_reduce_only_lower_priority_allocations(
+    def test_layers_share_unused_budget_without_exceeding_total(
         self, with_l0, with_l2, l1_count, l3_count
     ):
         l0 = [{"session": "x" * 20}] if with_l0 else []
@@ -120,6 +120,7 @@ class TestTokenBudget:
         assert result.l1_events == l1[:l1_count]
         assert result.l2_entity_cards == l2
         assert result.l3_reflections == l3[:l3_count]
+        assert estimate_tokens([*result.l0_workbench, *result.l1_events, *result.l2_entity_cards, *result.l3_reflections], 1.0) <= 100
 
     def test_large_l0_is_soft_capped_before_it_starves_other_layers(self):
         fusion = ResultFusion(RetrievalConfig(default_max_tokens=120, l0_budget_ratio=0.3))
@@ -167,7 +168,7 @@ class TestTokenBudget:
         budget = estimate_tokens([session_one_first, session_two_first]) * 2 + 1
         result = fusion.apply(payload, max_tokens=budget)
 
-        assert [item["event_id"] for item in result.l1_events] == ["s1-a", "s2-a"]
+        assert [item["event_id"] for item in result.l1_events] == ["s1-a", "s2-a", "s1-b"]
 
     def test_budget_prefers_best_scored_user_anchor_within_session(self):
         fusion = ResultFusion(RetrievalConfig(default_max_tokens=100000))

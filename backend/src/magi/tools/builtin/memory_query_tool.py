@@ -186,6 +186,13 @@ def _memory_query_parameters(
         _query_mode_parameter(),
         _summary_categories_parameter(plugin_projection_service),
         _limit_parameter(),
+        ToolParameter(name="page_offset", type=ParameterType.INTEGER, required=False, default=0,
+            min_value=0, max_value=99,
+            description="Continue with pagination.next_offset, keeping the same query and source restrictions. Pages recheck current memory; they are not an exhaustive snapshot."),
+        ToolParameter(name="read_event_id", type=ParameterType.STRING, required=False,
+            description="Read a retained event and its neighboring conversation using a returned memory_ref. Never invent a reference. Source objects still use source_scope.object_id."),
+        ToolParameter(name="read_offset", type=ParameterType.INTEGER, required=False, default=0, min_value=0,
+            description="Continue a long original record using its read.next_offset, with the same read_event_id."),
         _conversation_context_parameter(),
     ]
 
@@ -325,6 +332,9 @@ class MemoryQueryTool(Tool):
                 "task_category": context.env_vars.get("intent") or "",
             },
             limit=parameters.get("limit", 20),
+            page_offset=parameters.get("page_offset", 0),
+            read_event_id=parameters.get("read_event_id"),
+            read_offset=parameters.get("read_offset", 0),
             exclude_user_text=current_user_text,
             conversation_context=self._build_conversation_context(mq, parameters),
         )

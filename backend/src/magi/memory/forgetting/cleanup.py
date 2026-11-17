@@ -39,6 +39,10 @@ class ForgetLayerCleanup:
         host = self._host
         refresh_started_at = float(entity_refresh_started_at or time.time())
 
+        cleanup_external = getattr(host, "external_derivation_cleanup", None)
+        if cleanup_external is not None:
+            await cleanup_external(list(normalized))
+
         if host.l2 is not None:
             await host.l2.forget_source_events(
                 normalized,
@@ -116,6 +120,9 @@ class ForgetLayerCleanup:
                     event_ids = tuple(str(row[0]) for row in await cursor.fetchall())
             if not event_ids:
                 return removed
+            cleanup_external = getattr(self._host, "external_derivation_cleanup", None)
+            if cleanup_external is not None:
+                await cleanup_external(list(event_ids))
             if self._host.l3 is not None:
                 removed["l3_summaries"] += int(
                     await self._host.l3.forget_source_events(list(event_ids))

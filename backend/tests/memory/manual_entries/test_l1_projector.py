@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import TypeAdapter
 
 from magi.memory.manual_entries import ManualEntry, ManualEntryL1Projector
+from magi.memory.event_contracts import MemoryEvent
 from magi.memory.manual_entries.l1_projector import (
     ManualEntryProjectionGovernedError,
 )
@@ -20,6 +22,8 @@ class _StubGovernedMemory:
         self.rejection_reason: str | None = None
 
     async def store_governed_l1_event(self, event):
+        adapter = TypeAdapter(MemoryEvent)
+        event = adapter.validate_json(adapter.dump_json(event, warnings="error"), strict=True)
         if self.rejection_reason is not None:
             return None
         existing = self._event_ids_by_key.get(event.idempotency_key)
@@ -68,6 +72,8 @@ async def test_projected_manual_event_preserves_content_and_optional_weather(wea
     assert len(l1.stored) == 1
     ev = l1.stored[0]
     assert ev.source == "manual_entry"
+    assert ev.author_type == "user"
+    assert ev.content_type == "text"
     assert ev.user_id == "local_user"
     assert ev.content == "一些想法"
     assert ev.timestamp == entry.event_at

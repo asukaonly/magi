@@ -229,6 +229,132 @@
         "title": "AnswerConfirmationRequest",
         "type": "object"
       },
+      "AttentionWatch": {
+        "additionalProperties": false,
+        "properties": {
+          "check_status": {
+            "enum": [
+              "waiting",
+              "checking",
+              "no_match",
+              "matched",
+              "failed",
+              "invalidated"
+            ],
+            "title": "Check Status",
+            "type": "string"
+          },
+          "condition": {
+            "maxLength": 1500,
+            "minLength": 1,
+            "title": "Condition",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "last_checked_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Checked At"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WatchDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Sources",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "paused",
+              "stopped",
+              "matched",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "title",
+          "condition",
+          "sources",
+          "id",
+          "version",
+          "status",
+          "created_at",
+          "updated_at",
+          "last_checked_at",
+          "check_status",
+          "result"
+        ],
+        "title": "AttentionWatch",
+        "type": "object"
+      },
       "BackgroundEvent": {
         "additionalProperties": false,
         "properties": {
@@ -8847,6 +8973,238 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WatchCitation": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "quote": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Quote",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "quote"
+        ],
+        "title": "WatchCitation",
+        "type": "object"
+      },
+      "WatchDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/WatchCitation"
+            },
+            "maxItems": 5,
+            "title": "Citations",
+            "type": "array"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "boolean"
+          },
+          "next_step": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Next Step",
+            "type": "string"
+          },
+          "summary": {
+            "default": "",
+            "maxLength": 1200,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "matched"
+        ],
+        "title": "WatchDecision",
+        "type": "object"
+      },
+      "WatchFields": {
+        "additionalProperties": false,
+        "properties": {
+          "condition": {
+            "maxLength": 1500,
+            "minLength": 1,
+            "title": "Condition",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Sources",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "condition",
+          "sources"
+        ],
+        "title": "WatchFields",
+        "type": "object"
+      },
+      "WatchMutation": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "create",
+              "update",
+              "pause",
+              "resume",
+              "stop",
+              "delete"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "expected_version": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WatchFields"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "request_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Request Id",
+            "type": "string"
+          },
+          "watch_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Watch Id"
+          }
+        },
+        "required": [
+          "request_id",
+          "action"
+        ],
+        "title": "WatchMutation",
+        "type": "object"
+      },
+      "WatchMutationResult": {
+        "properties": {
+          "replayed": {
+            "default": false,
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "watch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttentionWatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "watch"
+        ],
+        "title": "WatchMutationResult",
+        "type": "object"
+      },
+      "WatchPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AttentionWatch"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "sources"
+        ],
+        "title": "WatchPage",
+        "type": "object"
+      },
       "_AskRespondRequest": {
         "properties": {
           "answer": {
@@ -11586,6 +11944,133 @@
           }
         },
         "summary": "Mutate Personal Task",
+        "tags": [
+          "Personal Tasks"
+        ]
+      }
+    },
+    "/api/personal-tasks/watch-mutations": {
+      "post": {
+        "operationId": "mutate_watch_api_personal_tasks_watch_mutations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchMutation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchMutationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mutate Watch",
+        "tags": [
+          "Personal Tasks"
+        ]
+      }
+    },
+    "/api/personal-tasks/watches": {
+      "get": {
+        "operationId": "list_watches_api_personal_tasks_watches_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Watches",
+        "tags": [
+          "Personal Tasks"
+        ]
+      }
+    },
+    "/api/personal-tasks/watches/{watch_id}": {
+      "get": {
+        "operationId": "get_watch_api_personal_tasks_watches__watch_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "watch_id",
+            "required": true,
+            "schema": {
+              "title": "Watch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttentionWatch"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Watch",
         "tags": [
           "Personal Tasks"
         ]

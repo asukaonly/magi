@@ -153,6 +153,9 @@ def _build_system_config(mask_secrets: bool = True) -> SystemConfigModel:
         diagnostics=DiagnosticsConfigModel(**diagnostics_data),
         personality=_load_full_personality(),
         personalitySettings=PersonalitySettingsModel(
+            background_reflection_enabled=runtime_config.agent.personality.enable_background_reflection,
+            proactive_sharing_enabled=runtime_config.agent.personality.enable_proactive_sharing,
+            reflection_daily_limit=runtime_config.agent.personality.reflection_daily_limit,
             state_memory_enabled=bool(
                 getattr(runtime_config.agent.personality, "enable_state_memory", True)
             ),

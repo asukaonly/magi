@@ -450,6 +450,9 @@ def _personality_update_paths(
         "agent.personality.enable_state_memory": personality_settings.state_memory_enabled,
         "agent.personality.enable_state_transition": personality_settings.state_transition_enabled,
         "agent.personality.enable_deep_persona": personality_settings.deep_persona_enabled,
+        "agent.personality.enable_background_reflection": personality_settings.background_reflection_enabled,
+        "agent.personality.enable_proactive_sharing": personality_settings.proactive_sharing_enabled,
+        "agent.personality.reflection_daily_limit": personality_settings.reflection_daily_limit,
     }
 
 

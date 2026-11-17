@@ -25,7 +25,7 @@ class QueryModePlan:
     layer_quota: dict[str, int] | None = None
 
 
-# layer_quota values are tunable initial values; calibrate against real recall data.
+# Relative answer-slot weights, calibrated against real recall data, not hard per-layer caps.
 MODE_REGISTRY: dict[str, QueryModePlan] = {
     # Invariant: every mode reaches L1 either via ``primary_layers`` or
     # ``fallback_layers``. L1 holds the raw event stream and is the

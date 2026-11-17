@@ -1298,10 +1298,25 @@ export interface components {
         /** PersonalitySettingsModel */
         PersonalitySettingsModel: {
             /**
+             * Background Reflection Enabled
+             * @default false
+             */
+            background_reflection_enabled: boolean;
+            /**
              * Deep Persona Enabled
              * @default true
              */
             deep_persona_enabled: boolean;
+            /**
+             * Proactive Sharing Enabled
+             * @default false
+             */
+            proactive_sharing_enabled: boolean;
+            /**
+             * Reflection Daily Limit
+             * @default 2
+             */
+            reflection_daily_limit: number;
             /**
              * State Memory Enabled
              * @default true

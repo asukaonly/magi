@@ -86,6 +86,10 @@ paths use that environment's platform installation scheme, including on macOS
 framework builds; system-wide site packages must not replace its dependencies.
 macOS framework builds launch their real interpreter directly and grant read
 access to its framework library, without permitting an extra launcher process.
+On macOS, trusted workers register as background-only before importing plugin
+code. Native libraries such as the Apple Photos reader may load Cocoa without
+creating a Python Dock icon or an unserviced foreground application. Restricted
+workers retain their confinement and do not register with graphical services.
 Bundled host code remains in-process under host-authoritative discovery.
 Contribution registration is transactional and each connection has an exact
 cleanup owner. Enabling, stopping, clearing, and disconnecting are separate

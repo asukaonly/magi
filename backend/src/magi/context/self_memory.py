@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 
 from ..personality.feature_flags import get_personality_feature_flags
 from ..personality.loader import PersonalityConfig
-from ..personality.persona_journal_service import PersonaJournalService
 from ..personality.turn_planner import (
     PersonaTurnPlan,
     PersonaTurnPlanner,
@@ -22,7 +21,7 @@ from .user_profile_service import UserProfileService
 class PromptSelfMemoryMixin:
     """Build self-memory and user profile prompt context blocks."""
 
-    persona_journal_service: PersonaJournalService | None
+    persona_journal_service_factory: Any
     user_profile_service: UserProfileService | None
 
     async def _build_self_memory_context(
@@ -54,18 +53,15 @@ class PromptSelfMemoryMixin:
         )
 
         journal_entries: List[Dict[str, Any]] = []
-        if self.persona_journal_service is not None:
+        service = self.persona_journal_service_factory() if self.persona_journal_service_factory else None
+        if service is not None:
             try:
-                entries = await self.persona_journal_service.get_recent_entries(
-                    persona_name=persona_name,
-                    limit=3,
+                journal_entries = await service.relevant(
+                    user_id=user_id, persona_name=persona_name, query=user_message,
                 )
-                journal_entries = [
-                    {"content": entry.content, "timestamp": entry.timestamp}
-                    for entry in entries
-                ]
             except Exception:
-                pass
+                # Reflection is optional; unavailable evidence must never reach the prompt.
+                journal_entries = []
 
         if persona_turn_plan is None:
             persona_turn_plan = await self._build_persona_turn_plan(

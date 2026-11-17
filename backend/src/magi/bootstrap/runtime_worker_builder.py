@@ -19,6 +19,8 @@ from .maintenance import OtherDependenciesModule, RuntimeOperationalGCScheduleRe
 from .runtime_tools import RuntimeFirstPartyToolsModule
 from ..personal_tasks.lifecycle import PersonalTasksModule
 from .personal_tasks import PersonalTaskRemindersModule
+from .attention_watches import AttentionWatchesModule
+from .persona_reflection import PersonaReflectionModule, forget_proactive_derivatives
 from .schedule_readiness import schedule_target_ready
 
 from ..core.logger import get_logger
@@ -250,6 +252,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         MemoryStoreModule(
             context,
             portrait_projection_refresh_registrar=lambda memory: configure_user_projection_runtime(context, memory),
+            external_derivation_cleanup=lambda event_ids: forget_proactive_derivatives(context, event_ids),
         ),
         MemoryProcessingModule(context),
         PluginActivationModule(context),
@@ -336,6 +339,8 @@ def _build_exports_and_maintenance_modules(
         ChannelsModule(context, synthesize=synthesize_delivery),
         OutreachModule(context),
         PersonalTaskRemindersModule(context),
+        PersonaReflectionModule(context),
+        AttentionWatchesModule(context),
         SchedulerActivationModule(context),
         SourceSyncExecutorModule(context),
     ]

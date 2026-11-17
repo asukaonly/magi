@@ -42,6 +42,9 @@ class RetrievalQuery:
     # entry point. Callers do not turn these values into identities themselves.
     context_signals: ContextResolutionSignals | None = None
     limit: int = 10
+    page_offset: int = 0
+    read_event_id: str | None = None
+    read_offset: int = 0
     # Original user message text for the current turn. Used by echo filtering
     # so the L1 event of the just-typed user message is suppressed even when
     # the LLM rephrases ``query``. Empty/None disables the extra filter.

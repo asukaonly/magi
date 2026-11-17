@@ -155,6 +155,36 @@ def proxy(plugin_setup, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS application registration")
+async def test_native_plugin_stays_background_only_and_collects_items(plugin_setup):
+    manifest, connection, _ = plugin_setup
+    Path(manifest.plugin_dir, "plugin.py").write_text('''
+import ctypes
+appkit = ctypes.CDLL("/System/Library/Frameworks/AppKit.framework/AppKit")
+appkit.NSApplicationLoad.argtypes = []
+appkit.NSApplicationLoad.restype = ctypes.c_bool
+assert appkit.NSApplicationLoad()
+''' + PLUGIN)
+    instance = ProcessPluginProxy(*plugin_setup)
+    try:
+        pid = instance.read_settings_resource("info")["pid"]
+        info = subprocess.check_output(
+            ["/usr/bin/lsappinfo", "info", f"#{pid}"], text=True, timeout=5,
+        )
+        assert 'type="BackgroundOnly"' in info
+        _, source, _ = instance.get_sources()[0]
+        result = await source.collect_items(SourceSyncContext(
+            connection_id=connection.connection_id, source_type="process_test",
+            manual=True, last_cursor=None, last_success_at=None, limit=10,
+            runtime_paths=object(),
+        ))
+        assert result.changes[0].payload["pid"] == pid
+        assert result.next_cursor == "next"
+    finally:
+        await instance.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_worker_home_is_defined_for_both_native_path_conventions(plugin_setup):
     manifest, _connection, _context = plugin_setup
     Path(manifest.plugin_dir, "plugin.py").write_text(PLUGIN + '''

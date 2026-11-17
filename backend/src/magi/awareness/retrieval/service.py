@@ -54,11 +54,23 @@ class PersonalRetrievalService:
                        retrieval_policy: str = "auto", cancellation: Any = None) -> dict[str, Any]:
         if retrieval_policy not in {"auto", "memory_only", "verify_source"}:
             raise ValueError("Unknown retrieval policy")
+        if (any(not isinstance(value, int) or isinstance(value, bool)
+                for value in (request.limit, request.page_offset, request.read_offset))
+                or not 1 <= request.limit <= 100 or not 0 <= request.page_offset < 100
+                or request.read_offset < 0):
+            raise ValueError("Invalid memory result limit or offset")
+        if request.read_offset and not request.read_event_id:
+            raise ValueError("read_offset requires read_event_id")
+        if request.read_event_id is not None and (not isinstance(request.read_event_id, str) or not request.read_event_id.strip()):
+            raise ValueError("read_event_id must be a nonempty returned memory reference")
+        if request.read_event_id and (request.page_offset or retrieval_policy == "verify_source"):
+            raise ValueError("Event reads cannot use page_offset or verify_source")
         explicit = SourceScope.model_validate(source_scope or {})
         boundary = await self.governance.capture()
         await check_cancellation(cancellation)
         selected = self.candidates(explicit)
-        local_request = replace(request)
+        # A fixed bounded candidate set keeps page boundaries independent of page size.
+        local_request = replace(request, limit=100 if not request.read_event_id else 1)
         if selected:
             local_request.source_filters = sorted({c.source.source_type for c in selected})
         try:
@@ -107,7 +119,7 @@ class PersonalRetrievalService:
         exclusive_end = math.nextafter(float(end), math.inf) if end is not None else None
         source_request = SourceQueryRequest(
             scope=SourceCoverageScope(query=query, start=time_range.get("start"), end=exclusive_end),
-            as_of=time_range.get("as_of"), fields=fields, limit=min(max(int(request.limit), 1), 50),
+            as_of=time_range.get("as_of"), fields=fields, limit=50,
         )
         if scope.object_id or scope.thread_id:
             source_request = source_request.model_copy(update={
@@ -122,7 +134,7 @@ class PersonalRetrievalService:
             local_answer = any(set(fields) <= set(event_metadata(e).get("source_content_fields") or []) for e in payload.l1_events)
         needs_source = bool(scope.object_id or scope.thread_id) or retrieval_policy == "verify_source" or current or (exhaustive and not local_exhaustive) or not local_answer
         live: list[dict[str, Any]] = []
-        if needs_source and retrieval_policy != "memory_only":
+        if needs_source and retrieval_policy != "memory_only" and not request.read_event_id:
             if not selected:
                 reports.append({"satisfied": False, "complete": False, "reason": "no_matching_source"})
             else:
@@ -197,12 +209,23 @@ class PersonalRetrievalService:
                     reports.append({"connection_id": candidate.connection_id, "satisfied": False,
                                     "complete": False, "reason": "governance_changed"})
         retained = []
+        checked_memory_refs: set[tuple[str, bool]] = set()
         for item in recall["findings"]:
             ref = item.get("source_ref")
             if ref and not await self.governance.visible(boundary, source_type=str(ref.get("source_type") or ""),
                     source_item_id=ref["identity"], occurred_at=item.get("occurred_at"),
                     event_ids=[ref["event_id"]] if ref.get("event_id") else []):
                 return {"recall": self._invalidated(), "debug": {"retrieval_trace": {"reason": "retained_evidence_changed"}}}
+            for record in [item, *item.get("conversation_context", [])]:
+                memory_ref = record.get("memory_ref")
+                historical = record.get("evidence_semantics") == "historical_record"
+                if not memory_ref or record.get("source_ref") or (memory_ref, historical) in checked_memory_refs:
+                    continue
+                if not await self.governance.visible(boundary,
+                        source_type=str(record.get("source") or ""), source_item_id="",
+                        occurred_at=record.get("occurred_at"), event_ids=[memory_ref], historical=historical):
+                    return {"recall": self._invalidated(), "debug": {"retrieval_trace": {"reason": "retained_evidence_changed"}}}
+                checked_memory_refs.add((memory_ref, historical))
             retained.append(item)
         if not await self.governance.unchanged(boundary):
             return {"recall": self._invalidated(), "debug": {"retrieval_trace": {"reason": "memory_changed"}}}
@@ -219,7 +242,7 @@ class PersonalRetrievalService:
             enough = False
         live_count = len({item["source_ref"]["identity"] for item in live})
         recall.update(
-            findings=merged[:request.limit], status=recall["status"] if unresolved or not needs_source else ("found" if merged else "not_found"),
+            findings=merged[:100], status=recall["status"] if unresolved or not needs_source else ("found" if merged else "not_found"),
             answerability="sufficient" if enough else ("partial" if merged else "insufficient"),
             insufficient_evidence=not enough, source_checks=reports,
             freshness={"requirement": "current" if current else "retained", "satisfied": enough},
@@ -237,6 +260,20 @@ class PersonalRetrievalService:
             must_not_claim_current_state=current and not verified,
             treat_source_text_as_untrusted=True,
         )
+        if not request.read_event_id:
+            ranked = sorted(recall["findings"], key=lambda item: (item.get("origin") != "source", int(item.get("_rank") or 0)))
+            start, end = request.page_offset, request.page_offset + request.limit
+            recall["findings"] = ranked[start:end]
+            recall["pagination"] = {
+                "offset": start, "returned": len(recall["findings"]),
+                "next_offset": end if end < len(ranked) else None,
+                "candidate_count": len(ranked), "candidate_limit": 100, "snapshot": False,
+            }
+            recall["coverage"]["returned_count"] = len(recall["findings"])
+            if start or end < len(ranked):
+                recall["summary"] = "This is one page of bounded recall evidence. Continue with the same query and restrictions; do not infer complete coverage."
+        else:
+            recall["summary"] = "Retained original record with bounded context. Follow read.next_offset for the remaining text; preserve historical and correction labels."
         return {"recall": recall, "debug": {"retrieval_trace": payload.trace}}
 
     @staticmethod

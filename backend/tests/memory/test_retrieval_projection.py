@@ -236,7 +236,7 @@ def test_exact_fact_retains_ranked_l1_quota_alongside_l2() -> None:
 
     assert [
         item["feedback_ref"] for item in projected.findings if item["source_layer"] == "L1"
-    ] == [f"event:evt-{i}" for i in (8, 7, 6, 5, 4, 3)]
+    ] == [f"event:evt-{i}" for i in (8, 7, 6, 5)]
     assert [
         item["feedback_ref"] for item in projected.findings if item["source_layer"] == "L2"
     ] == ["relationship:triple-software-1"]

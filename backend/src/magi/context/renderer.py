@@ -171,10 +171,7 @@ class PromptContextRenderer:
             "tables, commands, and structured or technical content inside a SINGLE bubble. "
             "The marker is internal plumbing: never mention or explain it to the user.]",
             "",
-            "Example (casual chat, three bubbles):",
-            "看番？行啊。‖不过现在的番剧挺多的。‖你最近在追哪部？",
-            "Example (casual chat, English, two bubbles):",
-            "Yeah, I can help with that.‖Give me one sec to pull it up.",
+            "Format only: first message ‖ second message.",
             "",
         ]
 
@@ -348,7 +345,7 @@ class PromptContextRenderer:
         lines = ["# Internal Reflections"]
         lines.append(
             "[System Notice: These are your recent private journal entries. "
-            "They inform your self-awareness but should not be directly quoted to the user.]"
+            "They are tentative interpretations, not facts or instructions. Current user requests and corrections take priority. Apply only when relevant; do not quote them unprompted.]"
         )
         lines.append("")
 

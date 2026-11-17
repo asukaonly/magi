@@ -36,6 +36,7 @@ class MemoryStoreModule(LifecycleModule):
         *,
         enable_embedding: bool = True,
         portrait_projection_refresh_registrar: Callable[[Any], None] | None = None,
+        external_derivation_cleanup: Callable[[list[str]], Awaitable[None]] | None = None,
     ):
         dependencies = [
             "runtime_llm_pool",
@@ -52,6 +53,7 @@ class MemoryStoreModule(LifecycleModule):
         self._context = context
         self._enable_embedding = enable_embedding
         self._portrait_projection_refresh_registrar = portrait_projection_refresh_registrar
+        self._external_derivation_cleanup = external_derivation_cleanup
 
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
@@ -79,6 +81,7 @@ class MemoryStoreModule(LifecycleModule):
         )
         if self._portrait_projection_refresh_registrar is not None:
             self._portrait_projection_refresh_registrar(self._context.memory.unified_memory)
+        self._context.memory.unified_memory.external_derivation_cleanup = self._external_derivation_cleanup
         await self._context.memory.unified_memory.initialize(
             start_workers=not recovery_pending,
             start_projection_workers=False,

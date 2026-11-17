@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import type { SystemConfig } from '@/api/modules/config';
 import { SettingsGroup, SettingsSectionShell } from '@/components/settings/SettingsSectionPrimitives';
 import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { Link } from 'react-router';
 
 interface SettingsPersonalityRuntimeSectionProps {
   draftConfig: SystemConfig;
@@ -45,6 +47,31 @@ export function SettingsPersonalityRuntimeSection({
 
   return (
     <SettingsSectionShell>
+      <SettingsGroup title={t('personality.thoughts.settingsTitle')}>
+        <div className="flex items-start justify-between gap-4 py-3">
+          <div className="space-y-1"><p className="text-sm font-medium">{t('personality.thoughts.enable')}</p>
+            <p className="text-xs leading-6 text-muted-foreground">{t('personality.thoughts.enableDescription')}</p></div>
+          <Switch aria-label={t('personality.thoughts.enable')} checked={draftConfig.personalitySettings.background_reflection_enabled}
+            onCheckedChange={(checked) => patchDraftConfig((draft) => {
+              draft.personalitySettings.background_reflection_enabled = checked;
+              if (checked) draft.personalitySettings.state_memory_enabled = true;
+            })} />
+        </div>
+        <div className="flex items-start justify-between gap-4 py-3">
+          <div className="space-y-1"><p className="text-sm font-medium">{t('personality.thoughts.share')}</p>
+            <p className="text-xs leading-6 text-muted-foreground">{t('personality.thoughts.shareDescription')}</p></div>
+          <Switch aria-label={t('personality.thoughts.share')} checked={draftConfig.personalitySettings.proactive_sharing_enabled}
+            onCheckedChange={(checked) => patchDraftConfig((draft) => { draft.personalitySettings.proactive_sharing_enabled = checked; })} />
+        </div>
+        <div className="flex gap-4 text-sm"><Link className="underline" to="/memory/sources">{t('personality.thoughts.sources')}</Link>
+          <Link className="underline" to="/settings?section=statisticsLlm">{t('personality.thoughts.usage')}</Link></div>
+        <details className="pt-3 text-sm"><summary className="cursor-pointer">{t('personality.thoughts.limits')}</summary>
+          <label className="mt-3 flex items-center justify-between gap-4">{t('personality.thoughts.dailyLimit')}
+            <Input className="w-24" type="number" min={1} max={12} value={draftConfig.personalitySettings.reflection_daily_limit}
+              onChange={(event) => { const value = Number(event.target.value); if (Number.isInteger(value) && value >= 1 && value <= 12) patchDraftConfig((draft) => { draft.personalitySettings.reflection_daily_limit = value; }); }} /></label>
+          <p className="mt-2 text-xs text-muted-foreground">{t('personality.thoughts.localLimit')}</p>
+        </details>
+      </SettingsGroup>
       <SettingsGroup
         title={t('settings.personalitySettings.runtimeTitle')}
         description={t('settings.personalitySettings.runtimeDesc')}

@@ -50,7 +50,9 @@ def build_chat_context_runtime_parts(
     chat_read_service_factory = (
         config.chat_read_service_factory or default_chat_read_service_factory
     )
+    from magi.personality.persona_journal_service import get_persona_journal_service
     prompt_context_assembler = PromptContextAssembler(
+        persona_journal_service_factory=get_persona_journal_service,
         user_profile_service=UserProfileService(
             unified_memory=config.unified_memory,
             repositories=config.user_projection_repositories,

@@ -90,6 +90,32 @@ def _build_memory(tmp_path: Path) -> UnifiedMemoryStore:
     )
 
 
+@pytest.mark.asyncio
+async def test_original_read_continuation_uses_visible_principal_and_forget_state(tmp_path):
+    from magi.memory.recall_events import read_recall_event
+    from magi.memory.hybrid_retrieval.models import RetrievalQuery
+
+    memory = _build_memory(tmp_path)
+    await memory.initialize(start_workers=False)
+    try:
+        content = "Start " + "原文" * 4000 + " Only if refundable; otherwise do not book."
+        event = _event("original", content=content)
+        await memory.l1.store(event)
+        first = await read_recall_event(memory, RetrievalQuery(query="Read the original", user_id="u1", read_event_id="original"))
+        assert first.l1_events[0]["content"] == content[:6000]
+        offset = first.l1_events[0]["read"]["next_offset"]
+        second = await read_recall_event(memory, RetrievalQuery(query="Read the original", user_id="u1", read_event_id="original", read_offset=offset))
+        assert second.l1_events[0]["content"] == content[6000:]
+        assert second.l1_events[0]["read"]["next_offset"] is None
+        wrong_user = await read_recall_event(memory, RetrievalQuery(query="Read the original", user_id="other", read_event_id="original"))
+        assert wrong_user.l1_events == []
+        assert await memory.forget_source_event("original") is True
+        forgotten = await read_recall_event(memory, RetrievalQuery(query="Read the original", user_id="u1", read_event_id="original", read_offset=offset))
+        assert forgotten.l1_events == []
+    finally:
+        await memory.shutdown()
+
+
 def _attention_action(
     *,
     summary: str,

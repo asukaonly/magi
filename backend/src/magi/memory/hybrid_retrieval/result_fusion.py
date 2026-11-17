@@ -32,7 +32,7 @@ def truncate_to_budget(
     for item in items:
         item_tokens = estimate_tokens([item], char_per_token)
         if used + item_tokens > budget_tokens:
-            break
+            continue
         result.append(item)
         used += item_tokens
     return result
@@ -124,6 +124,11 @@ class ResultFusion:
         first pick after L0 working context.  L2 entity knowledge, L3
         reflections, and L4 procedures share the remainder.
         """
+        refill_fields = (
+            "l1_events", "l2_entity_cards", "l2_relationships", "l2_assertions", "l2_experiences",
+            "l3_reflections", "l4_procedures",
+        )
+        candidates = {name: list(getattr(payload, name)) for name in refill_fields}
         remaining = float(budget)
         remaining = ResultFusion._apply_l0_budget(
             payload,
@@ -142,6 +147,18 @@ class ResultFusion:
             payload, remaining, char_per_token, l3_budget_ratio
         )
         ResultFusion._apply_l4_budget(payload, remaining, char_per_token)
+
+        remaining = budget - estimate_tokens(payload.l0_workbench, char_per_token) - sum(
+            estimate_tokens(getattr(payload, name), char_per_token) for name in refill_fields
+        )
+        for name in refill_fields:
+            selected = getattr(payload, name)
+            retained = {id(item) for item in selected}
+            for item in candidates[name]:
+                cost = estimate_tokens([*selected, item], char_per_token) - estimate_tokens(selected, char_per_token)
+                if id(item) not in retained and cost <= remaining:
+                    selected.append(item)
+                    remaining -= cost
 
         return payload
 

@@ -37,6 +37,8 @@ CREATE TABLE emotional_events (
 """
 
 GROWTH_SCHEMA = """
+CREATE TABLE persona_reflections (id TEXT PRIMARY KEY);
+CREATE TABLE persona_reflection_runs (run_key TEXT PRIMARY KEY);
 CREATE TABLE persona_outcome_receipts (outcome_id TEXT PRIMARY KEY);
 CREATE TABLE milestones (id TEXT PRIMARY KEY);
 CREATE TABLE relationships (user_id TEXT PRIMARY KEY);
@@ -102,6 +104,8 @@ async def test_clear_learned_state_removes_all_persona_rows_and_caches(
         GROWTH_SCHEMA,
         f"""
         INSERT INTO milestones VALUES ('{private_markers["growth"]}');
+        INSERT INTO persona_reflections VALUES ('{private_markers["growth"]}-thought');
+        INSERT INTO persona_reflection_runs VALUES ('reflection-run');
         INSERT INTO relationships VALUES ('user-a');
         INSERT INTO personality_evolution DEFAULT VALUES;
         INSERT INTO growth_statistics VALUES ('total_interactions');
@@ -132,7 +136,7 @@ async def test_clear_learned_state_removes_all_persona_rows_and_caches(
 
     deleted = await self_memory.clear_learned_state()
 
-    assert deleted == 12
+    assert deleted == 14
     assert self_memory._personality_config is config
     assert emotion._current_state is not None
     assert emotion._current_state.current_mood == "neutral"
@@ -148,6 +152,8 @@ async def test_clear_learned_state_removes_all_persona_rows_and_caches(
         (
             growth_path,
             (
+                "persona_reflections",
+                "persona_reflection_runs",
                 "milestones",
                 "relationships",
                 "personality_evolution",
