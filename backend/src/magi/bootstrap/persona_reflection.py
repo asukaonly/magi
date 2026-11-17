@@ -5,14 +5,16 @@ from ..memory.reflection_evidence import ReflectionEvidenceReader
 from ..personality.persona_journal_service import PersonaJournalService, bind_persona_journal_service
 from ..personality.persona_repository import PersonaRepository
 from ..personality.reflection_store import ReflectionStore
+from ..personal_tasks.store import PersonalTaskStore
 from ..scheduler.contracts import ScheduledExecutionContext, ScheduledExecutionResult, ScheduledTargetType
 from .context import RuntimeBootstrapContext, require_initialized
 from .lifecycle import LifecycleModule
 
 
-async def forget_persona_reflections(context: RuntimeBootstrapContext, event_ids: list[str]) -> None:
+async def forget_proactive_derivatives(context: RuntimeBootstrapContext, event_ids: list[str]) -> None:
     paths = require_initialized(context.core.runtime_paths, "runtime paths")
     await ReflectionStore(str(paths.growth_db_path)).forget_events(event_ids)
+    await PersonalTaskStore(str(paths.personal_tasks_db_path)).forget_watch_events(event_ids)
 
 
 class PersonaReflectionModule(LifecycleModule):

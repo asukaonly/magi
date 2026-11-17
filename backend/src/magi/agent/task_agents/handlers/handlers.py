@@ -348,6 +348,8 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
         if "personal_task_query" in selected_tools:
             working_context += (
                 "\n\n# Personal Commitments\n"
+                "For an explicit request to watch for a future condition, use attention_watch_query/update. "
+                "Only authorized saved sources can be watched; never promise live website monitoring. "
                 "Use personal_task_query for current personal to-dos and projects across conversations. "
                 "Capture the current user's clear first-person commitments and explicit requests with personal_task_update, "
                 "then briefly acknowledge what was recorded. Query first to avoid duplicate commitments. "

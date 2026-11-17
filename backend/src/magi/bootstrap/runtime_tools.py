@@ -39,9 +39,10 @@ def register_runtime_tools(registry) -> tuple[str, ...]:
     from ..agent.batch.tools import BATCH_TOOL_CLASSES
     from ..agent.runtime_tools import AGENT_RUNTIME_TOOL_CLASSES
     from ..personal_tasks.tools import PersonalTaskQueryTool, PersonalTaskUpdateTool
+    from ..personal_tasks.watch_tools import AttentionWatchQueryTool, AttentionWatchUpdateTool
 
     registered: list[str] = []
-    for tool_class in (*AGENT_RUNTIME_TOOL_CLASSES, *BATCH_TOOL_CLASSES, PersonalTaskQueryTool, PersonalTaskUpdateTool):
+    for tool_class in (*AGENT_RUNTIME_TOOL_CLASSES, *BATCH_TOOL_CLASSES, PersonalTaskQueryTool, PersonalTaskUpdateTool, AttentionWatchQueryTool, AttentionWatchUpdateTool):
         registry.register(tool_class)
         registered.append(tool_class().get_schema().name)
     return tuple(registered)

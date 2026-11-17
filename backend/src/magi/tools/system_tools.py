@@ -30,6 +30,8 @@ _TOOL_EXPOSURE = {
     "memory_query": ToolExposure.RESIDENT,
     "personal_task_query": ToolExposure.RESIDENT,
     "personal_task_update": ToolExposure.RESIDENT,
+    "attention_watch_query": ToolExposure.RESIDENT,
+    "attention_watch_update": ToolExposure.RESIDENT,
     "current_time": ToolExposure.RESIDENT,
     "environment_query": ToolExposure.RESIDENT,
     "exit_plan_mode": ToolExposure.CONTEXTUAL,

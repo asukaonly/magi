@@ -231,7 +231,8 @@
       "background": "Background tasks",
       "schedules": "Schedule config",
       "activity": "Schedule history",
-      "personal": "My to-dos"
+      "personal": "My to-dos",
+      "watches": "Watching"
     },
     "settings": "Settings",
     "personaCompanion": {
@@ -411,7 +412,9 @@
         "source_sync": "Source Sync",
         "memory_l2_maintenance": "L2 Memory Maintenance",
         "memory_l3_summary": "L3 Summary Generation",
-        "user_agent_task": "Agent Task"
+        "user_agent_task": "Agent Task",
+        "persona_reflection": "Persona reflection",
+        "attention_watch": "Watch condition check"
       },
       "targetKinds": {
         "prompt": "Prompt",
@@ -6784,5 +6787,55 @@
       "source": "External source"
     },
     "currentProject": "Current project"
+  },
+  "attentionWatches": {
+    "create": "Keep an eye on something",
+    "edit": "Edit watch",
+    "save": "Save and start watching",
+    "pause": "Pause",
+    "resume": "Watch again",
+    "stop": "Stop watching",
+    "delete": "Delete",
+    "watchItem": "Watch this item",
+    "loading": "Loading watches…",
+    "empty": "Ask Magi to keep an eye on something. Matching new material will appear here.",
+    "scope": "Watch newly captured material from selected sources. A match prepares a result, notifies you in the app, and ends this watch. You can start watching again.",
+    "editorHint": "Describe what should prompt an update, and choose the sources Magi may check.",
+    "budget": "Up to 10 active watches. Each is checked at most hourly while the service runs, with at most 2 model evaluations per day. Uses your configured model allowance. Does not search websites or run while the service sleeps. Each evaluation checks up to 24 newly captured records; high-volume sources can accumulate a backlog. Delayed device records captured before material already checked are not rechecked.",
+    "fields": {
+      "title": "What to watch",
+      "condition": "When to tell me",
+      "sources": "Sources to check",
+      "expires": "Watch until (optional)"
+    },
+    "noSources": "No saved sources are available yet. Connect a source and save material first.",
+    "linked": "Linked to the original task. Watching stops when that task is completed, cancelled or deleted.",
+    "loadFailed": "Watches could not be loaded. Refresh to retry.",
+    "actionFailed": "The operation did not finish, or this watch changed. Check the refreshed content before retrying.",
+    "deleteConfirm": "Delete “{{title}}” and its result?",
+    "lastChecked": "Last checked: {{time}}",
+    "notChecked": "Waiting for the next check",
+    "expires": "Until {{time}}",
+    "invalidExpiry": "Choose a future time, or leave this empty.",
+    "statuses": {
+      "active": "Watching",
+      "paused": "Paused",
+      "stopped": "Stopped",
+      "matched": "Result ready",
+      "expired": "Expired"
+    },
+    "checks": {
+      "failed": "The last evaluation did not finish. It will retry when the allowance permits.",
+      "invalidated": "Supporting material changed and the previous result was withdrawn. Edit the condition to watch again."
+    },
+    "discuss": "Discuss this",
+    "discussPrompt": "Let’s discuss the result for “{{title}}”:\n{{result}}",
+    "notificationTitle": "A watched condition has been met",
+    "notificationBody": "Magi found matching new material. Open the result to inspect its evidence.",
+    "openResult": "View watch result",
+    "previous": "Previous",
+    "next": "Next",
+    "limits": "Check frequency and scope",
+    "sourceUnavailable": "Some sources no longer have authorized material. Deselect them and choose available sources."
   }
 }

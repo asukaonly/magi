@@ -73,6 +73,7 @@ const MEMORY_DESTINATIONS = [
 
 const TASKS_DESTINATIONS = [
   { key: 'personal', path: '/tasks/personal', icon: ListChecks },
+  { key: 'watches', path: '/tasks/watches', icon: Search },
   { key: 'background', path: '/tasks/background', icon: ListChecks },
   { key: 'schedules', path: '/tasks/schedules', icon: CalendarClock },
   { key: 'activity', path: '/tasks/schedules/activity', icon: History },
@@ -733,6 +734,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const renderTasksPanel = () => {
     const activeMap: Record<string, boolean> = {
       personal: location.pathname === '/tasks/personal' || location.pathname === '/tasks',
+      watches: location.pathname === '/tasks/watches',
       background:
         location.pathname === '/tasks/background',
       schedules:
@@ -742,6 +744,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     };
     const badgeFor: Record<string, number> = {
       personal: 0,
+      watches: 0,
       background: tasksActiveCount,
       schedules: 0,
       activity: runningSchedulesCount,

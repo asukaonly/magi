@@ -2687,6 +2687,31 @@ leaving its existing data behind. Remote access can fail independently of source
 persistence: failed projection operations remain durable and are retried. The
 storage adapter filters obsolete revisions before returning search results.
 
+### Explicit attention watches
+
+Tasks → Watching (`/tasks/watches`) holds explicit “keep an eye on this” requests.
+Users can create one in chat or the page, choose a condition and saved-source
+scope, optionally set an expiry, and edit/pause/resume/stop/delete it. Personal
+task detail can open a linked watch; closing or deleting that item stops the
+watch. No assistant-inferred interest silently becomes a standing instruction.
+
+The page explains the operating limits: only material captured after creation or
+resume, no autonomous website search, at most one hourly inspection while the
+service runs, two model evaluations per watch per rolling day, and 24 captured
+records per evaluation. High-volume sources can accumulate a backlog. Delayed
+device records older than the capture cursor are not checked retrospectively.
+There are at most ten active watches. The existing memory-summarizer model handles condition
+checks and a second review for positive results; usage is billed through the
+existing provider and usage reporting.
+
+A match appears with its evidence and a discussion action. An application-center
+notification links to it, and the watch finishes until the user resumes it.
+This explicit delegation is independent of persona background-reflection and
+proactive-sharing switches. Disabling persona sharing does not cancel requested
+watches or reminders. Results invalidated by source deletion/correction are
+withdrawn; the page distinguishes failed evaluation, withdrawn results, empty
+state and unavailable reads. Offline time does not promise real-time monitoring.
+
 ### Native shared-data view
 
 The iOS sidebar exposes Data beside Memory. Data shows what the selected source

@@ -1247,6 +1247,21 @@
       "surface": "product"
     },
     {
+      "method": "POST",
+      "path": "/api/personal-tasks/watch-mutations",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personal-tasks/watches",
+      "surface": "product"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personal-tasks/watches/{watch_id}",
+      "surface": "product"
+    },
+    {
       "method": "GET",
       "path": "/api/personal-tasks/{item_id}",
       "surface": "product"

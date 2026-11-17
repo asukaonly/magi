@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 import aiosqlite
 
 from ..core.sqlite import SqliteProfile, sqlite_connection_async
+from .watch_store import PersonalWatchStoreMixin
 from .models import (
     ItemDetail,
     ItemFields,
@@ -54,7 +55,7 @@ def time_epoch(value: str | None, timezone: str) -> float | None:
     return parsed.timestamp()
 
 
-class PersonalTaskStore:
+class PersonalTaskStore(PersonalWatchStoreMixin):
     def __init__(self, db_path: str) -> None:
         self.db_path = db_path
 
@@ -446,9 +447,12 @@ class PersonalTaskStore:
                     time.time(),
                 )
             await db.execute("DELETE FROM personal_items")
+            watches = await (await db.execute("SELECT COUNT(*) FROM attention_watches")).fetchone()
+            await db.execute("DELETE FROM attention_watches")
+            await db.execute("DELETE FROM attention_watch_attempts")
             await db.commit()
             await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            return len(items)
+            return len(items) + watches[0]
 
 
 def _merge_references(left: list[TaskReference], right: list[TaskReference]) -> list[TaskReference]:

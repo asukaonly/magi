@@ -47,6 +47,7 @@ export function NotificationCenter(): JSX.Element {
   // Short, plugin-centric collapsed title — distinct from the body so the same
   // sentence never appears twice. Replaces any placeholder rationale.
   const displayTitle = (n: NotificationItem): string => {
+    if (n.kind === 'attention_watch') return t('attentionWatches.notificationTitle');
     const plugins = n.payload.plugins ?? [];
     if (plugins.length > 0) {
       return t('notifications.suggestionTitle', { plugin: plugins.map(pluginName).join('、') });
@@ -58,6 +59,7 @@ export function NotificationCenter(): JSX.Element {
   // The "why connect" line shown once when expanded: the rationale if it's
   // real, otherwise a generic hint.
   const description = (n: NotificationItem): string => {
+    if (n.kind === 'attention_watch') return t('attentionWatches.notificationBody');
     if (n.body && !PLACEHOLDER_RATIONALE.test(n.body)) return n.body;
     return t('notifications.connectHint');
   };
@@ -175,6 +177,11 @@ export function NotificationCenter(): JSX.Element {
                           );
                         })}
                       </div>
+                    ) : n.kind === 'attention_watch' && n.payload.watch_id ? (
+                      <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground"
+                        onClick={() => navigate(`/tasks/watches?watch=${encodeURIComponent(n.payload.watch_id ?? '')}`)}>
+                        {t('attentionWatches.openResult')}
+                      </button>
                     ) : n.kind === 'personal_task_reminder' && n.payload.personal_item_id ? (
                       <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground"
                         onClick={() => navigate(`/tasks/personal?item=${encodeURIComponent(n.payload.personal_item_id ?? '')}`)}>

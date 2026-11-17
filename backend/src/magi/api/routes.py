@@ -10,7 +10,10 @@ from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
 
 _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
-    "personal_tasks": {"": {"GET"}, "/{item_id}": {"GET"}, "/mutations": {"POST"}},
+    "personal_tasks": {
+        "": {"GET"}, "/{item_id}": {"GET"}, "/mutations": {"POST"},
+        "/watches": {"GET"}, "/watches/{watch_id}": {"GET"}, "/watch-mutations": {"POST"},
+    },
     "tts": {
         "/settings": {"GET", "PUT"},
         "/syntheses": {"POST"},

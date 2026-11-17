@@ -58,6 +58,17 @@ describe('NotificationCenter', () => {
     await waitFor(() => expect(api.markRead).toHaveBeenCalledWith([1]));
   });
 
+  it('localizes a watch notice and opens its exact result', async () => {
+    vi.mocked(api.listNotifications).mockResolvedValue({ items: [{ id: 8, kind: 'attention_watch',
+      dedupe_key: 'watch-one:1', title: 'Attention watch result', body: '', payload: { watch_id: 'watch-one' },
+      status: 'unread', created_at_ms: 1, read_at_ms: null }], total: 1, unread_count: 1 });
+    render(<NotificationCenter />);
+    await userEvent.click(await screen.findByText('attentionWatches.notificationTitle'));
+    await userEvent.click(await screen.findByRole('button', { name: 'attentionWatches.openResult' }));
+    expect(navigate).toHaveBeenCalledWith('/tasks/watches?watch=watch-one');
+    expect(screen.queryByText('Attention watch result')).not.toBeInTheDocument();
+  });
+
   it('mark-all-read button calls markAllRead', async () => {
     render(<NotificationCenter />);
     await screen.findByTestId('notification-row');

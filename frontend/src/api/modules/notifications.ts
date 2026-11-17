@@ -14,7 +14,7 @@ import { api, unwrapGatewayPayload } from '../client';
 import type { SuggestionPlugin } from './systemSuggestions';
 import { enqueueNotificationRead } from '@/runtime/background-delivery';
 
-export type NotificationKind = 'suggestion' | 'personal_task_reminder';
+export type NotificationKind = 'suggestion' | 'personal_task_reminder' | 'attention_watch';
 export type NotificationStatus = 'unread' | 'read' | 'actioned' | 'dismissed';
 
 export interface NotificationItem {
@@ -24,6 +24,7 @@ export interface NotificationItem {
   title: string;
   body: string;
   payload: {
+    watch_id?: string;
     personal_item_id?: string;
     category?: string;
     plugins?: SuggestionPlugin[];

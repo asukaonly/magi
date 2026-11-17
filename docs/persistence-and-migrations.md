@@ -222,6 +222,17 @@ Memory-only portability archives retain their L0–L4 scope and do not include
 this separate product database. Backing up the complete private service data
 root must include the app-owned database alongside chat and runtime stores.
 
+Migration `personal_tasks/v2_attention_watches` adds explicit watch definitions,
+capture cursors, prepared results, content-free mutation receipts, and rolling
+model-attempt receipts to this same database. The personal-task lock and clear
+generation also own watch mutations. Full clear removes watch definitions,
+results and attempts while retaining request hashes to prevent resurrection.
+Source forgetting invokes a composition-injected cleanup before the durable
+forget operation finishes; both persona thoughts and watch results derived from
+those event IDs are scrubbed and compacted. Read-time evidence hashes and memory
+governance revisions reject changed or corrected evidence. Notifications contain
+only a generic label and a watch ID; results are read through the governed owner.
+
 Runtime-trace migration `v10` moves notification-center rows from the old
 `default_user` owner to the canonical `local_user`; all notification producers
 and the center feed use that canonical owner.

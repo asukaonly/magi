@@ -12,8 +12,10 @@ from ...personal_tasks.models import (
     TaskNotFoundError,
 )
 from ...personal_tasks.service import get_personal_task_service
+from .attention_watches import attention_watches_router
 
 personal_tasks_router = APIRouter()
+personal_tasks_router.include_router(attention_watches_router)
 
 
 def _service():

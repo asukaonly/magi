@@ -1103,6 +1103,36 @@ minutes late are not bulk-delivered after recovery; the page shows undelivered
 past reminders. Notification refresh failure never turns a committed item
 mutation into a reported failed write.
 
+Explicit attention watches use the same personal-task store and mutation lock.
+`attention_watch_query` exposes current definitions, available saved-source IDs
+and prepared results. `attention_watch_update` requires an exact excerpt from the
+current user's visible message, host-owned user/session/turn identity, an explicit
+watch request, and optimistic versions. It does not infer standing requests from
+interests, assistant suggestions or imported material. Source IDs must belong to
+the user's authorized saved material. Ordinary task reminders remain independent.
+
+`runtime_attention_watches` registers the existing scheduler's `attention_watch`
+target every 15 minutes. It defers while foreground task agents are busy; each
+active watch is inspected at most hourly. It scans newly captured records in
+stable `(created_at,event_id)` order, at most 24 per evaluation, and uses the
+memory owner's governed reads. Previous history is not evaluated retroactively.
+The cursor follows source capture time: delayed device records captured before
+the cursor are outside this first version's scope. Supporting out-of-order
+delivery requires a separate durable ingestion sequence. Pending batches continue
+from the cursor. Model evaluation is limited to twice per watch
+and 20 times per user in a rolling day, with at most ten active watches. A
+matching decision receives a second evidence review; exact citations and current
+source hashes are mandatory. No tools or external research run in this path.
+
+A successful match stores one prepared result and ends the watch. Notification
+reconciliation creates one application-center entry per watch/version and removes
+obsolete entries. It does not send a chat message, OS alert, or external-channel
+message. Resume/edit starts a new observation window. Pause, expiry, linked-item
+closure/deletion, source changes and full clear are rechecked before committing
+model output. Exceptions preserve the cursor for bounded retries. Model review
+reduces unsupported matches but does not guarantee semantic correctness; the UI
+keeps the condition and source evidence inspectable.
+
 The model uses `todo_write` when a user-visible plan materially helps execution.
 The runtime owns plan ID, version, transition validation, and optimistic
 concurrency. Plan items may be patched rather than replacing the whole plan.
