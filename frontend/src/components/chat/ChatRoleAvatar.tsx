@@ -65,7 +65,7 @@ export const ChatRoleAvatar = ({
   const animatedState = avatarState === 'static' ? undefined : avatarState;
 
   const content = avatarSrc && canRenderImage(avatarSrc) && !avatarFailed ? (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full">
       <ProtectedImage
         src={avatarSrc}
         alt={assistantName}

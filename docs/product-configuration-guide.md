@@ -1055,8 +1055,9 @@ The Chinese and English builtin personas use editable SVG avatars under
 `halberd.svg`, and `ember.svg`. They share the canonical mark's exact head and
 face outlines, with personality expressed through facial features and small
 accessories. Keep the head-only proportions and black border consistent across
-the series. Seven's
-Tux-themed hair clip credits the original penguin creator, Larry Ewing, in the
+the series. Chat and sidebar persona images render without an added background
+fill, so the transparent area outside the head shows the surrounding surface in
+both themes. Seven's Tux-themed hair clip credits the original penguin creator, Larry Ewing, in the
 asset description and `ATTRIBUTION.txt` alongside the artwork.
 
 Bundled avatar files are served by the existing public `/static/avatars` mount.

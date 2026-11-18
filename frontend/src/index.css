@@ -624,8 +624,8 @@
  * `[data-avatar-state]` on the avatar container. The image inside is whatever
  * persona artwork the user picked; the shell is what carries the lifecycle
  * hint. We deliberately keep idle visually silent (a barely perceptible
- * scale, no colored halo) so it never competes with persona artwork that
- * already has its own background. Halos are reserved for explicit states:
+ * scale, no colored halo) so it never competes with persona artwork.
+ * Halos are reserved for explicit states:
  * streaming reads as "thinking right now", failed reads as "something went
  * wrong". Halo lives on a ::after pseudo-element so the avatar artwork
  * never inherits the colored ring directly.
