@@ -1,15 +1,17 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { createInstance } from 'i18next';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LLMStatisticsSection } from '@/components/settings/LLMStatisticsSection';
 import { metricsApi, type LLMUsageSummary, type LLMUsageTimeseries } from '@/api/modules/metrics';
 import { APP_EVENTS } from '@/constants/events';
+import en from '@/i18n/locales/en/app.json';
+import zh from '@/i18n/locales/zh-CN/app.json';
 
+const { translate } = vi.hoisted(() => ({ translate: vi.fn((key: string) => key) }));
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-  }),
+  useTranslation: () => ({ t: translate }),
 }));
 
 vi.mock('@/api/modules/metrics', () => ({
@@ -67,6 +69,7 @@ const timeseriesFixture: LLMUsageTimeseries = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  translate.mockImplementation((key) => key);
   vi.mocked(metricsApi.getLLMUsageSummary).mockResolvedValue({ success: true, message: '', data: summaryFixture });
   vi.mocked(metricsApi.getLLMUsageTimeseries).mockResolvedValue({ success: true, message: '', data: timeseriesFixture });
   vi.stubGlobal(
@@ -182,7 +185,7 @@ describe('LLMStatisticsSection', () => {
     expect(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.models' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.providers' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.requestKinds' })).toBeInTheDocument();
-    expect(screen.getByText('settings.statistics.llm.table.columns.key')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'settings.fields.model' })).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.table.columns.calls')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.table.columns.totalTokens')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.table.columns.promptTokens')).toBeInTheDocument();
@@ -196,6 +199,7 @@ describe('LLMStatisticsSection', () => {
     expect(screen.getByText('63%')).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.providers' }));
+    expect(screen.getByRole('columnheader', { name: 'settings.fields.provider' })).toBeInTheDocument();
     expect(screen.getAllByText('openai').length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.requestKinds' }));
@@ -207,7 +211,7 @@ describe('LLMStatisticsSection', () => {
     expect(screen.getByText('settings.statistics.llm.requestKindStages.workerToolDecision')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.requestKindScenarios.taskAggregation')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.requestKindStages.failureStatus')).toBeInTheDocument();
-    expect(screen.getByText('settings.statistics.llm.requestKindScenarios.memoryL2')).toBeInTheDocument();
+    expect(screen.getByText('settings.tabs.memoryKnowledge')).toBeInTheDocument();
     expect(screen.getByText('settings.statistics.llm.requestKindStages.eventExtraction')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.usage.windows.30' }));
@@ -216,6 +220,37 @@ describe('LLMStatisticsSection', () => {
       expect(metricsApi.getLLMUsageSummary).toHaveBeenLastCalledWith(30, 8);
       expect(metricsApi.getLLMUsageTimeseries).toHaveBeenLastCalledWith(30);
     });
+  });
+
+  it.each([['en', en], ['zh-CN', zh]] as const)('displays settings names and readable scenario steps in %s', async (language, app) => {
+    const i18n = createInstance();
+    await i18n.init({ lng: language, defaultNS: 'app', resources: { [language]: { app } }, fallbackLng: false });
+    translate.mockImplementation((key) => i18n.t(key));
+    const tabs = app.settings.tabs;
+    const { requestKindStages: stages, requestKindScenarios: scenarios } = app.settings.statistics.llm;
+    const rows = [
+      ['memory:shared_post_turn_understanding', tabs.memoryWorkbench, stages.postTurnAttention],
+      ['memory:l1_future_step', tabs.memoryEvents, stages.uncategorized],
+      ['memory:l2_self_report_review', tabs.memoryKnowledge, stages.selfReportReview],
+      ['memory:l3_temporal_summary_prose', tabs.memoryReflection, stages.temporalProse],
+      ['memory:l3_temporal_summary_structure', tabs.memoryReflection, stages.temporalReview],
+      ['memory:l3_temporal_summary_repair', tabs.memoryReflection, stages.temporalRepair],
+      ['memory:l4_strategy_extraction', tabs.memorySkills, stages.strategyExtraction],
+      ['plugin:future_step', scenarios.other, stages.uncategorized],
+    ];
+    vi.mocked(metricsApi.getLLMUsageSummary).mockResolvedValueOnce({
+      success: true, message: '', data: {
+        ...summaryFixture,
+        request_kinds: rows.map(([request_kind]) => ({ ...summaryFixture.request_kinds[0], request_kind })),
+      },
+    });
+    render(<LLMStatisticsSection />);
+    await userEvent.click(await screen.findByRole('tab', { name: app.settings.statistics.llm.tabs.requestKinds }));
+    const table = screen.getByRole('table');
+    expect(within(table).getAllByRole('row').slice(1).map((row) =>
+      within(row).getAllByRole('cell').slice(0, 2).map((cell) => cell.textContent)
+    )).toEqual(rows.map(([, scenario, stage]) => [scenario, stage]));
+    expect(table).not.toHaveTextContent(/\bL[0-4]\b|memory:|plugin:/i);
   });
 
   it('shows an explicit empty state when no calls are available', async () => {

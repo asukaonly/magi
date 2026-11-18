@@ -13,8 +13,10 @@ import {
   YAxis,
 } from 'recharts';
 import { metricsApi, type LLMUsageSummary, type LLMUsageTimeseriesPoint } from '@/api/modules/metrics';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { getUsageScenarioLabels } from './llmUsageScenarioLabels';
 import { StatisticsPageFrame } from './StatisticsPageFrame';
 
 const WINDOW_OPTIONS = [7, 30] as const;
@@ -28,51 +30,6 @@ type UsageLoadState =
   | { status: 'success'; summary: LLMUsageSummary; points: LLMUsageTimeseriesPoint[] };
 
 const EMPTY_POINTS: LLMUsageTimeseriesPoint[] = [];
-
-const REQUEST_KIND_DISPLAY_KEYS: Record<string, { scenario: string; stage: string }> = {
-  chat: { scenario: 'generalChat', stage: 'uncategorizedChat' },
-  auxiliary: { scenario: 'supportTasks', stage: 'supportInference' },
-  'function_calling:tools': { scenario: 'toolConversation', stage: 'toolDecision' },
-  'function_calling:chat_tools': { scenario: 'toolConversation', stage: 'chatToolDecision' },
-  'function_calling:worker_tools': { scenario: 'toolConversation', stage: 'workerToolDecision' },
-  'function_calling:final_response': { scenario: 'toolConversation', stage: 'finalResponse' },
-  'task_agent:chat': { scenario: 'generalChat', stage: 'legacyChat' },
-  'task_agent:chat_direct': { scenario: 'generalChat', stage: 'directReply' },
-  'task_agent:planner': { scenario: 'taskPlanning', stage: 'taskDecomposition' },
-  'task_agent:aggregator': { scenario: 'taskAggregation', stage: 'multiResultSynthesis' },
-  'task_agent:failure_status': { scenario: 'taskAggregation', stage: 'failureStatus' },
-  'task_agent:explore-task': { scenario: 'exploreTask', stage: 'execution' },
-  'task_agent:explore_render': { scenario: 'exploreTask', stage: 'resultRendering' },
-  'task_agent:background_dispatcher': { scenario: 'backgroundTask', stage: 'backgroundDecision' },
-  'task_agent:chat_interrupt': { scenario: 'conversationControl', stage: 'interruptionClassification' },
-  'task_agent:chat_rhythm': { scenario: 'conversationPolish', stage: 'rhythmPlanning' },
-  'memory:context_compact': { scenario: 'sessionSummary', stage: 'contextCompaction' },
-  'memory:chat_transcript_summary': { scenario: 'sessionSummary', stage: 'chatTranscriptSummary' },
-  'memory:persona_boundary_summary': { scenario: 'sessionSummary', stage: 'personaBoundarySummary' },
-  'memory:l2_unified_extraction': { scenario: 'memoryL2', stage: 'legacyUnifiedExtraction' },
-  'memory:l2_phase1_extract': { scenario: 'memoryL2', stage: 'eventExtraction' },
-  'memory:l2_phase2_integrate': { scenario: 'memoryL2', stage: 'graphIntegration' },
-  'memory:l2_entity_resolution': { scenario: 'memoryL2', stage: 'entityResolution' },
-  'memory:l2_contradiction_hint': { scenario: 'memoryL2', stage: 'contradictionHint' },
-  'memory:l2_entity_reconcile': { scenario: 'memoryL2', stage: 'entityReconcile' },
-  'memory:l3_temporal_summary': { scenario: 'memoryL3', stage: 'temporalSummary' },
-  'memory:l3_thematic_topic_summary': { scenario: 'memoryL3', stage: 'thematicTopicSummary' },
-  l4_strategy_extraction: { scenario: 'memoryL4', stage: 'strategyExtraction' },
-  'memory:l4_strategy_extraction': { scenario: 'memoryL4', stage: 'strategyExtraction' },
-  'memory:hybrid_retrieval_intent': { scenario: 'hybridRetrieval', stage: 'intentRefinement' },
-  'memory:hybrid_query_expansion': { scenario: 'hybridRetrieval', stage: 'queryExpansion' },
-  'memory:hybrid_manifest_selector': { scenario: 'hybridRetrieval', stage: 'manifestSelection' },
-  'personality:interaction_analysis': { scenario: 'personalitySystem', stage: 'interactionAnalysis' },
-  'personality:bootstrap_opening': { scenario: 'personalitySystem', stage: 'bootstrapOpening' },
-  'personality:bootstrap_dialogue': { scenario: 'personalitySystem', stage: 'bootstrapDialogue' },
-  'personality:journal_reflection': { scenario: 'personalitySystem', stage: 'journalReflection' },
-  'personality:generation': { scenario: 'personalitySystem', stage: 'personalityGeneration' },
-  'config:provider_test': { scenario: 'configurationTest', stage: 'providerConnectivity' },
-  'eval:memory_answering': { scenario: 'evaluationTool', stage: 'memoryAnswering' },
-  image_generation: { scenario: 'multimodalGeneration', stage: 'imageGeneration' },
-  tts: { scenario: 'multimodalGeneration', stage: 'speechGeneration' },
-  embedding: { scenario: 'embeddingModel', stage: 'embedding' },
-};
 
 const formatCompactNumber = (value: number) =>
   new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
@@ -107,26 +64,6 @@ const computeSuccessRate = (summary: LLMUsageSummary | null) => {
   const totals = summary?.totals;
   if (!totals || totals.total_calls <= 0) return 0;
   return (totals.successful_calls / totals.total_calls) * 100;
-};
-
-const resolveRequestKindDisplay = (requestKind: string | undefined, t: (key: string) => string, fallback: string) => {
-  if (!requestKind) {
-    return {
-      scenario: fallback,
-      stage: t('settings.statistics.llm.requestKindStages.uncategorized'),
-    };
-  }
-  const translationKeys = REQUEST_KIND_DISPLAY_KEYS[requestKind];
-  if (!translationKeys) {
-    return {
-      scenario: requestKind,
-      stage: t('settings.statistics.llm.requestKindStages.uncategorized'),
-    };
-  }
-  return {
-    scenario: t(`settings.statistics.llm.requestKindScenarios.${translationKeys.scenario}`),
-    stage: t(`settings.statistics.llm.requestKindStages.${translationKeys.stage}`),
-  };
 };
 
 const buildBreakdownRowKey = (
@@ -398,13 +335,13 @@ const LLMStatisticsSectionInner: FC = () => {
                 <table className="min-w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-[hsl(var(--settings-subnav-border)/0.56)] text-left">
-                      <TableHeaderCell>
-                        {activeTab === 'requestKinds'
-                          ? t('settings.statistics.llm.table.columns.scenario')
-                          : t('settings.statistics.llm.table.columns.key')}
-                      </TableHeaderCell>
-                      {activeTab === 'requestKinds' && (
-                        <TableHeaderCell>{t('settings.statistics.llm.table.columns.stage')}</TableHeaderCell>
+                      {activeTab === 'requestKinds' ? (
+                        <>
+                          <TableHeaderCell className="min-w-32">{t('settings.statistics.llm.table.columns.scenario')}</TableHeaderCell>
+                          <TableHeaderCell className="min-w-44">{t('settings.statistics.llm.table.columns.stage')}</TableHeaderCell>
+                        </>
+                      ) : (
+                        <TableHeaderCell>{t(activeTab === 'models' ? 'settings.fields.model' : 'settings.fields.provider')}</TableHeaderCell>
                       )}
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.calls')}</TableHeaderCell>
                       <TableHeaderCell>{t('settings.statistics.llm.table.columns.totalTokens')}</TableHeaderCell>
@@ -418,29 +355,28 @@ const LLMStatisticsSectionInner: FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {activeRows.map((item, index) => (
-                      <tr key={buildBreakdownRowKey(activeTab, item, index)} className="border-b border-[hsl(var(--settings-subnav-border)/0.3)] last:border-b-0">
-                        <TableCell>
-                          {activeTab === 'models'
-                            ? (item.model || unknownLabel)
-                            : activeTab === 'providers'
-                              ? (item.provider || unknownLabel)
-                              : resolveRequestKindDisplay(item.request_kind, t, unknownLabel).scenario}
-                        </TableCell>
-                        {activeTab === 'requestKinds' && (
-                          <TableCell>{resolveRequestKindDisplay(item.request_kind, t, unknownLabel).stage}</TableCell>
-                        )}
-                        <TableCell>{formatInteger(item.calls)}</TableCell>
-                        <TableCell>{formatInteger(item.total_tokens)}</TableCell>
-                        <TableCell>{formatInteger(item.prompt_tokens)}</TableCell>
-                        <TableCell>{formatInteger(item.completion_tokens)}</TableCell>
-                        <TableCell>{formatPercent(item.cache_hit_rate || 0)}</TableCell>
-                        <TableCell>{formatInteger(item.cache_read_tokens)}</TableCell>
-                        <TableCell>{formatTotalCost(item.cost_by_currency) || unavailableLabel}</TableCell>
-                        <TableCell>{formatLatency(item.avg_latency_ms) || unavailableLabel}</TableCell>
-                        <TableCell>{formatLatency(item.avg_ttft_ms) || unavailableLabel}</TableCell>
-                      </tr>
-                    ))}
+                    {activeRows.map((item, index) => {
+                      const labels = activeTab === 'requestKinds' ? getUsageScenarioLabels(item.request_kind) : undefined;
+                      return (
+                        <tr key={buildBreakdownRowKey(activeTab, item, index)} className="border-b border-[hsl(var(--settings-subnav-border)/0.3)] last:border-b-0">
+                          <TableCell>
+                            {labels ? t(labels.scenario) : (activeTab === 'models' ? item.model : item.provider) || unknownLabel}
+                          </TableCell>
+                          {labels && (
+                            <TableCell>{t(labels.stage)}</TableCell>
+                          )}
+                          <TableCell>{formatInteger(item.calls)}</TableCell>
+                          <TableCell>{formatInteger(item.total_tokens)}</TableCell>
+                          <TableCell>{formatInteger(item.prompt_tokens)}</TableCell>
+                          <TableCell>{formatInteger(item.completion_tokens)}</TableCell>
+                          <TableCell>{formatPercent(item.cache_hit_rate || 0)}</TableCell>
+                          <TableCell>{formatInteger(item.cache_read_tokens)}</TableCell>
+                          <TableCell>{formatTotalCost(item.cost_by_currency) || unavailableLabel}</TableCell>
+                          <TableCell>{formatLatency(item.avg_latency_ms) || unavailableLabel}</TableCell>
+                          <TableCell>{formatLatency(item.avg_ttft_ms) || unavailableLabel}</TableCell>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -459,8 +395,8 @@ const SignalItem = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
-const TableHeaderCell = ({ children }: { children: React.ReactNode }) => (
-  <th className="px-4 py-3 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">{children}</th>
+const TableHeaderCell = ({ children, className }: { children: React.ReactNode; className?: string }) => (
+  <th className={cn('px-4 py-3 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground', className)}>{children}</th>
 );
 
 const TableCell = ({ children }: { children: React.ReactNode }) => (
