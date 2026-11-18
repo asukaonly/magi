@@ -538,6 +538,8 @@ async def test_temporal_review_uses_same_sources_without_old_summary_claims(
     }
     pack.previous_period_summaries = [{"summary_id": "previous", "content": "Earlier period only."}]
     pack.child_period_summaries = [{"summary_id": "child", "content": "A distinct child summary."}]
+    for summary in [*pack.previous_period_summaries, *pack.child_period_summaries]:
+        summary.update(source_event_ids=["historical-event"], dependency_summary_ids=["ancestor"])
     pack.window_event_count = 8
     pack.omitted_event_count = 6
     pack.selection_policy = {"method": "representative"}
@@ -626,6 +628,14 @@ async def test_temporal_review_uses_same_sources_without_old_summary_claims(
     assert "Earlier period only." in contexts[0]
     assert "Earlier period only." not in contexts[1]
     assert "A distinct child summary." not in contexts[1]
+    # Both requests share every byte through the final current event.
+    assert contexts[0].startswith(contexts[1].removesuffix("\n}"))
+    with language_context(current):
+        repair = service._prompt_renderer.render_repair_prompt(pack, draft=prose, issues=[])
+    assert repair.startswith(contexts[0])
+    for summary in [*pack.previous_period_summaries, *pack.child_period_summaries]:
+        assert summary["source_event_ids"] == ["historical-event"]
+        assert summary["dependency_summary_ids"] == ["ancestor"]
     assert (
         f"Draft User-Facing Summary (review before accepting):\n{prose}"
         in calls[1]["messages"][0]["content"]

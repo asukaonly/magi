@@ -16,8 +16,10 @@ class TemporalPromptRenderer:
     def __init__(self, *, policy: TemporalSummaryPolicy | None = None) -> None:
         self._policy = policy or TemporalSummaryPolicy()
 
-    def prompt_payload(self, pack: TemporalEvidencePack) -> dict[str, object]:
-        return {
+    def prompt_payload(
+        self, pack: TemporalEvidencePack, *, include_summary_context: bool = True
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
             "summary_type": "temporal",
             "summary_category": pack.summary_category,
             "period_start": pack.period_start,
@@ -36,8 +38,6 @@ class TemporalPromptRenderer:
             "plugin_summary_features": pack.plugin_summary_features,
             "source_distribution": pack.source_distribution,
             "selection_policy": pack.selection_policy,
-            "previous_period_summaries": pack.previous_period_summaries,
-            "child_period_summaries": pack.child_period_summaries,
             "events": [
                 {
                     "event_id": item.event_id,
@@ -56,6 +56,20 @@ class TemporalPromptRenderer:
                 for item in pack.events
             ],
         }
+        # Keep all current evidence in the shared prefix, including its citation IDs.
+        if include_summary_context:
+            for key, summaries in (
+                ("previous_period_summaries", pack.previous_period_summaries),
+                ("child_period_summaries", pack.child_period_summaries),
+            ):
+                payload[key] = [
+                    {
+                        field: value for field, value in summary.items()
+                        if field not in ("source_event_ids", "dependency_summary_ids")
+                    }
+                    for summary in summaries
+                ]
+        return payload
 
     def render_context_prompt(
         self,
@@ -63,10 +77,7 @@ class TemporalPromptRenderer:
         *,
         include_summary_context: bool = True,
     ) -> str:
-        payload = self.prompt_payload(pack)
-        if not include_summary_context:
-            payload.pop("previous_period_summaries")
-            payload.pop("child_period_summaries")
+        payload = self.prompt_payload(pack, include_summary_context=include_summary_context)
         evidence = json.dumps(payload, ensure_ascii=False, indent=2)
         period_focus = self._policy.focus_instruction(pack.summary_category)
         period_structure = self._policy.structure_instruction(pack.summary_category)

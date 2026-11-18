@@ -2739,8 +2739,11 @@ into one block. The story detail body preserves visible paragraph spacing instea
 of inheriting the compact card renderer's zero margins. Short single-topic recaps
 do not need artificial paragraph breaks.
 
-Temporal LLM generation normally uses two calls over the same raw source
-evidence. The first produces the user-facing draft. The second checks its factual
+Temporal LLM generation places the current window's evidence and citation IDs
+first so drafting, review and repair can reuse the same prompt prefix. Drafting
+and repair append previous and child summaries. Their transitive event and
+summary IDs stay in the host dependency ledger for invalidation and forgetting.
+The first call produces the user-facing draft. The second checks its factual
 claims with previous/child summaries excluded, so old interpretations cannot
 corroborate the draft. It selects an exact `essence_prose` excerpt and topic labels;
 the compact review does not require timelines, entity lists or trend metadata.
