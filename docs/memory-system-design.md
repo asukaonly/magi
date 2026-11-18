@@ -2727,7 +2727,9 @@ L3 summary LLM calls use the optional `memory_summarizer` runtime scenario. This
 The readable recap serves future personal recall: select concrete events,
 meaningful changes, explicit decisions and distinctive experiences, then write
 only as much as those facts warrant. Day/week/month policies provide reading
-budgets, not mandatory headings or minimum bullet counts. A short period may
+budgets, not mandatory headings or minimum bullet counts. Weekly recaps group
+observations by topic and use current events to establish any claimed sequence
+or change across sessions. A short period may
 need only one sentence. The writer must distinguish browsing, requests, plans
 and completed actions, and must not infer life priorities, mood, productivity
 or unresolved tasks from missing records or activity counts. Retrieval metadata

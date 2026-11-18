@@ -23,7 +23,13 @@ _PERIOD_DISABLE_THINKING = {
 _PERIOD_FOCUS_INSTRUCTIONS = {
     "hour": "Recall the specific activity or question in this hour. Do not infer a lasting pattern.",
     "day": "Recall the few concrete things that distinguish this day. Keep useful details, merge repetition, and omit routine noise. A sequence is optional.",
-    "week": "Connect developments in the same project or life topic across the week. Preserve what changed or was decided; do not repeat a daily diary or give every day a bullet.",
+    "week": (
+        "Select a few memorable moments from this week. For each, identify the current event, "
+        "speaker or source, and the precise action it records before writing. Group related "
+        "moments by topic, but keep distinct conversations and sites separate. Describe a visit "
+        "by naming the page opened. Link events into a sequence, decision or change only when "
+        "the records establish that link. A partial window cannot establish a weekly ranking."
+    ),
     "month": "Recall meaningful developments across the month, including personal experiences. Group by actual subject when useful; do not concatenate weekly reports.",
     "quarter": "Select lasting developments and memorable experiences from the quarter. Keep concrete anchors and omit routine repetitions.",
     "year": "Select the year's meaningful changes, decisions and experiences. Let the evidence define the subjects; do not impose a growth narrative.",
