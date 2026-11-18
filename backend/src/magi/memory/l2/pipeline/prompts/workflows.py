@@ -58,10 +58,19 @@ def render_batch_entity_resolution_prompt(
     *,
     items: list[L2BatchEntityResolutionItem],
 ) -> str:
-    items_payload = [item.to_dict() for item in items]
+    mentions_by_context: dict[str | None, list[dict[str, object]]] = {}
+    for item in items:
+        payload = item.to_dict()
+        context = payload["mention"].pop("context_text")
+        mentions_by_context.setdefault(context, []).append(payload)
+    groups = [
+        {"context_text": context, "mentions": mentions}
+        for context, mentions in mentions_by_context.items()
+    ]
     return (
         "Resolve each entity mention to one of its candidate canonical entities if possible.\n\n"
-        f"Mentions to resolve:\n{json.dumps(items_payload, ensure_ascii=False, indent=2)}\n\n"
+        "Use each group's context_text for its mentions. Each mention has its own candidates.\n"
+        f"Mentions to resolve:\n{json.dumps(groups, ensure_ascii=False, indent=2)}\n\n"
         "Return JSON with this schema:\n"
         '{\n  "resolutions": [\n    {\n      "mention_key": "string (echo back the mention_key)",\n'
         '      "decision": "match|unresolved|create_new_candidate",\n      "matched_entity_id": "string or null",\n'

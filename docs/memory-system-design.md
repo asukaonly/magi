@@ -4058,7 +4058,9 @@ reference must exist; it cannot mint a catalog ID. Existing catalog identity
 and classification are preserved during ordinary extraction.
 
 Phase 1 recalls relevant catalog candidates with aliases and bounded original
-source context. Supplemental resolution permits cross-type candidates and
+source context. A batch sends identical event text once and groups the mentions
+that use it. Each mention keeps its own key, candidates and candidate evidence.
+Supplemental resolution permits cross-type candidates and
 applies validated matches to concrete entities as well as concepts. A returned
 ID must belong to the supplied candidate set. Explicitly distinct objects may
 allocate independent opaque identities; unresolved ambiguity does not. Display

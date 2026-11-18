@@ -932,6 +932,37 @@ async def test_batch_entity_resolution_multiple_items():
     assert results["1"].decision == "unresolved"
 
 
+def test_batch_prompt_shares_only_identical_context_and_preserves_each_candidate():
+    from magi.memory.l2.models import (
+        L2BatchEntityResolutionItem,
+        L2EntityCandidate,
+        L2EntityResolutionMention,
+    )
+    from magi.memory.l2.pipeline.prompts import render_batch_entity_resolution_prompt
+
+    contexts = ["River exhibition", "Bridge inspection", "River exhibition", None]
+    items = [
+        L2BatchEntityResolutionItem(
+            mention_key=str(i),
+            mention=L2EntityResolutionMention("Alex", "person", context),
+            candidate_entities=[L2EntityCandidate(f"person:{i}", "Alex", "person")],
+        )
+        for i, context in enumerate(contexts)
+    ]
+    prompt = render_batch_entity_resolution_prompt(items=items)
+    groups, _ = json.JSONDecoder().raw_decode(prompt.split("Mentions to resolve:\n", 1)[1])
+    assert [group["context_text"] for group in groups] == list(dict.fromkeys(contexts))
+    reconstructed = {}
+    for group in groups:
+        for item in group["mentions"]:
+            assert "context_text" not in item["mention"]
+            item["mention"]["context_text"] = group["context_text"]
+            reconstructed[item["mention_key"]] = item
+    assert sum(len(group["mentions"]) for group in groups) == len(items)
+    assert reconstructed == {item.mention_key: item.to_dict() for item in items}
+    assert [item.mention.context_text for item in items] == contexts
+
+
 @pytest.mark.asyncio
 async def test_batch_entity_resolution_fills_missing_keys():
     """If LLM omits some mention_keys, they should be filled as unresolved."""
