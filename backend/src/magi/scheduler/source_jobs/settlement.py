@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import json
+import time
 from typing import Any, Optional, cast
 import uuid
 
@@ -42,6 +43,37 @@ def _continuation_payload(job: Mapping[str, Any]) -> dict[str, object]:
 
 
 class _SourceSyncJobSettlementMixin:
+    async def cancel_queued_source_sync_job(self, job_id: str, *, reason: str) -> dict[str, str] | None:
+        """Cancel only unclaimed work and settle its execution and target in the same transaction."""
+        host = cast(_SourceJobRepositoryHost, self)
+        now = time.time()
+        async with host._connect() as db:
+            await db.execute("BEGIN IMMEDIATE")
+            cursor = await db.execute(
+                """UPDATE source_sync_jobs SET status='cancelled', finished_at=?, result_message=?
+                   WHERE job_id=? AND status='queued' RETURNING execution_id, target_type, target_key""",
+                (now, reason, job_id),
+            )
+            row = await cursor.fetchone()
+            await cursor.close()
+            if row is None:
+                await db.rollback()
+                return None
+            execution = await db.execute(
+                """UPDATE schedule_executions SET status='cancelled', finished_at=?, result_message=?,
+                          duration_ms=MAX(0, (? - started_at) * 1000)
+                   WHERE execution_id=? AND status='running'""",
+                (now, reason, now, row["execution_id"]),
+            )
+            if execution.rowcount != 1:
+                raise RuntimeError("Queued sync job has no running execution")
+            await db.execute(
+                "UPDATE target_state SET running=0, updated_at=? WHERE target_type=? AND target_key=?",
+                (now, row["target_type"], row["target_key"]),
+            )
+            await db.commit()
+        return {"job_id": job_id, "status": "cancelled"}
+
     async def settle_source_sync_job_failure(
         self,
         job_id: str,

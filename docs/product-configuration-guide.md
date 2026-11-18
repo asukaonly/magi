@@ -803,6 +803,10 @@ visible when the live application cannot safely open.
 Read failures belong to the affected page. Background tasks, schedule configuration,
 schedule activity and personal tasks show a persistent inline error with retry,
 retain loaded rows, and never present a failed read as a successful empty list.
+Schedule activity reads the scheduler execution ledger. A pending source sync
+occupies its execution’s row and can be cancelled while queued. The selected
+time window includes ongoing work; counts cover that window before type and
+status filtering, and pagination applies to the filtered rows.
 Persona list, active-persona and detail failures use the same inline recovery
 pattern. An unloaded persona does not expose a default or previous persona editor.
 Retry and background recovery reload missing data without discarding unsaved

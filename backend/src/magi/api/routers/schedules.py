@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional
@@ -129,103 +128,6 @@ def _serialize_schedule(schedule: ScheduleDefinition, state=None) -> dict[str, A
     }
 
 
-def _schedule_title(schedule: ScheduleDefinition) -> str:
-    metadata = schedule.metadata or {}
-    payload = schedule.target_payload or {}
-    for key in ("display_name", "title", "source_type", "plugin_id"):
-        value = metadata.get(key) or payload.get(key)
-        if value:
-            return str(value)
-    return schedule.schedule_id
-
-
-def _source_job_activity(job: dict[str, Any], schedule: ScheduleDefinition | None) -> dict[str, Any]:
-    title = _schedule_title(schedule) if schedule is not None else str(job["source_type"])
-    queued = str(job["status"]) == "queued"
-    return {
-        "activity_id": f"source_job:{job['job_id']}",
-        "schedule_id": job["schedule_id"],
-        "title": title,
-        "target_type": job["target_type"],
-        "target_key": job["target_key"],
-        "status": job["status"],
-        "planned_at": job["created_at"],
-        "started_at": job["started_at"],
-        "duration_ms": None,
-        "cancellable": queued,
-        "cancel_kind": "source_sync_job" if queued else None,
-        "error": job["error"],
-    }
-
-
-async def _source_job_activities(
-    repository: ScheduleRepository,
-    *,
-    schedules: list[ScheduleDefinition],
-    limit: int,
-) -> list[dict[str, Any]]:
-    schedule_by_id = {schedule.schedule_id: schedule for schedule in schedules}
-    return [
-        _source_job_activity(
-            job,
-            schedule_by_id.get(str(job["schedule_id"])),
-        )
-        for job in await repository.list_outstanding_source_sync_jobs(limit=limit)
-    ]
-
-
-def _running_schedule_activity(schedule: ScheduleDefinition, state: Any) -> dict[str, Any]:
-    return {
-        "activity_id": f"target:{schedule.target_type.value}:{schedule.target_key}",
-        "schedule_id": schedule.schedule_id,
-        "title": _schedule_title(schedule),
-        "target_type": schedule.target_type.value,
-        "target_key": schedule.target_key,
-        "status": "running",
-        "planned_at": None,
-        "started_at": state.last_run_at,
-        "duration_ms": (
-            max(0.0, (time.time() - state.last_run_at) * 1000.0)
-            if state.last_run_at
-            else None
-        ),
-        "cancellable": False,
-        "cancel_kind": None,
-        "error": state.last_error,
-    }
-
-
-def _upcoming_schedule_activity(schedule: ScheduleDefinition, state: Any) -> dict[str, Any]:
-    return {
-        "activity_id": f"upcoming:{schedule.schedule_id}",
-        "schedule_id": schedule.schedule_id,
-        "title": _schedule_title(schedule),
-        "target_type": schedule.target_type.value,
-        "target_key": schedule.target_key,
-        "status": "upcoming",
-        "planned_at": state.next_run_at,
-        "started_at": None,
-        "duration_ms": None,
-        "cancellable": False,
-        "cancel_kind": None,
-        "error": state.last_error,
-    }
-
-
-async def _schedule_state_activities(
-    repository: ScheduleRepository,
-    schedules: list[ScheduleDefinition],
-) -> list[dict[str, Any]]:
-    activities: list[dict[str, Any]] = []
-    for schedule in schedules:
-        state = await repository.get_schedule_runtime_state(schedule)
-        if state.running and schedule.target_type is not ScheduledTargetType.SOURCE_SYNC:
-            activities.append(_running_schedule_activity(schedule, state))
-        if state.next_run_at is not None and not state.running:
-            activities.append(_upcoming_schedule_activity(schedule, state))
-    return activities
-
-
 async def _get_schedule_or_404(
     repository: ScheduleRepository,
     schedule_id: str,
@@ -322,14 +224,16 @@ async def create_schedule(body: ScheduleCreateBody) -> dict[str, Any]:
 @schedules_router.get("/activity")
 async def list_schedule_activity(
     limit: int = Query(default=100, ge=1, le=300),
+    offset: int = Query(default=0, ge=0),
+    since: float | None = None,
+    until: float | None = None,
+    target_types: list[str] | None = Query(default=None),
+    statuses: list[str] | None = Query(default=None),
 ) -> dict[str, Any]:
-    repository = _repository()
-    await repository.initialize()
-    schedules = await repository.list_schedules(enabled_only=True)
-    activities = await _source_job_activities(repository, schedules=schedules, limit=limit)
-    activities.extend(await _schedule_state_activities(repository, schedules))
-    activities.sort(key=lambda item: (item["status"] != "running", item.get("planned_at") or 0))
-    return {"activities": activities[:limit]}
+    return await _repository().list_activity_page(
+        since=since, until=until, target_types=target_types or [], statuses=statuses or [],
+        limit=limit, offset=offset,
+    )
 
 
 @schedules_router.patch("/{schedule_id}")

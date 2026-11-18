@@ -123,6 +123,69 @@ class SchedulerExecutionRepositoryMixin:
             )
             await db.commit()
 
+    async def list_activity_page(
+        self, *, since: float | None, until: float | None, target_types: list[str],
+        statuses: list[str], limit: int, offset: int,
+    ) -> dict[str, object]:
+        """Read one row per execution, including the current state of pending sync jobs."""
+        base = """
+            WITH activity AS (
+                SELECT e.*, j.job_id, j.created_at AS planned_at, j.started_at AS job_started_at,
+                       CASE WHEN j.job_id IS NOT NULL THEN j.status
+                            WHEN e.status = 'success' THEN 'succeeded' ELSE e.status END AS display_status
+                FROM schedule_executions e
+                LEFT JOIN source_sync_jobs j ON j.target_type = e.target_type AND j.target_key = e.target_key
+                    AND j.status IN ('queued', 'running') AND j.execution_id = e.execution_id
+                WHERE e.status = 'running'
+                   OR ((:since IS NULL OR e.started_at >= :since) AND (:until IS NULL OR e.started_at <= :until))
+            )
+        """
+        params = {"since": since, "until": until, "limit": limit, "offset": offset}
+        filters = []
+        for column, values in (("target_type", target_types), ("display_status", statuses)):
+            if values:
+                params[column] = json.dumps(values)
+                filters.append(f"{column} IN (SELECT value FROM json_each(:{column}))")
+        where = " WHERE " + " AND ".join(filters) if filters else ""
+        async with self._connect() as db:
+            await db.execute("BEGIN")
+            counts = await db.execute_fetchall(
+                base + "SELECT target_type, display_status, count(*) FROM activity GROUP BY 1, 2", params,
+            )
+            rows = await db.execute_fetchall(
+                base + "SELECT * FROM activity" + where +
+                " ORDER BY display_status IN ('running','queued') DESC, started_at DESC, execution_id DESC"
+                " LIMIT :limit OFFSET :offset", params,
+            )
+
+        totals_by_type: dict[str, int] = {}
+        totals_by_status: dict[str, int] = {}
+        total = 0
+        for target_type, status, count in counts:
+            totals_by_type[target_type] = totals_by_type.get(target_type, 0) + count
+            totals_by_status[status] = totals_by_status.get(status, 0) + count
+            if (not target_types or target_type in target_types) and (not statuses or status in statuses):
+                total += count
+
+        activities = []
+        for row in rows:
+            job_id = row["job_id"]
+            queued = bool(job_id) and row["display_status"] == "queued"
+            stats = json.loads(row["stats_json"])
+            activities.append({
+                "activity_id": f"source_job:{job_id}" if job_id else f"execution:{row['execution_id']}",
+                "schedule_id": row["schedule_id"], "target_type": row["target_type"], "target_key": row["target_key"],
+                "status": row["display_status"], "manual": bool(row["manual"]),
+                "planned_at": row["planned_at"] if job_id else row["started_at"],
+                "started_at": row["job_started_at"] if job_id else row["started_at"],
+                "finished_at": row["finished_at"], "duration_ms": row["duration_ms"],
+                "result_message": row["result_message"], "error": row["error"], "stats": stats,
+                "background_task_id": stats.get("background_task_id"), "cancellable": queued,
+                "cancel_kind": "source_sync_job" if queued else None,
+            })
+        return {"activities": activities, "total": total, "target_type_counts": totals_by_type,
+                "status_counts": totals_by_status}
+
     async def list_executions(
         self,
         *,

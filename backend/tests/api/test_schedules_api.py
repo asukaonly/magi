@@ -260,12 +260,57 @@ def test_list_schedules_uses_schedule_specific_execution_state(monkeypatch):
     assert schedules["memory-l3-summary:day"]["target_state"]["last_run_at"] is None
 
 
-# NOTE: test_activity_lists_and_cancels_queued_source_job was removed.
-# ff2bc71e reverted the Python schedule-activity additions ("Rust gateway
-# owns this route") and dropped ScheduleRepository.list_outstanding_source_sync_jobs;
-# the test exercised that deliberately-reverted Python route. (The leftover
-# Python /activity handler still references the dropped repository method —
-# tracked separately as dead code.)
+def test_activity_reads_execution_history_and_filters_before_pagination(monkeypatch):
+    client, repository = _build_client(monkeypatch)
+
+    async def seed():
+        await repository.initialize()
+        for when, target, success in [
+            (1, ScheduledTargetType.PERSONA_REFLECTION, True),
+            (5, ScheduledTargetType.PERSONA_REFLECTION, True),
+            (6, ScheduledTargetType.ATTENTION_WATCH, False),
+            (7, ScheduledTargetType.PERSONA_REFLECTION, True),
+        ]:
+            identity = await repository.create_execution_record(
+                schedule_id=target.value, target_type=target, target_key=target.value,
+                manual=True, started_at=when,
+            )
+            await repository.complete_execution_result(
+                identity, result=ScheduledExecutionResult(success=success, message="waiting_for_idle"),
+                scheduler_job_id=None, finished_at=when + 1,
+            )
+
+    asyncio.run(seed())
+    params = {"since": 4, "until": 7, "target_types": "persona_reflection", "statuses": "succeeded",
+              "limit": 1, "offset": 1}
+    response = client.get("/api/schedules/activity", params=params)
+    assert response.status_code == 200
+    page = response.json()
+    assert page["total"] == 2
+    assert page["target_type_counts"] == {"persona_reflection": 2, "attention_watch": 1}
+    assert page["status_counts"] == {"succeeded": 2, "failed": 1}
+    [entry] = page["activities"]
+    assert entry["started_at"] == 5 and entry["manual"] and entry["activity_id"].startswith("execution:")
+    assert entry["result_message"] == "waiting_for_idle"
+    assert client.get("/api/schedules/activity", params={**params, "offset": 2}).json()["activities"] == []
+
+
+def test_activity_shows_one_queued_job_and_settles_cancellation(monkeypatch):
+    client, repository = _build_client(monkeypatch)
+    schedule = asyncio.run(_seed_source_schedule(repository))
+    job = asyncio.run(repository.enqueue_source_sync_execution(schedule=schedule, manual=True, started_at=1))
+    path = "/api/schedules/activity"
+    page = client.get(path, params={"since": 10}).json()
+    [entry] = page["activities"]
+    assert page["total"] == 1 and page["status_counts"] == {"queued": 1}
+    assert entry["activity_id"] == f"source_job:{job.job_id}" and entry["cancellable"]
+    url = f"{path}/{entry['activity_id']}/cancel"
+    assert client.post(url).status_code == 200
+    assert client.post(url).status_code == 409
+    [entry] = client.get(path).json()["activities"]
+    assert entry["activity_id"] == f"execution:{job.execution_id}"
+    assert entry["status"] == "cancelled" and not entry["cancellable"]
+    assert not asyncio.run(repository.get_schedule_runtime_state(schedule)).running
 
 
 def test_execution_history_routes_use_scheduler_owner(monkeypatch):
