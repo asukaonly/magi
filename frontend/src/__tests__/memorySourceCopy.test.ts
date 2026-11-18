@@ -5,10 +5,11 @@ import zh from '@/i18n/locales/zh-CN/app.json';
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 
 describe('memory source labels', () => {
-  it.each([['en', 'Summaries'], ['zh-CN', '总结']])('names summary sources in %s', async (language, expected) => {
+  it.each([['en', 'Summaries', 'Photo library'], ['zh-CN', '总结', '照片库']])('names summary sources in %s', async (language, expected, photos) => {
     const i18n = createInstance();
     await i18n.init({ lng: language, defaultNS: 'app', resources: { en: { app: en }, 'zh-CN': { app: zh } } });
     expect(getMemorySourceLabel(i18n.t.bind(i18n), 'memory_summary')).toBe(expected);
+    expect(getMemorySourceLabel(i18n.t.bind(i18n), 'photo_library_apple_photos')).toBe(photos);
     expect(getMemorySourceLabel(i18n.t.bind(i18n), 'synthetic_validation')).toBe('synthetic_validation');
   });
 });

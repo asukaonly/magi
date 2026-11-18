@@ -6800,7 +6800,9 @@
     "loading": "Loading watches…",
     "empty": "Ask Magi to keep an eye on something. Matching new material will appear here.",
     "scope": "Watch newly captured material from selected sources. A match prepares a result, notifies you in the app, and ends this watch. You can start watching again.",
-    "editorHint": "Describe what should prompt an update, and choose the sources Magi may check.",
+    "editorHint": "Enter what to watch, when to notify you, and select at least one source.",
+    "titleExample": "For example, a project launch",
+    "conditionExample": "Tell me when the release is announced. Skip previews.",
     "budget": "Up to 10 active watches. Each is checked at most hourly while the service runs, with at most 2 model evaluations per day. Uses your configured model allowance. Does not search websites or run while the service sleeps. Each evaluation checks up to 24 newly captured records; high-volume sources can accumulate a backlog. Delayed device records captured before material already checked are not rechecked.",
     "fields": {
       "title": "What to watch",
@@ -6836,7 +6838,7 @@
     "openResult": "View watch result",
     "previous": "Previous",
     "next": "Next",
-    "limits": "Check frequency and scope",
+    "limits": "Check frequency and model usage",
     "sourceUnavailable": "Some sources no longer have authorized material. Deselect them and choose available sources."
   }
 }

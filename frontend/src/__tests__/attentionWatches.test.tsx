@@ -81,11 +81,11 @@ it('lets the user replace a source that no longer has authorized material', asyn
   await screen.findByText(watch.title);
   fireEvent.click(screen.getByRole('button', { name: 'attentionWatches.edit' }));
   expect(screen.getByText('attentionWatches.sourceUnavailable')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'attentionWatches.save' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
   fireEvent.click(screen.getByRole('checkbox', { name: 'chat' }));
   fireEvent.click(screen.getByRole('checkbox', { name: 'notes' }));
   expect(screen.queryByText('attentionWatches.sourceUnavailable')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'attentionWatches.save' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled();
 });
 
 it('rejects malformed records, wrong identities and empty mutation receipts', async () => {

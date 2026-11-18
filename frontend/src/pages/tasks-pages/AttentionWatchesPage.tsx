@@ -8,7 +8,7 @@ import { personalTasksApi } from '@/api/modules/personalTasks';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { MemoryEvidenceButton } from '@/components/memory/evidence/MemoryEvidenceButton';
 import { useAppNavigate } from '@/hooks/useAppNavigate';
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
@@ -83,8 +83,8 @@ export const AttentionWatchesPage = () => {
       {selectedExtra ? <WatchCard watch={selectedExtra} selected pending={pending} onAction={act} onEdit={(watch) => setEditor({ watch, fields: watch })} onDelete={setDeleting} onChanged={refresh} /> : null}
       {items.map((watch) => <WatchCard key={watch.id} watch={watch} selected={watch.id === selected} pending={pending}
         onAction={act} onEdit={(item) => setEditor({ watch: item, fields: item })} onDelete={setDeleting} onChanged={refresh} />)}
-      <div className="flex gap-2"><Button variant="ghost" disabled={!offset} onClick={() => setOffset(Math.max(0, offset - 50))}>{t('attentionWatches.previous')}</Button>
-        <Button variant="ghost" disabled={page.data?.next_offset == null} onClick={() => setOffset(page.data?.next_offset ?? offset)}>{t('attentionWatches.next')}</Button></div>
+      {offset > 0 || page.data?.next_offset != null ? <div className="flex gap-2"><Button variant="ghost" disabled={!offset} onClick={() => setOffset(Math.max(0, offset - 50))}>{t('attentionWatches.previous')}</Button>
+        <Button variant="ghost" disabled={page.data?.next_offset == null} onClick={() => setOffset(page.data?.next_offset ?? offset)}>{t('attentionWatches.next')}</Button></div> : null}
     </div>
     {editor ? <WatchEditor editor={editor} sources={page.data?.sources ?? []} pending={pending}
       onClose={() => { if (!pending) { setEditor(null); if (linkedItem) void setParams({}); } }}
@@ -140,22 +140,64 @@ function WatchEditor({ editor, sources, pending, onClose, onSave }: { editor: Ed
   const expiryValid = !expiry || Number.isFinite(new Date(expiry).getTime()) && new Date(expiry).getTime() > Date.now();
   const missingSource = fields.sources.some((source) => !sources.includes(source));
   const valid = fields.title.trim() && fields.condition.trim() && fields.sources.length > 0 && !missingSource && expiryValid;
-  return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-    <DialogContent className="max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>{t(editor.watch ? 'attentionWatches.edit' : 'attentionWatches.create')}</DialogTitle><DialogDescription>{t('attentionWatches.editorHint')}</DialogDescription></DialogHeader>
-      <form className="space-y-4" onSubmit={asEventHandler(async (event) => { event.preventDefault(); if (valid && !pending) await onSave({ ...fields, expires_at: expiry ? new Date(expiry).getTime() / 1000 : null }); })}>
-        <label className="block space-y-2 text-sm">{t('attentionWatches.fields.title')}<Input required maxLength={200} value={fields.title} onChange={(event) => setFields({ ...fields, title: event.target.value })} /></label>
-        <label className="block space-y-2 text-sm">{t('attentionWatches.fields.condition')}<Textarea required maxLength={1500} value={fields.condition} onChange={(event) => setFields({ ...fields, condition: event.target.value })} /></label>
-        <fieldset className="space-y-2"><legend className="mb-2 text-sm">{t('attentionWatches.fields.sources')}</legend>
-          {[...new Set([...sources, ...fields.sources])].map((source) => <label key={source} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={fields.sources.includes(source)} onChange={(event) => setFields({ ...fields, sources: event.target.checked ? [...fields.sources, source] : fields.sources.filter((item) => item !== source) })} />{getMemorySourceLabel(t, source)}</label>)}
-          {missingSource ? <p role="alert" className="text-sm text-destructive">{t('attentionWatches.sourceUnavailable')}</p> : null}
-          {!sources.length ? <p className="text-sm text-muted-foreground">{t('attentionWatches.noSources')}</p> : null}
-        </fieldset>
-        <label className="block space-y-2 text-sm">{t('attentionWatches.fields.expires')}<Input type="datetime-local" value={expiry} onChange={(event) => setExpiry(event.target.value)} /></label>
-        {!expiryValid ? <p role="alert" className="text-sm text-destructive">{t('attentionWatches.invalidExpiry')}</p> : null}
-        {fields.item_id ? <p className="text-xs text-muted-foreground">{t('attentionWatches.linked')}</p> : null}
-        <p className="text-xs leading-5 text-muted-foreground">{t('attentionWatches.budget')}</p>
-        <Button type="submit" disabled={!valid || pending}>{t('attentionWatches.save')}</Button>
-      </form>
-    </DialogContent>
-  </Dialog>;
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-xl flex-col overflow-hidden">
+        <DialogHeader className="shrink-0 pr-16">
+          <DialogTitle>{t(editor.watch ? 'attentionWatches.edit' : 'attentionWatches.create')}</DialogTitle>
+          <DialogDescription>{t('attentionWatches.editorHint')}</DialogDescription>
+        </DialogHeader>
+        <form className="flex min-h-0 flex-col" onSubmit={asEventHandler(async (event) => {
+          event.preventDefault();
+          if (valid && !pending) {
+            await onSave({ ...fields, expires_at: expiry ? new Date(expiry).getTime() / 1000 : null });
+          }
+        })}>
+          <div className="min-h-0 space-y-5 overflow-y-auto px-6 pb-5 pt-2">
+            <label className="grid gap-2 text-sm font-medium">
+              {t('attentionWatches.fields.title')}
+              <Input required maxLength={200} value={fields.title} placeholder={t('attentionWatches.titleExample')}
+                onChange={(event) => setFields({ ...fields, title: event.target.value })} />
+            </label>
+            <label className="grid gap-2 text-sm font-medium">
+              {t('attentionWatches.fields.condition')}
+              <Textarea required maxLength={1500} value={fields.condition} placeholder={t('attentionWatches.conditionExample')}
+                onChange={(event) => setFields({ ...fields, condition: event.target.value })} />
+            </label>
+            <fieldset className="min-w-0">
+              <legend className="mb-2 text-sm font-medium">{t('attentionWatches.fields.sources')}</legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[...new Set([...sources, ...fields.sources])].map((source) => (
+                  <label key={source} className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-md border border-border/70 px-3 py-2 text-sm hover:bg-muted/40 has-checked:border-primary has-checked:bg-primary/5">
+                    <input type="checkbox" className="size-4 shrink-0 accent-primary" checked={fields.sources.includes(source)}
+                      onChange={(event) => setFields({ ...fields, sources: event.target.checked
+                        ? [...fields.sources, source] : fields.sources.filter((item) => item !== source) })} />
+                    <span className="break-words">{getMemorySourceLabel(t, source)}</span>
+                  </label>
+                ))}
+              </div>
+              {missingSource ? <p role="alert" className="mt-2 text-sm text-destructive">{t('attentionWatches.sourceUnavailable')}</p> : null}
+              {!sources.length ? <p className="text-sm text-muted-foreground">{t('attentionWatches.noSources')}</p> : null}
+            </fieldset>
+            <label className="grid gap-2 text-sm font-medium">
+              {t('attentionWatches.fields.expires')}
+              <Input type="datetime-local" value={expiry} onChange={(event) => setExpiry(event.target.value)} />
+            </label>
+            {!expiryValid ? <p role="alert" className="text-sm text-destructive">{t('attentionWatches.invalidExpiry')}</p> : null}
+            {fields.item_id ? <p className="text-xs text-muted-foreground">{t('attentionWatches.linked')}</p> : null}
+            <details className="text-xs leading-5 text-muted-foreground">
+              <summary className="cursor-pointer">{t('attentionWatches.limits')}</summary>
+              <p className="mt-2">{t('attentionWatches.budget')}</p>
+            </details>
+          </div>
+          <DialogFooter className="shrink-0">
+            <Button type="button" variant="outline" disabled={pending} onClick={onClose}>{t('common.cancel')}</Button>
+            <Button type="submit" disabled={!valid || pending}>
+              {pending ? t('common.saving') : t(editor.watch ? 'common.save' : 'attentionWatches.save')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
