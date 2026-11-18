@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { evaluateAudit } from './audit-build-dependencies.mjs';
 
-const today = '2026-11-18';
 const advisory = {
   name: 'picomatch', severity: 'high',
   url: 'https://github.com/advisories/GHSA-fc5q-39xc-vjpf',
@@ -33,30 +32,30 @@ function fixture() {
 
 test('accepts the exact reviewed dev-only advisory and its propagated findings', () => {
   const { report, lock } = fixture();
-  assert.deepEqual(evaluateAudit(report, lock, today), { rejected: [], excepted: true });
+  assert.deepEqual(evaluateAudit(report, lock), { rejected: [], excepted: true });
 });
 
 test('retains the high build threshold while allowing clean reports', () => {
   const { report, lock } = fixture();
   report.vulnerabilities = {};
-  assert.deepEqual(evaluateAudit(report, lock, today), { rejected: [], excepted: false });
+  assert.deepEqual(evaluateAudit(report, lock), { rejected: [], excepted: false });
   report.vulnerabilities.vite = {
     name: 'vite', severity: 'moderate', nodes: ['node_modules/vite'],
     via: [{ name: 'vite', severity: 'moderate', url: 'https://example.test/advisory' }],
   };
-  assert.deepEqual(evaluateAudit(report, lock, today), { rejected: [], excepted: false });
+  assert.deepEqual(evaluateAudit(report, lock), { rejected: [], excepted: false });
 });
 
 test('rejects another high advisory in the same package and every affected parent', () => {
   const { report, lock } = fixture();
   report.vulnerabilities.picomatch.via.push({ ...advisory, url: 'https://example.test/new-high' });
-  assert.deepEqual(evaluateAudit(report, lock, today).rejected.sort(), ['fdir', 'picomatch', 'tinyglobby', 'vite', 'vitest']);
+  assert.deepEqual(evaluateAudit(report, lock).rejected.sort(), ['fdir', 'picomatch', 'tinyglobby', 'vite', 'vitest']);
 });
 
 test('rejects independent high findings even when an approved cause is also present', () => {
   const { report, lock } = fixture();
   report.vulnerabilities.vite.via.push({ name: 'vite', severity: 'high', url: 'https://example.test/new-high' });
-  assert.deepEqual(evaluateAudit(report, lock, today).rejected, ['vite', 'vitest']);
+  assert.deepEqual(evaluateAudit(report, lock).rejected, ['vite', 'vitest']);
 });
 
 test('never excepts a critical advisory or a critical package finding', () => {
@@ -64,14 +63,14 @@ test('never excepts a critical advisory or a critical package finding', () => {
     const { report, lock } = fixture();
     if (field === 'cause') report.vulnerabilities.picomatch.via[0].severity = 'critical';
     else report.vulnerabilities.picomatch.severity = 'critical';
-    assert(evaluateAudit(report, lock, today).rejected.includes('picomatch'));
+    assert(evaluateAudit(report, lock).rejected.includes('picomatch'));
   }
 });
 
 test('rejects a high finding without a reviewed high cause', () => {
   const { report, lock } = fixture();
   report.vulnerabilities.vite.via = [{ name: 'vite', severity: 'moderate', url: 'https://example.test/cause' }];
-  assert(evaluateAudit(report, lock, today).rejected.includes('vite'));
+  assert(evaluateAudit(report, lock).rejected.includes('vite'));
 });
 
 test('rejects changed versions, consumers, paths and production dependencies', () => {
@@ -87,13 +86,8 @@ test('rejects changed versions, consumers, paths and production dependencies', (
   for (const change of changes) {
     const { report, lock } = fixture();
     change(lock);
-    assert.throws(() => evaluateAudit(report, lock, today));
+    assert.throws(() => evaluateAudit(report, lock));
   }
-});
-
-test('requires another review on the deadline', () => {
-  const { report, lock } = fixture();
-  assert.throws(() => evaluateAudit(report, lock, '2026-12-18'), /requires review/);
 });
 
 test('fails closed on audit errors, missing causes and cyclic references', () => {
@@ -110,6 +104,6 @@ test('fails closed on audit errors, missing causes and cyclic references', () =>
   for (const change of changes) {
     const { report, lock } = fixture();
     change(report);
-    assert.throws(() => evaluateAudit(report, lock, today));
+    assert.throws(() => evaluateAudit(report, lock));
   }
 });

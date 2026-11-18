@@ -98,17 +98,29 @@ resolution, or advisory still fails the gate and requires a fresh review.
 
 The 2026-11-18 frontend review found no published fix for
 [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf).
-`npm run audit:build` temporarily accepts only this high-severity picomatch
-advisory at locked version 4.0.7, with the reviewed Vite 8.1.6, Vitest 4.1.12,
-tinyglobby 0.2.17 and fdir 6.5.0 development-only dependency paths. The affected
-patterns come from repository-owned build/test configuration; application code
-does not accept user-provided glob patterns through these packages, and import
-boundaries reject these build tools in application source. Production auditing
-remains unchanged. Any other high/critical advisory, changed version/path,
-production dependency, malformed audit response or review expiry fails CI.
-The exception requires review before 2026-12-18 and does not fix the upstream
-ReDoS. Remove it when a patched release becomes available; do not expose these
-build tools to untrusted glob patterns or downgrade Vite/Vitest to silence npm.
+Frontend installation now applies `scripts/patch-picomatch.mjs` to the locked
+picomatch 4.0.7 parser. It rejects repeated extglobs (`+(...)` and `*(...)`)
+before regex generation, including nested forms and callers disabling upstream
+recursion checks. Ordinary globs, braces, negative extglobs and optional extglobs
+remain supported. Repository build/test patterns do not require repeated extglobs;
+new ones fail explicitly instead of silently changing matching behavior.
+
+The patch script pins SHA-256 hashes for both the original npm parser and the
+patched source, rejects unknown source, and verifies that every locked consumer
+resolves to that same patched parser. `npm ci` applies it through `postinstall`;
+workflows using `--ignore-scripts` must explicitly run the patch script before
+using build dependencies. `npm run check` and `npm run audit:build` verify the
+installed patch, and regression tests exercise both advisory patterns with a
+process timeout. Skipping or modifying the patch fails validation.
+
+The version-only npm finding is accepted only with that verified patch and the
+exact development-only dependency graph (Vite 8.1.6, Vitest 4.1.12, tinyglobby
+0.2.17 and fdir 6.5.0). The registry version remains vulnerable; this is a local
+restriction of unsupported syntax, not an upstream fix or an expiring waiver.
+Any other high/critical advisory, changed version/path, production dependency,
+or malformed audit response fails CI. Production auditing and import boundaries
+remain unchanged. Remove the patch and version-only exception together after
+upgrading to an upstream fix and verifying the regression cases.
 
 The updater enables `rustls-tls` without its optional Windows ZIP compatibility
 feature. Official Windows updates use the native NSIS installer; macOS keeps

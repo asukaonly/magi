@@ -163,6 +163,7 @@ jobs:
         run: |
           npm install -g npm@11.16.0
           npm ci --ignore-scripts
+          node scripts/patch-picomatch.mjs
 
       - name: Test dependency installer
         run: python scripts/test-install-deps.py

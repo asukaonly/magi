@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { verifyPicomatchPatch } from './patch-picomatch.mjs';
 
 const ADVISORY = 'https://github.com/advisories/GHSA-fc5q-39xc-vjpf';
-const REVIEW_BEFORE = '2026-12-18';
 const PICOMATCH = 'node_modules/picomatch';
 const REVIEWED_CONSUMERS = {
   'node_modules/tinyglobby': '0.2.17',
@@ -14,9 +14,7 @@ const REVIEWED_CONSUMERS = {
 };
 const SEVERITIES = new Set(['info', 'low', 'moderate', 'high', 'critical']);
 
-function checkExceptionContext(lock, today) {
-  // shortcut: this dev-only advisory has no upstream fix; review before expiry or any graph change.
-  assert(today < REVIEW_BEFORE, `Picomatch exception requires review before ${REVIEW_BEFORE}`);
+function checkExceptionContext(lock) {
   assert.equal(lock.lockfileVersion, 3);
   assert.deepEqual(
     Object.keys(lock.packages).filter((name) => name.endsWith('/picomatch')),
@@ -36,7 +34,7 @@ function checkExceptionContext(lock, today) {
   for (const [name, pkg] of consumers) assert.equal(pkg.dev, true, `${name} must remain dev-only`);
 }
 
-export function evaluateAudit(report, lock, today = new Date().toISOString().slice(0, 10)) {
+export function evaluateAudit(report, lock) {
   assert.equal(report.auditReportVersion, 2, 'Unsupported npm audit report');
   assert(!report.error, 'npm audit returned an error');
   const entries = report.vulnerabilities;
@@ -65,7 +63,7 @@ export function evaluateAudit(report, lock, today = new Date().toISOString().sli
         return { allowed: false, excepted: false };
       }
       assert.deepEqual(entry.nodes, [PICOMATCH], 'Unreviewed affected picomatch installation');
-      checkExceptionContext(lock, today);
+      checkExceptionContext(lock);
       return { allowed: true, excepted: true };
     });
     const excepted = causes.some((cause) => cause.excepted);
@@ -82,6 +80,7 @@ export function evaluateAudit(report, lock, today = new Date().toISOString().sli
 }
 
 function runCli() {
+  verifyPicomatchPatch();
   const result = spawnSync('npm', ['audit', '--json'], {
     cwd: new URL('..', import.meta.url), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
     shell: process.platform === 'win32',
@@ -93,8 +92,8 @@ function runCli() {
   const { rejected, excepted } = evaluateAudit(report, lock);
   assert(result.status === 0 || Object.keys(report.vulnerabilities).length > 0, 'npm audit failed without findings');
   assert.equal(rejected.length, 0, `Unapproved build dependency advisories: ${rejected.join(', ')}`);
-  if (excepted) console.log(`Reviewed dev-only exception: ${ADVISORY}; review before ${REVIEW_BEFORE}. Upstream remains unfixed.`);
+  if (excepted) console.log(`Verified local security patch for ${ADVISORY}. The registry release remains unfixed.`);
   console.log('Frontend build dependency audit passed.');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) runCli();
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) runCli();

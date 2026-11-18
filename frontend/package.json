@@ -21,6 +21,7 @@
     }
   },
   "scripts": {
+    "postinstall": "node scripts/patch-picomatch.mjs",
     "dev": "vite",
     "build": "npm run type-check && vite build",
     "preview": "vite preview",
@@ -29,11 +30,11 @@
     "type-check": "tsc --noEmit && tsc --project tsconfig.node.json --noEmit",
     "test": "vitest run",
     "test:ci": "vitest run",
-    "audit:build": "node --test scripts/audit-build-dependencies.test.mjs && node scripts/audit-build-dependencies.mjs",
+    "audit:build": "node --test scripts/patch-picomatch.test.mjs scripts/audit-build-dependencies.test.mjs && node scripts/audit-build-dependencies.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "check": "npm run type-check && npm run lint && npm run check:boundaries && npm run contracts:check && npm run check:i18n",
+    "check": "node scripts/patch-picomatch.mjs --check && npm run type-check && npm run lint && npm run check:boundaries && npm run contracts:check && npm run check:i18n",
     "check:full": "npm run check && npm run test:ci && npm run build",
     "contracts:generate": "node scripts/generate-api-contracts.mjs",
     "contracts:check": "node scripts/generate-api-contracts.mjs --check",
