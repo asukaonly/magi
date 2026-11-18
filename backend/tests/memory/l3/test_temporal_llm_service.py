@@ -619,20 +619,22 @@ async def test_temporal_review_uses_same_sources_without_old_summary_claims(
         assert f"The target language is {label}" in prompt
         offset = prompt.index("Evidence Pack:\n") + len("Evidence Pack:\n")
         payload, end = json.JSONDecoder().raw_decode(prompt[offset:])
-        expected_payload = dict(expected)
-        if index == 1:
-            expected_payload.pop("previous_period_summaries")
-            expected_payload.pop("child_period_summaries")
-        assert payload == expected_payload
+        history_keys = ("previous_period_summaries", "child_period_summaries")
+        assert payload == {key: value for key, value in expected.items() if key not in history_keys}
+        if index == 0:
+            history, _ = json.JSONDecoder().raw_decode(
+                prompt.split("Historical summaries (background only):\n", 1)[1]
+            )
+            assert history == {key: expected[key] for key in history_keys}
+        else:
+            assert "Historical summaries (background only):" not in prompt
+            assert "Earlier period only." not in prompt
+            assert "A distinct child summary." not in prompt
         contexts.append(prompt[: offset + end])
-    assert "Earlier period only." in contexts[0]
-    assert "Earlier period only." not in contexts[1]
-    assert "A distinct child summary." not in contexts[1]
-    # Both requests share every byte through the final current event.
-    assert contexts[0].startswith(contexts[1].removesuffix("\n}"))
+    assert contexts[0] == contexts[1]
     with language_context(current):
         repair = service._prompt_renderer.render_repair_prompt(pack, draft=prose, issues=[])
-    assert repair.startswith(contexts[0])
+    assert repair.startswith(calls[0]["messages"][0]["content"].split("\nGeneration Task /", 1)[0])
     for summary in [*pack.previous_period_summaries, *pack.child_period_summaries]:
         assert summary["source_event_ids"] == ["historical-event"]
         assert summary["dependency_summary_ids"] == ["ancestor"]

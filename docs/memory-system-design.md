@@ -2741,8 +2741,9 @@ do not need artificial paragraph breaks.
 
 Temporal LLM generation places the current window's evidence and citation IDs
 first so drafting, review and repair can reuse the same prompt prefix. Drafting
-and repair append previous and child summaries. Their transitive event and
-summary IDs stay in the host dependency ledger for invalidation and forgetting.
+and repair append previous and child summaries in a separate background section.
+Historical transitive event and summary IDs stay in the host dependency ledger
+for invalidation and forgetting.
 The first call produces the user-facing draft. The second checks its factual
 claims with previous/child summaries excluded, so old interpretations cannot
 corroborate the draft. It selects an exact `essence_prose` excerpt and topic labels;
@@ -2751,8 +2752,9 @@ Review calls have an 8,192-token output ceiling (prose calls use 4,096) to avoid
 truncating factual issues behind optional report fields. Unsupported claims must
 resolve to an exact draft span (omitted inline Markdown markers may be restored)
 and reference
-only supplied event IDs. When a review flags an overclaim, the runtime allows
-one repair and one fresh review, for at most four calls. A still-flagged repair,
+only supplied event IDs. When a review flags an overclaim, the repair prompt
+asks for edits confined to the quoted passages. The runtime allows one repair
+and one fresh review, for at most four calls. A still-flagged repair,
 an unavailable second review, or a malformed claim review produces an internal
 rule fallback rather than publishing the suspect draft. This model review is
 a bounded quality check, not proof that every claim is true.
