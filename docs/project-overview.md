@@ -84,7 +84,8 @@ the upstream iterator tests with optimization; a version-only warning about
 0.18.5 does not authorize ignoring an unpatched registry copy.
 
 The frontend gate rejects moderate-or-higher production advisories and
-high-or-higher advisories across the complete build dependency graph. The Rust
+high-or-higher advisories across the complete build dependency graph, subject
+to the exact dev-only exception below. The Rust
 gate checks both vulnerabilities and `unsound` warnings. Its exact advisory,
 package and version exceptions are rechecked against the dependency graph or
 verified patch on every run. The 2026-10-22 review reconfirmed the GLib patch,
@@ -93,6 +94,20 @@ rkyv's absence from every target even with all workspace features enabled.
 These exceptions require another review before 2026-11-21. The existing
 quick-xml exceptions cover notification-string escaping only; the rkyv exception
 requires that the optional feature remain disabled on every workspace target.
+
+The 2026-11-18 frontend review found no published fix for
+[GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf).
+`npm run audit:build` temporarily accepts only this high-severity picomatch
+advisory at locked version 4.0.7, with the reviewed Vite 8.1.6, Vitest 4.1.12,
+tinyglobby 0.2.17 and fdir 6.5.0 development-only dependency paths. The affected
+patterns come from repository-owned build/test configuration; application code
+does not accept user-provided glob patterns through these packages, and import
+boundaries reject these build tools in application source. Production auditing
+remains unchanged. Any other high/critical advisory, changed version/path,
+production dependency, malformed audit response or review expiry fails CI.
+The exception requires review before 2026-12-18 and does not fix the upstream
+ReDoS. Remove it when a patched release becomes available; do not expose these
+build tools to untrusted glob patterns or downgrade Vite/Vitest to silence npm.
 
 The updater enables `rustls-tls` without its optional Windows ZIP compatibility
 feature. Official Windows updates use the native NSIS installer; macOS keeps

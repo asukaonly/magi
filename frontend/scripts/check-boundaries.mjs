@@ -6,6 +6,7 @@ const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
 const INDEX_FILES = SOURCE_EXTENSIONS.map((extension) => `index${extension}`);
 const SKIPPED_DIRS = new Set(['__tests__', '__ui_preview__', '__visual__', 'test']);
 const DEFAULT_SRC_ROOT = path.resolve(process.cwd(), 'src');
+const BUILD_ONLY_PACKAGES = new Set(['picomatch', 'tinyglobby', 'fdir', 'vite', 'vitest']);
 
 const FORBIDDEN_LAYER_IMPORTS = {
   client: new Set(['api', 'components', 'hooks', 'pages', 'router', 'runtime', 'stores']),
@@ -112,12 +113,14 @@ export function findBoundaryViolations(files, options = {}) {
 
     const importerLayer = layerForPath(filePath, srcRoot);
     const forbiddenImports = importerLayer ? FORBIDDEN_LAYER_IMPORTS[importerLayer] : null;
-    if (!forbiddenImports) {
-      continue;
-    }
-
     const source = file.source;
     for (const importEntry of extractImportSources(source)) {
+      if (!/\.(test|spec)\.[^.]+$/.test(filePath) && BUILD_ONLY_PACKAGES.has(importEntry.source.split('/')[0])) {
+        violations.push({ filePath, line: importEntry.line, importSource: importEntry.source,
+          importerLayer, importedLayer: 'build-only dependency' });
+        continue;
+      }
+      if (!forbiddenImports) continue;
       if (importerLayer === 'client' && importEntry.source.startsWith('@tauri-apps/')) {
         violations.push({ filePath, line: importEntry.line, importSource: importEntry.source,
           importerLayer, importedLayer: 'desktop host' });

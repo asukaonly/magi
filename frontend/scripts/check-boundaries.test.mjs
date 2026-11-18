@@ -4,6 +4,22 @@ import { findBoundaryViolations } from './check-boundaries.mjs';
 const srcRoot = '/repo/frontend/src';
 
 describe('frontend boundary checker', () => {
+  it('keeps reviewed build-only dependencies out of application imports and re-exports', () => {
+    for (const file of ['main.tsx', 'pages/Chat.tsx', 'lib/matcher.ts']) {
+      const violations = findBoundaryViolations([{
+        filePath: `${srcRoot}/${file}`,
+        source: "import match from 'picomatch';\nexport { glob } from 'tinyglobby';\nconst tool = import('vite/client');",
+      }], { srcRoot });
+      expect(violations).toHaveLength(3);
+      expect(violations.every((item) => item.importedLayer === 'build-only dependency')).toBe(true);
+    }
+  });
+  it('allows test files to use test tooling', () => {
+    const violations = findBoundaryViolations([{
+      filePath: `${srcRoot}/lib/matcher.test.ts`, source: "import { expect } from 'vitest';",
+    }], { srcRoot });
+    expect(violations).toEqual([]);
+  });
   it('keeps portable client code independent of the desktop and view state', () => {
     const violations = findBoundaryViolations([{
       filePath: `${srcRoot}/client/http.ts`,

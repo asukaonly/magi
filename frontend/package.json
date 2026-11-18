@@ -29,6 +29,7 @@
     "type-check": "tsc --noEmit && tsc --project tsconfig.node.json --noEmit",
     "test": "vitest run",
     "test:ci": "vitest run",
+    "audit:build": "node --test scripts/audit-build-dependencies.test.mjs && node scripts/audit-build-dependencies.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
