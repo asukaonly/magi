@@ -68,7 +68,8 @@ def test_special_loggers_emit_unified_records_to_their_configured_outputs(
         _reset_logger_handlers(logger)
 
 
-def test_log_llm_request_pretty_prints_tool_json_content() -> None:
+def test_log_llm_request_pretty_prints_tool_json_content(monkeypatch) -> None:
+    monkeypatch.setattr(llm_logger_module, "full_content_logging_enabled", lambda: True)
     logger = MagicMock()
 
     llm_logger_module.log_llm_request(
@@ -98,7 +99,8 @@ def _debug_text(mock_logger: MagicMock) -> str:
 
 
 @pytest.mark.parametrize("use_boundary", [True, False])
-def test_request_log_keeps_prompt_contents_and_labels_cache_segments(use_boundary) -> None:
+def test_request_log_keeps_prompt_contents_and_labels_cache_segments(use_boundary, monkeypatch) -> None:
+    monkeypatch.setattr(llm_logger_module, "full_content_logging_enabled", lambda: True)
     boundary = "<!--MAGI_CACHE_BOUNDARY-->"
     logger = MagicMock()
     system_prompt = (

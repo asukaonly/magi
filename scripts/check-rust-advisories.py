@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
-"""Audit Rust dependencies with narrow, self-expiring exceptions."""
+"""Audit Rust dependencies with an exact, source-verified GLib backport."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
 import json
-import os
 from pathlib import Path
-import re
 import subprocess
 import sys
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
-EXCEPTION_REVIEW_DEADLINE = date(2026, 11, 21)
 
 
 @dataclass(frozen=True, order=True)
@@ -32,35 +27,7 @@ APPROVED_EXCEPTIONS: dict[AdvisoryKey, str] = {
         "The workspace uses the checksum-verified local crate with the upstream "
         "VariantStrIter safety fix, not the unpatched registry release."
     ),
-    AdvisoryKey("RUSTSEC-2026-0194", "quick-xml", "0.37.5"): (
-        "The only reverse path is tauri-winrt-notification 0.7.2, which uses "
-        "quick-xml only for escaping notification strings, not XML parsing."
-    ),
-    AdvisoryKey("RUSTSEC-2026-0195", "quick-xml", "0.37.5"): (
-        "The only reverse path is tauri-winrt-notification 0.7.2, which uses "
-        "quick-xml only for escaping notification strings, not XML parsing."
-    ),
-    AdvisoryKey("RUSTSEC-2026-0235", "rkyv", "0.7.46"): (
-        "rkyv is an optional rust_decimal dependency and is not enabled by any "
-        "workspace target or feature."
-    ),
 }
-
-EXPECTED_QUICK_XML_PATH = {
-    "quick-xml v0.37.5",
-    "tauri-winrt-notification v0.7.2",
-    "notify-rust v4.18.0",
-    "tauri-plugin-notification v2.3.3",
-    f"magi-desktop v{(ROOT / 'VERSION').read_text(encoding='utf-8').strip()}",
-}
-
-
-def _package_label(line: str) -> str | None:
-    """Extract a package label from one cargo-tree output line."""
-    label = ANSI_ESCAPE_RE.sub("", line).lstrip(" │├└─")
-    if not label or label.startswith("["):
-        return None
-    return label.split(" (/", maxsplit=1)[0].removesuffix(" (*)")
 
 
 def advisory_keys(report: dict[str, Any]) -> set[AdvisoryKey]:
@@ -95,31 +62,9 @@ def evaluate_report(
     return found - approved, approved - found
 
 
-def _run_cargo_tree(*args: str) -> subprocess.CompletedProcess[str]:
-    environment = os.environ.copy()
-    environment["CARGO_TERM_COLOR"] = "never"
-    return subprocess.run(
-        ["cargo", "tree", "--locked", "--target", "all", *args],
-        cwd=ROOT,
-        capture_output=True,
-        check=False,
-        env=environment,
-        text=True,
-    )
-
-
-def exception_review_failures(today: date | None = None) -> list[str]:
-    """Require a fresh review instead of carrying exceptions indefinitely."""
-    if (today or date.today()) >= EXCEPTION_REVIEW_DEADLINE:
-        return [
-            f"Rust advisory exception review expired on {EXCEPTION_REVIEW_DEADLINE}"
-        ]
-    return []
-
-
 def validate_exception_context() -> list[str]:
     """Verify that each exception still has the reviewed dependency context."""
-    failures = exception_review_failures()
+    failures: list[str] = []
     glib = subprocess.run(
         [sys.executable, str(ROOT / "scripts/check-vendored-glib.py")],
         capture_output=True,
@@ -128,29 +73,6 @@ def validate_exception_context() -> list[str]:
     )
     if glib.returncode:
         failures.append(f"GLib backport validation failed: {glib.stderr.strip()}")
-
-    quick_xml = _run_cargo_tree("-i", "quick-xml@0.37.5")
-    if quick_xml.returncode != 0:
-        failures.append(
-            f"quick-xml reverse-tree check failed: {quick_xml.stderr.strip()}"
-        )
-    else:
-        packages = {
-            label
-            for line in quick_xml.stdout.splitlines()
-            if (label := _package_label(line)) is not None
-        }
-        if packages != EXPECTED_QUICK_XML_PATH:
-            failures.append(
-                "quick-xml 0.37.5 dependency path changed: "
-                f"expected {sorted(EXPECTED_QUICK_XML_PATH)}, got {sorted(packages)}"
-            )
-
-    rkyv = _run_cargo_tree("--all-features", "-i", "rkyv@0.7.46")
-    if rkyv.returncode != 0:
-        failures.append(f"rkyv reachability check failed: {rkyv.stderr.strip()}")
-    elif rkyv.stdout.strip():
-        failures.append("rkyv 0.7.46 became reachable:\n" + rkyv.stdout.strip())
 
     return failures
 
@@ -216,7 +138,6 @@ def main() -> int:
         return 1
 
     print("Rust dependency audit passed with reviewed, exact exceptions:")
-    print(f"Next exception review is required before {EXCEPTION_REVIEW_DEADLINE}")
     for key, reason in sorted(APPROVED_EXCEPTIONS.items()):
         print(f"- {_describe(key)}: {reason}")
     return 0

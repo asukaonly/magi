@@ -162,3 +162,33 @@ async def test_non_command_returns_none() -> None:
     )
     assert r is None
     assert mapper.deleted == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("language", "help_text", "success_text", "failure_text"), [
+    ("en", "Start a new conversation", "Your next message", "Could not reset"),
+    ("zh-CN", "开启新会话", "已重置", "重置失败"),
+])
+async def test_localized_help_and_reset_outcomes(language, help_text, success_text, failure_text):
+    from unittest.mock import AsyncMock
+
+    from magi.i18n import language_context
+
+    mapper = _FakeMapper(_mapping())
+    port = _port(mapper=mapper)
+
+    async def send(message):
+        result = await port.handle_command(
+            inbound_context=_INBOUND_CONTEXT, message=message, session_id="sess-1",
+            channel_type="weixin", external_chat_id="c", external_user_id="u",
+        )
+        assert result is not None
+        return result.ack
+
+    with language_context(language):
+        assert help_text in await send("/help")
+        assert success_text in await send("/new")
+        mapper.delete_mapping = AsyncMock(side_effect=OSError("storage unavailable"))
+        assert failure_text in await send("/reset")
+        mapper.lookup_by_session = AsyncMock(side_effect=OSError("storage unavailable"))
+        assert failure_text in await send("/reset")

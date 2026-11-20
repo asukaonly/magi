@@ -84,15 +84,43 @@ the upstream iterator tests with optimization; a version-only warning about
 0.18.5 does not authorize ignoring an unpatched registry copy.
 
 The frontend gate rejects moderate-or-higher production advisories and
-high-or-higher advisories across the complete build dependency graph. The Rust
-gate checks both vulnerabilities and `unsound` warnings. Its exact advisory,
-package and version exceptions are rechecked against the dependency graph or
-verified patch on every run. The 2026-10-22 review reconfirmed the GLib patch,
-the exact notification dependency path and escape-only quick-xml calls, and
-rkyv's absence from every target even with all workspace features enabled.
-These exceptions require another review before 2026-11-21. The existing
-quick-xml exceptions cover notification-string escaping only; the rkyv exception
-requires that the optional feature remain disabled on every workspace target.
+high-or-higher advisories across the complete build dependency graph, subject
+to the exact dev-only exception below. The Rust
+gate checks both vulnerabilities and `unsound` warnings. The 2026-11-18 update
+moves notify-rust to 4.18.2 / tauri-winrt-notification to 0.8.1, removing the
+vulnerable quick-xml 0.37 dependency, and rust_decimal to 1.43.0, removing rkyv
+0.7 from the lockfile. The remaining quick-xml is the fixed 0.41.0 release.
+Their former reachability exceptions are removed; those advisories now fail CI.
+Only the exact GLib 0.18.5 version-only finding is accepted after verifying the
+patched source checksums on every run. With no unpatched reachability exceptions
+remaining, there is no calendar-based waiver to renew. Changing the GLib source,
+resolution, or advisory still fails the gate and requires a fresh review.
+
+The 2026-11-18 frontend review found no published fix for
+[GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf).
+Frontend installation now applies `scripts/patch-picomatch.mjs` to the locked
+picomatch 4.0.7 parser. It rejects repeated extglobs (`+(...)` and `*(...)`)
+before regex generation, including nested forms and callers disabling upstream
+recursion checks. Ordinary globs, braces, negative extglobs and optional extglobs
+remain supported. Repository build/test patterns do not require repeated extglobs;
+new ones fail explicitly instead of silently changing matching behavior.
+
+The patch script pins SHA-256 hashes for both the original npm parser and the
+patched source, rejects unknown source, and verifies that every locked consumer
+resolves to that same patched parser. `npm ci` applies it through `postinstall`;
+workflows using `--ignore-scripts` must explicitly run the patch script before
+using build dependencies. `npm run check` and `npm run audit:build` verify the
+installed patch, and regression tests exercise both advisory patterns with a
+process timeout. Skipping or modifying the patch fails validation.
+
+The version-only npm finding is accepted only with that verified patch and the
+exact development-only dependency graph (Vite 8.1.6, Vitest 4.1.12, tinyglobby
+0.2.17 and fdir 6.5.0). The registry version remains vulnerable; this is a local
+restriction of unsupported syntax, not an upstream fix or an expiring waiver.
+Any other high/critical advisory, changed version/path, production dependency,
+or malformed audit response fails CI. Production auditing and import boundaries
+remain unchanged. Remove the patch and version-only exception together after
+upgrading to an upstream fix and verifying the regression cases.
 
 The updater enables `rustls-tls` without its optional Windows ZIP compatibility
 feature. Official Windows updates use the native NSIS installer; macOS keeps

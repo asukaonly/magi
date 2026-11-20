@@ -1696,7 +1696,10 @@ companion commit; companion CI resolves its exact host commit from the SDK
 requirement in `scripts/registry-requirements.txt`. The gate records both
 checkout identities, creates a worker environment containing only the public
 SDK, exercises actual process lifecycle tests and installs each supported
-official package's locked dependencies before worker registration. Unsupported
+official package's locked dependencies before worker registration. Workers publish each
+source's declared memory policy with its descriptor. On supported platforms the
+gate passes synthetic Chrome visits through the worker, host projection, and L2
+admission to check that unique events promote by domain at the declared threshold. Unsupported
 platforms are recorded explicitly. Simulated-platform declaration tests remain
 a separate check and do not count as native collector execution.
 

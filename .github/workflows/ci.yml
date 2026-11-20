@@ -57,7 +57,7 @@ jobs:
     env:
       # Reviewed companion package snapshot. Update only to a published full SHA;
       # scripts/plugin_runtime_ci.py records both revisions and the SDK pin.
-      MAGI_PLUGINS_SHA: ae8ae66df467af7a556926cd0254050541632e3c
+      MAGI_PLUGINS_SHA: 147026a57e55af10e974bb81406ba8f4d301338e
       PYTHONUTF8: "1"
     steps:
       - name: Checkout host under test
@@ -124,7 +124,7 @@ jobs:
 
       - name: Audit frontend build dependencies
         working-directory: frontend
-        run: npm audit --audit-level=high
+        run: npm run audit:build
 
       - name: Validate frontend
         working-directory: frontend
@@ -163,6 +163,7 @@ jobs:
         run: |
           npm install -g npm@11.16.0
           npm ci --ignore-scripts
+          node scripts/patch-picomatch.mjs
 
       - name: Test dependency installer
         run: python scripts/test-install-deps.py

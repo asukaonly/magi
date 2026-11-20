@@ -620,6 +620,7 @@ class ExamplePlugin(Plugin):
 Guidelines:
 
 - prefer `magi_plugin_sdk.channels` for `Channel`, `ChannelTarget`, and related DTOs
+- route `/help`, `/new`, and `/reset` through the host control port before normal chat dispatch. Display its localized acknowledgement, including reset failures. An addressed group command such as `/help@MyBot` should reach the host as `/help` after the provider confirms the addressee
 - treat the injected session mapper as a host-provided dependency and type it as `ChannelSessionMapperProtocol`
 - treat the injected inbound dispatcher as a host-provided dependency and type it as `ChannelMessageDispatcherProtocol`
 - declare exactly one `ChannelInboundClearStrategy` on every channel. Use `INTERNAL` only for host-owned channels, `PROVIDER_TIME` only when the provider supplies a trustworthy event time, and `DURABLE_CURSOR` for polling streams that can replay backlog without such a time

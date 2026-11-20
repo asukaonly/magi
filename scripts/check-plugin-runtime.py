@@ -12,6 +12,7 @@ worker interpreter. SDK/backend imports come from this checkout, and each worker
 receives only its manifest's declared library roots. Connections, settings paths,
 and dummy credentials are temporary. Operation authorization always denies; no
 collection, channel start, tool, settings action, or provider action is invoked.
+Chrome builds synthetic visit outputs to check host-side memory promotion.
 The optional report records each package; any failure exits with status 1.
 Only packages supporting the native OS are launched; other manifests are
 reported as unsupported. --install-dependencies copies packages to a temporary
@@ -86,6 +87,10 @@ runtime_home = tempfile.TemporaryDirectory(prefix="magi-runtime-check-home-")
 os.environ["MAGI_HOME"] = runtime_home.name
 sys.path[:0] = [str(HOST_ROOT / "sdk/src"), str(HOST_ROOT / "backend/src")]
 
+from magi.awareness.ingestion_gateway import SourceIngestionGateway
+from magi.memory.l2.pipeline.extraction import resolve_llm_extraction
+from magi.memory.l2.promotion_counter import L2PromotionCounter
+from magi.memory.source_event_projection import build_source_memory_event
 from magi.plugins.connection_settings import validate_connection_settings
 from magi.plugins.contribution_registration import PluginContributionRegistrar
 from magi.plugins.discovery import load_plugin_manifest
@@ -230,6 +235,31 @@ def write_report(report: dict[str, Any]) -> None:
         args.report.write_text(
             json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
+
+
+async def check_chrome_history_promotion(sources: SourceRegistry, connection_id: str, root: Path) -> None:
+    """Exercise worker output, host projection and L2 admission with synthetic visits."""
+    resolved = sources.resolve_domain_source("timeline", "chrome_history", connection_id=connection_id)
+    assert resolved is not None
+    _, _, source, _ = resolved
+    gateway = SourceIngestionGateway(event_bus=None, memory_committer=None)
+    counter = L2PromotionCounter(str(root / "chrome-promotion.db"))
+    for visit, domain, expected in [
+        (1, "a.example", False), (1, "a.example", False), (2, "b.example", False),
+        (3, "a.example", False), (4, "a.example", True),
+    ]:
+        url = f"https://{domain}/{visit}"
+        output = await source.build_output({
+            "visit_id": visit, "url": url, "canonical_url": url, "domain": domain,
+            "title": "Test visit", "visit_time": 1_710_000_000 + visit,
+        })
+        payload = gateway._build_source_event_payload(
+            source=source, output=output, metadata=None, allowed_edge_whitelist=None,
+        )
+        event = build_source_memory_event(payload, event_id=f"visit-{visit}")
+        assert event.metadata_json["promotion_key"] == domain
+        assert event.metadata_json.get("promotion_threshold") == 3, "Chrome promotion threshold missing from projected event"
+        assert await resolve_llm_extraction(event, counter) is expected, (visit, domain)
 
 
 async def main() -> int:
@@ -472,6 +502,9 @@ async def main() -> int:
                         for key, binding in operations._entries.items()
                         if key[0] == connection.connection_id
                     ]
+                    if manifest.plugin_id == "chrome-history" and number == 1:
+                        stage = "chrome_history_promotion"
+                        await check_chrome_history_promotion(sources, connection.connection_id, root)
                     for schema in raw_tools:
                         normalized = operations._entries[
                             (connection.connection_id, schema.name)
