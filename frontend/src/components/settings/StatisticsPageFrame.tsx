@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 interface StatisticsPageFrameProps {
   toolbar: ReactNode;
   signalRibbon: ReactNode;
+  signalColumns?: string;
   mainCanvas: ReactNode;
   summaryRail?: ReactNode;
   secondary?: ReactNode;
@@ -13,6 +14,7 @@ interface StatisticsPageFrameProps {
 export const StatisticsPageFrame: FC<StatisticsPageFrameProps> = ({
   toolbar,
   signalRibbon,
+  signalColumns = 'md:grid-cols-4 xl:grid-cols-5',
   mainCanvas,
   summaryRail,
   secondary,
@@ -28,7 +30,7 @@ export const StatisticsPageFrame: FC<StatisticsPageFrameProps> = ({
 
     <div
       data-testid="statistics-page-signal-ribbon"
-      className="grid gap-4 border-b border-[hsl(var(--settings-subnav-border)/0.56)] pb-4 md:grid-cols-4 xl:grid-cols-5"
+      className={cn('grid gap-4 border-b border-[hsl(var(--settings-subnav-border)/0.56)] pb-4', signalColumns)}
     >
       {signalRibbon}
     </div>

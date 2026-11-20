@@ -2622,27 +2622,43 @@
         "noFailureData": "暂无失败数据"
       },
       "llm": {
-        "estimatedCost": "估算费用",
-        "estimatedCostUnpriced": "估算费用（{{count}} 次调用未计价）",
+        "estimatedCost": "预估费用",
+        "costDetails": "查看费用明细",
+        "nativeCharges": "原币费用明细",
+        "noPricedCalls": "此时段暂无可估算费用的调用。",
+        "rateNote": "按使用日的 Frankfurter 参考汇率折算。当天无报价时，沿用此前一周内最近的报价。",
+        "missingRate": "部分币种缺少参考汇率，暂时无法合计。",
+        "rateUnavailable": "缺少汇率",
+        "excludedCalls": "{{count}} 次调用费用未知",
+        "failedWithoutUsage": "{{count}} 次调用失败，未返回用量",
+        "successWithoutUsage": "{{count}} 次调用成功，未返回用量",
+        "missingPrice": "{{count}} 次已返回用量，缺少适用价格",
+        "displayCurrency": "显示币种",
+        "cny": "人民币 CNY",
+        "usd": "美元 USD",
+        "successRate": "成功率",
+        "firstToken": "首个 Token 耗时",
+        "dailyTrend": "每日趋势",
+        "noCostTrend": "此时段暂无可显示的费用趋势。",
         "tabs": {
           "models": "按模型",
           "providers": "按提供商",
           "requestKinds": "按调用场景"
         },
         "table": {
-          "title": "详细明细",
+          "title": "用量明细",
           "columns": {
             "scenario": "调用场景",
             "stage": "阶段",
             "calls": "调用次数",
-            "totalTokens": "Token 花费",
+            "totalTokens": "总 Token",
             "promptTokens": "输入 Token",
             "completionTokens": "输出 Token",
             "cacheHitRate": "缓存命中",
             "cacheReadTokens": "缓存读取",
             "cost": "成本",
             "avgLatency": "平均耗时",
-            "avgTTFT": "平均 TTFT"
+            "avgTTFT": "首个 Token 耗时"
           }
         },
         "requestKindScenarios": {

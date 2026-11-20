@@ -25,6 +25,10 @@ const summaryFixture: LLMUsageSummary = {
   window_days: 7,
   totals: {
     total_calls: 120,
+    display_costs: { USD: 12.4, CNY: 86.85 },
+    unpriced_calls: 5,
+    unpriced_failed_without_usage: 3,
+    unpriced_success_without_usage: 1,
     successful_calls: 114,
     failed_calls: 6,
     calls_with_usage: 110,
@@ -42,33 +46,35 @@ const summaryFixture: LLMUsageSummary = {
     ],
     avg_ttft_ms: 620,
   },
+  daily_display_costs: { '2026-03-18': { USD: 1.4, CNY: 9.8 } },
   providers: [
-    { provider: 'openai', calls: 70, prompt_tokens: 70000, completion_tokens: 28000, total_tokens: 98000, cache_read_tokens: 50000, cache_write_tokens: 12000, cache_hit_rate: 71.43, cost_usd: 8.4, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 8.4 }] },
-    { provider: 'anthropic', calls: 50, prompt_tokens: 50000, completion_tokens: 26000, total_tokens: 76000, cache_read_tokens: 25000, cache_write_tokens: 6000, cache_hit_rate: 50, cost_usd: 4.05, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 4.05 }] },
+    { provider: 'openai', calls: 70, prompt_tokens: 70000, completion_tokens: 28000, total_tokens: 98000, cache_read_tokens: 50000, cache_write_tokens: 12000, cache_hit_rate: 71.43, display_costs: { USD: 8.4, CNY: 58.8 }, cost_usd: 8.4, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 8.4 }] },
+    { provider: 'anthropic', calls: 50, prompt_tokens: 50000, completion_tokens: 26000, total_tokens: 76000, cache_read_tokens: 25000, cache_write_tokens: 6000, cache_hit_rate: 50, display_costs: { USD: 4.05, CNY: 28.35 }, cost_usd: 4.05, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 4.05 }] },
   ],
   models: [
-    { provider: 'openai', model: 'gpt-5', calls: 60, prompt_tokens: 60000, completion_tokens: 24000, total_tokens: 84000, cache_read_tokens: 42000, cache_write_tokens: 10000, cache_hit_rate: 70, cost_usd: 7.1, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 7.1 }], failed_calls: 2, avg_ttft_ms: 580 },
-    { provider: 'anthropic', model: 'claude-sonnet', calls: 50, prompt_tokens: 50000, completion_tokens: 22000, total_tokens: 72000, cache_read_tokens: 25000, cache_write_tokens: 6000, cache_hit_rate: 50, cost_usd: 3.8, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 3.8 }], failed_calls: 1, avg_ttft_ms: 640 },
+    { provider: 'openai', model: 'gpt-5', calls: 60, prompt_tokens: 60000, completion_tokens: 24000, total_tokens: 84000, cache_read_tokens: 42000, cache_write_tokens: 10000, cache_hit_rate: 70, display_costs: { USD: 7.1, CNY: 49.7 }, cost_usd: 7.1, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 7.1 }], failed_calls: 2, avg_ttft_ms: 580 },
+    { provider: 'anthropic', model: 'claude-sonnet', calls: 50, prompt_tokens: 50000, completion_tokens: 22000, total_tokens: 72000, cache_read_tokens: 25000, cache_write_tokens: 6000, cache_hit_rate: 50, display_costs: { USD: 3.8, CNY: 26.6 }, cost_usd: 3.8, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 3.8 }], failed_calls: 1, avg_ttft_ms: 640 },
   ],
   request_kinds: [
-    { request_kind: 'task_agent:chat_direct', calls: 90, prompt_tokens: 90000, completion_tokens: 40000, total_tokens: 130000, cache_read_tokens: 60000, cache_write_tokens: 14000, cache_hit_rate: 66.67, cost_usd: 8.9, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 8.9 }], failed_calls: 4, avg_latency_ms: 1200, avg_ttft_ms: 320 },
-    { request_kind: 'function_calling:worker_tools', calls: 12, prompt_tokens: 18000, completion_tokens: 3000, total_tokens: 21000, cache_read_tokens: 3000, cache_write_tokens: 1500, cache_hit_rate: 16.67, cost_usd: 1.1, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 1.1 }], failed_calls: 1, avg_latency_ms: 1500 },
-    { request_kind: 'task_agent:failure_status', calls: 2, prompt_tokens: 1200, completion_tokens: 300, total_tokens: 1500, cache_read_tokens: 0, cache_write_tokens: 0, cache_hit_rate: 0, cost_usd: 0.05, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 0.05 }], failed_calls: 0, avg_latency_ms: 900 },
-    { request_kind: 'memory:l2_phase1_extract', calls: 30, prompt_tokens: 30000, completion_tokens: 14000, total_tokens: 44000, cache_read_tokens: 12000, cache_write_tokens: 4000, cache_hit_rate: 40, cost_usd: 3.2, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 3.2 }], failed_calls: 2, avg_latency_ms: 2400 },
+    { request_kind: 'task_agent:chat_direct', calls: 90, prompt_tokens: 90000, completion_tokens: 40000, total_tokens: 130000, cache_read_tokens: 60000, cache_write_tokens: 14000, cache_hit_rate: 66.67, display_costs: { USD: 8.9, CNY: 62.3 }, cost_usd: 8.9, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 8.9 }], failed_calls: 4, avg_latency_ms: 1200, avg_ttft_ms: 320 },
+    { request_kind: 'function_calling:worker_tools', calls: 12, prompt_tokens: 18000, completion_tokens: 3000, total_tokens: 21000, cache_read_tokens: 3000, cache_write_tokens: 1500, cache_hit_rate: 16.67, display_costs: { USD: 1.1, CNY: 7.7 }, cost_usd: 1.1, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 1.1 }], failed_calls: 1, avg_latency_ms: 1500 },
+    { request_kind: 'task_agent:failure_status', calls: 2, prompt_tokens: 1200, completion_tokens: 300, total_tokens: 1500, cache_read_tokens: 0, cache_write_tokens: 0, cache_hit_rate: 0, display_costs: { USD: 0.05, CNY: 0.35 }, cost_usd: 0.05, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 0.05 }], failed_calls: 0, avg_latency_ms: 900 },
+    { request_kind: 'memory:l2_phase1_extract', calls: 30, prompt_tokens: 30000, completion_tokens: 14000, total_tokens: 44000, cache_read_tokens: 12000, cache_write_tokens: 4000, cache_hit_rate: 40, display_costs: { USD: 3.2, CNY: 22.4 }, cost_usd: 3.2, cost_currency: 'USD', cost_by_currency: [{ currency: 'USD', amount: 3.2 }], failed_calls: 2, avg_latency_ms: 2400 },
   ],
 };
 
 const timeseriesFixture: LLMUsageTimeseries = {
   window_days: 7,
   points: [
-    { day: '03-18', calls: 16, prompt_tokens: 14000, completion_tokens: 6000, total_tokens: 20000, cache_read_tokens: 7000, cache_write_tokens: 2000, cache_hit_rate: 50, cost_usd: 1.4 },
-    { day: '03-19', calls: 18, prompt_tokens: 16000, completion_tokens: 7000, total_tokens: 23000, cache_read_tokens: 9000, cache_write_tokens: 3000, cache_hit_rate: 56.25, cost_usd: 1.7 },
-    { day: '03-20', calls: 15, prompt_tokens: 12000, completion_tokens: 5000, total_tokens: 17000, cache_read_tokens: 8000, cache_write_tokens: 2500, cache_hit_rate: 66.67, cost_usd: 1.2 },
+    { day: '2026-03-18', calls: 16, prompt_tokens: 14000, completion_tokens: 6000, total_tokens: 20000, cache_read_tokens: 7000, cache_write_tokens: 2000, cache_hit_rate: 50, cost_usd: 1.4 },
+    { day: '2026-03-19', calls: 18, prompt_tokens: 16000, completion_tokens: 7000, total_tokens: 23000, cache_read_tokens: 9000, cache_write_tokens: 3000, cache_hit_rate: 56.25, cost_usd: 1.7 },
+    { day: '2026-03-20', calls: 15, prompt_tokens: 12000, completion_tokens: 5000, total_tokens: 17000, cache_read_tokens: 8000, cache_write_tokens: 2500, cache_hit_rate: 66.67, cost_usd: 1.2, cost_by_currency: [{ currency: 'USD', amount: 1.2 }] },
   ],
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.removeItem('magi_usage_display_currency');
   translate.mockImplementation((key) => key);
   vi.mocked(metricsApi.getLLMUsageSummary).mockResolvedValue({ success: true, message: '', data: summaryFixture });
   vi.mocked(metricsApi.getLLMUsageTimeseries).mockResolvedValue({ success: true, message: '', data: timeseriesFixture });
@@ -162,10 +168,26 @@ describe('LLMStatisticsSection', () => {
     expect(screen.queryByTestId('statistics-page-summary-rail')).not.toBeInTheDocument();
   });
 
-  it('renders the total cost per native currency joined with a separator', async () => {
+  it('switches the estimated total, trend and table currency and remembers the selection', async () => {
+    const user = userEvent.setup();
+    const view = render(<LLMStatisticsSection />);
+    const cost = await screen.findByRole('button', { name: 'settings.statistics.llm.costDetails' });
+    expect(cost).toHaveTextContent('$12.40');
+    await user.selectOptions(screen.getByLabelText('settings.statistics.llm.displayCurrency'), 'CNY');
+    expect(cost).toHaveTextContent('¥86.85');
+    await user.click(screen.getByRole('button', { name: 'settings.statistics.llm.estimatedCost (CNY)' }));
+    expect(screen.getByRole('columnheader', { name: /columns.cost.*CNY/ })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '¥49.70' })).toBeInTheDocument();
+    await user.click(cost);
+    const details = screen.getByRole('dialog', { name: 'settings.statistics.llm.costDetails' });
+    for (const key of ['failedWithoutUsage', 'successWithoutUsage', 'missingPrice']) {
+      expect(within(details).getByText(`settings.statistics.llm.${key}`)).toBeInTheDocument();
+    }
+    expect(within(details).getByText('openai')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    view.unmount();
     render(<LLMStatisticsSection />);
-
-    expect(await screen.findByText('$8.40 · ¥28.1')).toBeInTheDocument();
+    expect(await screen.findByLabelText('settings.statistics.llm.displayCurrency')).toHaveValue('CNY');
   });
 
   it('loads toolbar filters, uses i18n window labels, and switches windows', async () => {
@@ -286,8 +308,8 @@ describe('LLMStatisticsSection', () => {
       data: {
         ...summaryFixture,
         models: [
-          { provider: 'zhipu', model: 'glm', calls: 20, prompt_tokens: 20000, completion_tokens: 9000, total_tokens: 29000, cost_usd: 1.2 },
-          { provider: 'openai', model: 'glm', calls: 10, prompt_tokens: 12000, completion_tokens: 4000, total_tokens: 16000, cost_usd: 0.8 },
+          { provider: 'zhipu', model: 'glm', calls: 20, prompt_tokens: 20000, completion_tokens: 9000, total_tokens: 29000, cost_usd: 1.2, display_costs: { USD: 1.2, CNY: 8.4 }, cost_by_currency: [{ currency: 'USD', amount: 1.2 }] },
+          { provider: 'openai', model: 'glm', calls: 10, prompt_tokens: 12000, completion_tokens: 4000, total_tokens: 16000, cost_usd: 0.8, display_costs: { USD: 0.8, CNY: 5.6 }, cost_by_currency: [{ currency: 'USD', amount: 0.8 }] },
         ],
       },
     });
@@ -304,15 +326,22 @@ describe('LLMStatisticsSection', () => {
   });
 });
 
-it('keeps multiple billing currencies in one provider row', async () => {
+it('keeps both native charges accessible when the exchange rate is missing', async () => {
   vi.mocked(metricsApi.getLLMUsageSummary).mockResolvedValueOnce({
     success: true, message: '', data: {
       ...summaryFixture,
+      totals: { ...summaryFixture.totals, display_costs: { USD: null, CNY: null } },
       providers: [{ ...summaryFixture.providers[0], cost_usd: null, cost_currency: null,
         cost_by_currency: [{ currency: 'USD', amount: 1.25 }, { currency: 'CNY', amount: 9.6 }] }],
     },
   });
   render(<LLMStatisticsSection />);
   await userEvent.click(await screen.findByRole('tab', { name: 'settings.statistics.llm.tabs.providers' }));
-  expect(await screen.findByText('$1.25 · ¥9.60')).toBeInTheDocument();
+  const cost = screen.getByRole('button', { name: 'settings.statistics.llm.costDetails' });
+  expect(cost).toHaveTextContent('—');
+  await userEvent.click(cost);
+  const dialog = screen.getByRole('dialog');
+  expect(dialog).toHaveTextContent('$1.25 USD');
+  expect(dialog).toHaveTextContent('¥9.60 CNY');
+  expect(dialog).toHaveTextContent('settings.statistics.llm.missingRate');
 });

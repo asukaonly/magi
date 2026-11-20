@@ -1,60 +1,40 @@
-import { api } from '../client';
+import { z } from 'zod';
+import { api, type ApiResponse } from '../client';
 
 export type UsageDisplayCurrency = 'CNY' | 'USD';
-export type UsageDisplayCosts = Partial<Record<UsageDisplayCurrency, number | null>>;
+const count = z.number().int().nonnegative();
+const amount = z.number().nonnegative();
+const displayCosts = z.strictObject({ CNY: amount.nullable().optional(), USD: amount.nullable().optional() })
+  .refine((cost) => (cost.CNY === undefined) === (cost.USD === undefined));
+const charges = z.array(z.object({ currency: z.string().min(1), amount }));
+const tokenCounts = { prompt_tokens: count, completion_tokens: count, total_tokens: count };
+const breakdown = z.object({
+  ...tokenCounts, calls: count, provider: z.string().optional(), model: z.string().optional(),
+  request_kind: z.string().optional(), display_costs: displayCosts, cost_by_currency: charges,
+  cost_usd: amount.nullish(), cost_currency: z.string().nullish(),
+  cache_read_tokens: count.nullish(), cache_write_tokens: count.nullish(), cache_write_1h_tokens: count.nullish(),
+  successful_calls: count.nullish(), failed_calls: count.nullish(), cache_hit_rate: amount.nullish(),
+  avg_latency_ms: amount.nullish(), avg_ttft_ms: amount.nullish(),
+});
+const totals = z.object({
+  ...tokenCounts, total_calls: count, successful_calls: count, failed_calls: count, calls_with_usage: count,
+  unpriced_calls: count, unpriced_failed_without_usage: count, unpriced_success_without_usage: count,
+  display_costs: displayCosts, cost_by_currency: charges, total_cost_usd: amount.nullish(),
+  cache_read_tokens: count, cache_write_tokens: count, cache_write_1h_tokens: count.nullish(),
+  cache_hit_rate: amount, avg_latency_ms: amount, avg_ttft_ms: amount.nullish(),
+}).refine((row) => row.unpriced_calls <= row.total_calls &&
+  row.unpriced_failed_without_usage + row.unpriced_success_without_usage <= row.unpriced_calls);
+const usageSummary = z.object({
+  window_days: count, totals,
+  providers: z.array(breakdown.extend({ provider: z.string() })),
+  models: z.array(breakdown.extend({ provider: z.string(), model: z.string() })),
+  request_kinds: z.array(breakdown.extend({ request_kind: z.string() })),
+  daily_display_costs: z.record(z.iso.date(), displayCosts),
+});
 
-export interface LLMUsageTotals {
-  total_calls: number;
-  successful_calls: number;
-  failed_calls: number;
-  calls_with_usage: number;
-  unpriced_calls?: number;
-  unpriced_failed_without_usage?: number;
-  unpriced_success_without_usage?: number;
-  display_costs?: UsageDisplayCosts;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  cache_read_tokens: number;
-  cache_write_tokens: number;
-  cache_write_1h_tokens?: number | null;
-  cache_hit_rate: number;
-  avg_latency_ms: number;
-  total_cost_usd?: number | null;
-  cost_by_currency?: Array<{ currency: string; amount: number }> | null;
-  avg_ttft_ms?: number | null;
-}
-
-export interface LLMUsageBreakdownItem {
-  display_costs?: UsageDisplayCosts;
-  provider?: string;
-  model?: string;
-  request_kind?: string;
-  calls: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  cache_read_tokens?: number | null;
-  cache_write_tokens?: number | null;
-  cache_write_1h_tokens?: number | null;
-  cache_hit_rate?: number | null;
-  successful_calls?: number | null;
-  failed_calls?: number | null;
-  avg_latency_ms?: number | null;
-  avg_ttft_ms?: number | null;
-  cost_usd?: number | null;
-  cost_by_currency?: Array<{ currency: string; amount: number }> | null;
-  cost_currency?: string | null;
-}
-
-export interface LLMUsageSummary {
-  window_days: number;
-  totals: LLMUsageTotals;
-  providers: LLMUsageBreakdownItem[];
-  models: LLMUsageBreakdownItem[];
-  request_kinds: LLMUsageBreakdownItem[];
-  daily_display_costs?: Record<string, UsageDisplayCosts>;
-}
+export type LLMUsageTotals = z.infer<typeof totals>;
+export type LLMUsageBreakdownItem = z.infer<typeof breakdown>;
+export type LLMUsageSummary = z.infer<typeof usageSummary>;
 
 export interface LLMUsageTimeseriesPoint {
   day: string;
@@ -148,10 +128,12 @@ export interface RuntimeOverview {
 }
 
 export const metricsApi = {
-  getLLMUsageSummary: (days = 7, modelLimit = 8) =>
-    api.get<LLMUsageSummary>('/metrics/llm/usage/summary', {
+  getLLMUsageSummary: async (days = 7, modelLimit = 8): Promise<ApiResponse<LLMUsageSummary>> => {
+    const result = await api.get<unknown>('/metrics/llm/usage/summary', {
       params: { days, model_limit: modelLimit, include_estimates: true },
-    }),
+    });
+    return { ...result, data: result.success ? usageSummary.parse(result.data) : undefined };
+  },
   getLLMUsageTimeseries: (days = 7) =>
     api.get<LLMUsageTimeseries>('/metrics/llm/usage/timeseries', { params: { days } }),
   getRuntimeOverview: () => api.get<RuntimeOverview>('/metrics/runtime/overview'),
