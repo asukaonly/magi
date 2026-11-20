@@ -1,4 +1,11 @@
 {
+  "channels": {
+    "commands": {
+      "help": "/new or /reset — Start a new conversation and keep the old history.\n/help — Show these commands.\nTo approve or deny a tool request, follow the instructions in the request.",
+      "reset": "Your next message will start a new conversation. Your previous history is saved.",
+      "reset_failed": "Could not reset the conversation. Please try again."
+    }
+  },
   "errors": {
     "internal_server_error": "Internal server error"
   },

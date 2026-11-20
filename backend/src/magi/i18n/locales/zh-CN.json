@@ -1,4 +1,11 @@
 {
+  "channels": {
+    "commands": {
+      "help": "/new、/reset、/新会话、/重置 — 开启新会话，保留原有历史。\n/help — 查看可用命令。\n收到工具审批请求时，请按提示同意或拒绝。",
+      "reset": "已重置。你的下一条消息会开启新会话，原有历史已保留。",
+      "reset_failed": "会话重置失败，请重试。"
+    }
+  },
   "errors": {
     "internal_server_error": "服务器内部错误"
   },

@@ -27,27 +27,16 @@ from magi_plugin_sdk.channels import (
 )
 
 from ..core.logger import get_logger
+from ..i18n import t
 from .ingress_boundary import ChannelIngressBoundary
 
 logger = get_logger(__name__)
-
-#: One-line help per command family. Hardcoded Chinese, consistent with the
-#: existing slash-command acks (migrate to i18n together if/when those are).
-_HELP_LINES = (
-    "/new、/reset、/新会话、/重置 —— 开启全新会话(旧历史保留、不带入)",
-    "/approve、/deny —— 同意 / 拒绝当前待审批的工具请求",
-    "/help —— 显示这份命令列表",
-)
 
 _HELP_TRIGGERS = frozenset({"/help", "/?", "help", "帮助", "命令"})
 
 
 def _is_help_command(message: str) -> bool:
     return (message or "").strip().lower() in _HELP_TRIGGERS
-
-
-def _help_ack() -> str:
-    return "可用命令:\n" + "\n".join(_HELP_LINES)
 
 
 class HostControlPort:
@@ -138,7 +127,7 @@ class HostControlPort:
 
         # 3) Help.
         if _is_help_command(message):
-            return ChannelControlCommandResult(ack=_help_ack(), kind="help")
+            return ChannelControlCommandResult(ack=t("channels.commands.help"), kind="help")
 
         return None
 

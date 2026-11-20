@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core.logger import get_logger
+from ..i18n import t
 
 logger = get_logger(__name__)
 
@@ -32,11 +33,6 @@ _SLASH_PATTERN = re.compile(r"^\s*/(?:new|reset|新会话|重置)\s*$", re.IGNOR
 #: Whole-message (trimmed) exact phrases — NO substring matching, so normal chat
 #: that merely mentions "新会话" is not swallowed.
 _EXACT_PHRASES = frozenset({"新会话", "新对话", "重新开始", "重置会话"})
-
-#: Hardcoded ack — matches the existing permission slash-command ack convention
-#: (also hardcoded Chinese rather than i18n; migrate together if/when i18n'd).
-_ACK_MESSAGE = "✨ 已重置 —— 你的下一条消息会开启全新对话(之前的历史保留、不带入)。"
-
 
 @dataclass
 class SessionCommandOutcome:
@@ -83,30 +79,17 @@ async def try_handle_session_command(
 
     try:
         mapping = await session_mapper.lookup_by_session(session_id)
-    except Exception:  # noqa: BLE001 — lookup failure must not break dispatch
-        logger.debug("session_command.lookup_failed", exc_info=True)
-        mapping = None
+        if mapping is not None:
+            await session_mapper.delete_mapping(
+                mapping.channel_type, mapping.external_chat_id,
+                external_thread_id=mapping.external_thread_id,
+            )
+            logger.info("session_command.reset", session_id=session_id, channel_type=mapping.channel_type)
+    except Exception:  # noqa: BLE001 — consume the command and report the storage failure.
+        logger.warning("session_command.reset_failed", session_id=session_id, exc_info=True)
+        return SessionCommandOutcome(handled=True, ack_message=t("channels.commands.reset_failed"))
 
-    if mapping is None:
-        # Already reset, or this session isn't channel-bound — idempotent ack.
-        return SessionCommandOutcome(handled=True, ack_message=_ACK_MESSAGE)
-
-    try:
-        await session_mapper.delete_mapping(
-            mapping.channel_type, mapping.external_chat_id,
-            external_thread_id=mapping.external_thread_id,
-        )
-    except Exception:  # noqa: BLE001 — a failed unbind must not block the user
-        logger.debug("session_command.delete_failed", exc_info=True)
-        # Still ack success; worst case the user retries.
-    else:
-        logger.info(
-            "session_command.reset",
-            session_id=session_id,
-            channel_type=getattr(mapping, "channel_type", None),
-        )
-
-    return SessionCommandOutcome(handled=True, ack_message=_ACK_MESSAGE)
+    return SessionCommandOutcome(handled=True, ack_message=t("channels.commands.reset"))
 
 
 __all__ = [
