@@ -358,7 +358,7 @@ the new files and finishes removing plaintext rollback artifacts.
 | `data/memory/l1_events.db` | memory L1 + L1-projected chat sessions | normalized event log, embeddings, FTS, entity links |
 | `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | short-term attention checkpoints, grounded Claim/evidence/entity-reference ledgers, exact L2 projection attempts and outcomes, knowledge graph, ToM, correction history, stable context identities, summaries, procedural skills |
 | `runtime/runtime_trace.db` | runtime trace | canonical run manifests/events, versioned plans, normalized spans / llm calls / tools, plugin ingress events |
-| `runtime/llm_usage.db` | llm | per-request usage + cost telemetry, daily rollups |
+| `runtime/llm_usage.db` | llm | per-request usage + cost telemetry, daily rollups, and pinned daily FX reference rates (v2) |
 | `data/app/persona_registry.db` | personality | personas, active persona, source-linked reference dossiers for generated personas |
 | `data/memory/behavior_evolution.db` | personality | historical task interactions, category statistics, and behavior profiles; no runtime collection or inference |
 | `data/memory/emotional_state.db` | personality | emotional state KV + events |

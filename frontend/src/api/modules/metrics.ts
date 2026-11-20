@@ -1,11 +1,17 @@
 import { api } from '../client';
 
+export type UsageDisplayCurrency = 'CNY' | 'USD';
+export type UsageDisplayCosts = Partial<Record<UsageDisplayCurrency, number | null>>;
+
 export interface LLMUsageTotals {
   total_calls: number;
   successful_calls: number;
   failed_calls: number;
   calls_with_usage: number;
   unpriced_calls?: number;
+  unpriced_failed_without_usage?: number;
+  unpriced_success_without_usage?: number;
+  display_costs?: UsageDisplayCosts;
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
@@ -20,6 +26,7 @@ export interface LLMUsageTotals {
 }
 
 export interface LLMUsageBreakdownItem {
+  display_costs?: UsageDisplayCosts;
   provider?: string;
   model?: string;
   request_kind?: string;
@@ -46,6 +53,7 @@ export interface LLMUsageSummary {
   providers: LLMUsageBreakdownItem[];
   models: LLMUsageBreakdownItem[];
   request_kinds: LLMUsageBreakdownItem[];
+  daily_display_costs?: Record<string, UsageDisplayCosts>;
 }
 
 export interface LLMUsageTimeseriesPoint {
@@ -142,7 +150,7 @@ export interface RuntimeOverview {
 export const metricsApi = {
   getLLMUsageSummary: (days = 7, modelLimit = 8) =>
     api.get<LLMUsageSummary>('/metrics/llm/usage/summary', {
-      params: { days, model_limit: modelLimit },
+      params: { days, model_limit: modelLimit, include_estimates: true },
     }),
   getLLMUsageTimeseries: (days = 7) =>
     api.get<LLMUsageTimeseries>('/metrics/llm/usage/timeseries', { params: { days } }),

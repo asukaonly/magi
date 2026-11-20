@@ -16,8 +16,12 @@ def _usage_store():
 
 
 @metrics_router.get("/llm/usage/summary")
-async def llm_usage_summary(days: int = Query(default=7), model_limit: int = Query(default=8)) -> dict[str, Any]:
-    data = await _usage_store().get_summary(days=max(1, min(365, days)), model_limit=max(1, min(50, model_limit)))
+async def llm_usage_summary(
+    days: int = Query(default=7), model_limit: int = Query(default=8), include_estimates: bool = Query(default=False),
+) -> dict[str, Any]:
+    data = await _usage_store().get_summary(
+        days=max(1, min(365, days)), model_limit=max(1, min(50, model_limit)), include_estimates=include_estimates,
+    )
     return {"success": True, "message": "LLM usage summary loaded", "data": data}
 
 

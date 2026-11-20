@@ -16,6 +16,7 @@ from ..core.logger import get_logger
 from ..core.operation_barrier import AsyncOperationBarrier
 from ..core.sqlite import sqlite_connection_async
 from ..utils.runtime import get_runtime_paths
+from .usage_cost_report import UsageExchangeRates, attach_display_costs
 
 logger = get_logger(__name__)
 
@@ -28,6 +29,10 @@ SELECT
     SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
     SUM(CASE WHEN usage_available = 1 THEN 1 ELSE 0 END) AS calls_with_usage,
     SUM(CASE WHEN cost_usd IS NULL OR cost_currency IS NULL THEN 1 ELSE 0 END) AS unpriced_calls,
+    COUNT(*) FILTER (WHERE (cost_usd IS NULL OR cost_currency IS NULL)
+        AND success = 0 AND usage_available = 0) AS unpriced_failed_without_usage,
+    COUNT(*) FILTER (WHERE (cost_usd IS NULL OR cost_currency IS NULL)
+        AND success = 1 AND usage_available = 0) AS unpriced_success_without_usage,
     COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
     COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
     COALESCE(SUM(total_tokens), 0) AS total_tokens,
@@ -192,6 +197,7 @@ class LLMUsageStore:
         runtime_paths = get_runtime_paths()
         self._db_path = Path(db_path or runtime_paths.llm_usage_db_path)
         self._user_content_barrier = AsyncOperationBarrier()
+        self._exchange_rates = UsageExchangeRates(self._db_path)
 
     async def initialize(self) -> None:
         """Ensure parent directory exists; schema is alembic-managed."""
@@ -224,6 +230,7 @@ class LLMUsageStore:
                 try:
                     deleted = 0
                     for table_name in (
+                        "usage_exchange_rates",
                         "llm_cache_observations",
                         "llm_usage_rollups",
                         "llm_usage",
@@ -456,12 +463,17 @@ class LLMUsageStore:
             "core_model_success_rate_available": bool(calls),
         }
 
-    async def get_summary(self, days: int = 7, model_limit: int = 8) -> dict[str, Any]:
-        """Return aggregate LLM usage metrics for the requested window."""
+    async def get_summary(self, days: int = 7, model_limit: int = 8, *, include_estimates: bool = False) -> dict[str, Any]:
+        """Return a consistent snapshot and keep rate updates inside the full-clear boundary."""
+        async with self.user_content_operation():
+            return await self._read_summary(days, model_limit, include_estimates)
+
+    async def _read_summary(self, days: int, model_limit: int, include_estimates: bool) -> dict[str, Any]:
         cutoff = time.time() - (days * 86400)
         await self.initialize()
         async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
             db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN")
             totals = await self._fetch_summary_totals(db, cutoff)
             providers = await self._fetch_grouped_usage(db, _SUMMARY_PROVIDERS_SQL, (cutoff,), ("provider",))
             models = await self._fetch_grouped_usage(db, _SUMMARY_MODELS_SQL, (cutoff, model_limit), ("provider", "model"))
@@ -470,7 +482,15 @@ class LLMUsageStore:
             )
             cost_by_currency = await self._fetch_cost_by_currency(db, cutoff)
 
-        return self._build_summary_response(
+            if include_estimates:
+                charges = await db.execute_fetchall("""
+                    SELECT date(created_at, 'unixepoch', 'localtime') AS day, provider, model, request_kind,
+                           cost_currency AS currency, SUM(cost_usd) AS amount
+                    FROM llm_usage WHERE created_at >= ? AND cost_usd IS NOT NULL AND cost_currency IS NOT NULL
+                    GROUP BY day, provider, model, request_kind, cost_currency
+                """, (cutoff,))
+
+        summary = self._build_summary_response(
             days=days,
             totals=totals,
             providers=providers,
@@ -478,6 +498,10 @@ class LLMUsageStore:
             request_kinds=request_kinds,
             cost_by_currency=cost_by_currency,
         )
+
+        if include_estimates:
+            attach_display_costs(summary, charges, await self._exchange_rates.get(charges))
+        return summary
 
     async def _fetch_summary_totals(
         self,
@@ -523,6 +547,8 @@ class LLMUsageStore:
                 ),
                 "calls_with_usage": int(totals["calls_with_usage"] or 0),
                 "unpriced_calls": int(totals["unpriced_calls"] or 0),
+                "unpriced_failed_without_usage": int(totals["unpriced_failed_without_usage"]),
+                "unpriced_success_without_usage": int(totals["unpriced_success_without_usage"]),
                 "prompt_tokens": int(totals["prompt_tokens"] or 0),
                 "completion_tokens": int(totals["completion_tokens"] or 0),
                 "total_tokens": int(totals["total_tokens"] or 0),

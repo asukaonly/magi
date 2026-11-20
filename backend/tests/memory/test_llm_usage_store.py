@@ -189,11 +189,12 @@ async def test_clear_user_content_erases_usage_diagnostics_and_rollups(
             """,
             ("private-provider", "private-model"),
         )
+        await db.execute("INSERT INTO usage_exchange_rates VALUES ('2026-01-01', 'CNY', 7, '2025-12-31')")
         await db.commit()
 
     deleted = await store.clear_user_content()
 
-    assert deleted == 3
+    assert deleted == 4
     assert (await store.get_summary(days=36500))["totals"]["total_calls"] == 0
     assert await store.list_cache_observations(days=36500) == []
     async with sqlite_connection_async(db_path) as db:
@@ -201,6 +202,7 @@ async def test_clear_user_content_erases_usage_diagnostics_and_rollups(
             "llm_usage",
             "llm_usage_rollups",
             "llm_cache_observations",
+            "usage_exchange_rates",
         ):
             cursor = await db.execute(f"SELECT COUNT(*) FROM {table_name}")
             assert int((await cursor.fetchone())[0]) == 0
@@ -287,3 +289,24 @@ async def test_mixed_currencies_stay_separate_in_every_aggregation(tmp_path):
     point = (await store.get_timeseries())[0]
     assert point['cost_by_currency'] == expected
     assert point['cost_usd'] == 2
+
+
+@pytest.mark.asyncio
+async def test_daily_rate_uses_only_valid_recent_past_observations(monkeypatch):
+    import httpx
+    from magi.llm import usage_cost_report
+
+    def response(request):
+        assert request.url.params["base"] == "USD"
+        return httpx.Response(200, json=[
+            {"date": "2026-11-10", "base": "USD", "quote": "CNY", "rate": 6.4},
+            {"date": "2026-11-11", "base": "USD", "quote": "EUR", "rate": 2},
+            {"date": "2026-11-11", "base": "USD", "quote": "CNY", "rate": -1},
+            {"date": "2026-11-13", "base": "USD", "quote": "CNY", "rate": 6.6},
+        ])
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(response))
+    monkeypatch.setattr(usage_cost_report.httpx, "AsyncClient", lambda **kwargs: client)
+    assert await usage_cost_report._fetch_daily_rates("CNY", {"2026-11-09", "2026-11-11", "2026-11-21"}) == [
+        ("2026-11-11", "CNY", 6.4, "2026-11-10"),
+    ]
