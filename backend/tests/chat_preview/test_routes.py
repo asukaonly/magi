@@ -388,7 +388,7 @@ def test_post_preview_accepts_complete_persona_override() -> None:
     assert "short and warm" in prompt
     assert "Use short sentences and quick particles." in working_context
     assert "[User: hello]" in working_context
-    assert "Most replies are 1-3 lines." in prompt
+    assert "Keep ordinary chat concise. Expand whenever the question or task needs" in prompt
     assert "# Tool Use Guidance" not in working_context
     assert "Persona preview scene" not in working_context
     assert "seed prompt" not in working_context
