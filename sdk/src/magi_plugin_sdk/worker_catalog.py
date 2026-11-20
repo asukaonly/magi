@@ -32,6 +32,7 @@ SOURCE_ATTRIBUTES = (
     "supports_state_flush",
     "supports_watch_mode",
     "memory_event_type",
+    "memory_policy",
 )
 TOOL_METHODS = frozenset(
     {
