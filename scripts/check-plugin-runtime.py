@@ -103,6 +103,7 @@ from magi.plugins.operations import PluginOperationRegistry
 from magi.plugins.process_runtime import ProcessLimits, ProcessPluginProxy
 from magi.plugins.providers import PluginProviderRegistry
 from magi.plugins.sources import SourceRegistry
+from magi.plugins.storage_registry import PluginStorageRegistry
 from magi.skills.plugin_registry import PluginSkillRegistry
 from magi.hooks.registry import HookRegistry
 from magi.skills.indexer import SkillIndexer
@@ -347,6 +348,7 @@ async def main() -> int:
         operations = PluginOperationRegistry(
             tools, get_connection=connections.get, authorize=lambda *_: False
         )
+        storage = PluginStorageRegistry()
         providers = PluginProviderRegistry(get_connection=connections.get)
         registrar = PluginContributionRegistrar(
             tool_registry=tools,
@@ -356,6 +358,7 @@ async def main() -> int:
             skill_registrar=skills,
             operation_registrar=operations,
             provider_registrar=providers,
+            storage_registrar=storage,
         )
 
         def registry_snapshot() -> dict[str, Any]:
@@ -371,6 +374,7 @@ async def main() -> int:
                 "skills": sorted(tools._skills),
                 "skill_index": sorted(indexer._plugin_skills),
                 "providers": sorted(providers._providers),
+                "storage": sorted(storage._entries),
                 "registration_owners": sorted(registrar._registrations),
                 "tool_aliases": sorted(tools._tool_aliases.items()),
             }
@@ -400,6 +404,10 @@ async def main() -> int:
                 "providers": {
                     key: value
                     for key, value in providers._providers.items()
+                    if value.connection_id == connection_id
+                },
+                "storage": {
+                    key: value for key, value in storage._entries.items()
                     if value.connection_id == connection_id
                 },
                 "disposers": list(registrar._registrations.get(connection_id, ())),
