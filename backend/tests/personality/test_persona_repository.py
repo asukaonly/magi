@@ -484,3 +484,26 @@ async def test_seed_builtin_personas_is_idempotent_under_concurrency(
     ]
     assert len(records) == 1
     assert len(first_result) + len(second_result) == 1
+
+
+@pytest.mark.asyncio
+async def test_migration_preserves_unrecognized_builtin_and_custom_personas(tmp_path):
+    import sqlite3
+
+    from magi.db.runner import run_upgrade_database
+
+    path = tmp_path / "personas.db"
+    run_upgrade_database("persona_registry", path, revision="v3")
+    with sqlite3.connect(path) as db:
+        db.executemany(
+            """INSERT INTO personas
+               (persona_id, name, slug, config_json, is_builtin, seed_slug, created_at, updated_at)
+               VALUES (?, 'Edited', ?, ?, ?, ?, 1, 2)""",
+            [("builtin", "example", _SAMPLE_CONFIG, 1, "example"),
+             ("custom", "custom", _SAMPLE_CONFIG, 0, None)],
+        )
+    run_upgrade_database("persona_registry", path)
+    repo = PersonaRepository(str(path))
+    await repo.upsert_builtin('{"name":"New default"}', locale="en", seed_slug="example")
+    assert (await repo.get("builtin")).name == "Edited"
+    assert (await repo.get("custom")).name == "Edited"

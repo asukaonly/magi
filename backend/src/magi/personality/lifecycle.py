@@ -72,8 +72,7 @@ class PersonalityModule(LifecycleModule):
         repo = PersonaRepository(str(runtime_paths.persona_registry_db_path))
         await repo.init()
 
-        # Keep builtin personas aligned with bundled presets. Custom personas
-        # remain registry-owned; builtin records follow their seed files.
+        # Synchronize installed bundles while respecting registry-owned edits and deletions.
         existing = await repo.list_all()
         locale = resolve_locale(get_preferred_language())
         has_builtin_persona = any(item.is_builtin for item in existing)

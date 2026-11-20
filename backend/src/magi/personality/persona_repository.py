@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS personas (
     sort_order    INTEGER NOT NULL DEFAULT 0,
     is_builtin    INTEGER NOT NULL DEFAULT 0,
     seed_slug     TEXT,
+    seed_user_modified INTEGER NOT NULL DEFAULT 0,
     description   TEXT NOT NULL DEFAULT '',
     created_at    REAL NOT NULL,
     updated_at    REAL NOT NULL,
@@ -224,11 +225,15 @@ class PersonaRepository:
             await db.execute("BEGIN IMMEDIATE")
             rows = await db.execute_fetchall(
                 """SELECT * FROM personas
-                   WHERE is_builtin = 1 AND seed_slug = ? AND deleted_at IS NULL""",
+                   WHERE is_builtin = 1 AND seed_slug = ?
+                   ORDER BY deleted_at IS NULL DESC, created_at DESC LIMIT 1""",
                 (seed_slug,),
             )
             if rows:
                 persona_id = rows[0]["persona_id"]
+                if rows[0]["deleted_at"] is not None or rows[0]["seed_user_modified"]:
+                    await db.commit()
+                    return persona_id, False
                 desired = {
                     "name": display_name, "locale": locale, "config_json": config_json,
                     "avatar_path": avatar, "group_name": group, "sort_order": order,
@@ -448,6 +453,8 @@ class PersonaRepository:
             if expected_updated_at is not None and current.updated_at != expected_updated_at:
                 raise PersonaConflictError("Persona changed; reload its current snapshot")
             if sets or reference_dossier is not None:
+                if current.is_builtin:
+                    sets.append("seed_user_modified = 1")
                 sets.append("updated_at = ?")
                 params.extend((max(time.time(), math.nextafter(current.updated_at, math.inf)), persona_id))
                 await db.execute(

@@ -99,3 +99,30 @@ async def test_startup_does_not_install_other_language_for_a_custom_persona(
     assert [item.seed_slug for item in builtins] == ["echo"]
     assert await repo.get(custom_id) == before
     assert await repo.get_active_id() == custom_id
+
+
+@pytest.mark.asyncio
+async def test_startup_and_explicit_seeding_respect_edits_and_tombstones(tmp_path, monkeypatch):
+    root = tmp_path / "seeds"
+    monkeypatch.setattr(persona_seed, "_seed_dir", lambda locale: root / locale)
+    monkeypatch.setattr(lifecycle, "get_preferred_language", lambda: "en")
+    repo, state, context = await _startup_context(tmp_path, monkeypatch)
+    names = ("edited", "deleted", "untouched")
+    for name in names:
+        _write_seed(root, "en", name, "original.png")
+    await persona_seed.sync_builtin_personas(repo, "en", state)
+    records = {item.name: item for item in await repo.list_all()}
+    await repo.update(records["edited"].persona_id, avatar_path="user.png")
+    await repo.delete(records["deleted"].persona_id)
+    custom = await repo.create(json.dumps({"name": "Custom"}))
+    await repo.set_active(custom)
+    for name in names:
+        _write_seed(root, "en", name, "upgraded.png")
+
+    await lifecycle.PersonalityModule(context).init()
+    assert await persona_seed.seed_builtin_personas(repo, "en") == []
+    assert {row.name for row in await repo.list_all()} == {"edited", "untouched", "Custom"}
+    assert await repo.count(include_deleted=True) == 4
+    assert (await repo.get(records["edited"].persona_id)).avatar_path == "user.png"
+    assert (await repo.get(records["untouched"].persona_id)).avatar_path == "upgraded.png"
+    assert await repo.get_active_id() == custom

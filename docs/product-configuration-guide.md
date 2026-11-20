@@ -1056,10 +1056,13 @@ asset description and `ATTRIBUTION.txt` alongside the artwork.
 
 Bundled avatar files are served by the existing public `/static/avatars` mount.
 The changed preset filenames participate in the normal startup bundle
-fingerprint, so existing builtin registry entries receive the new avatar paths
+fingerprint, so unedited builtin registry entries receive the new avatar paths
 when the service restarts. Startup synchronizes the current language and every
 already installed builtin language bundle, preserving persona IDs and the
-active selection. Custom personas do not cause extra language bundles to be
+active selection. Editing a builtin persona makes its settings user-owned; future
+bundle updates preserve those edits. A deleted builtin stays deleted across
+startup, settings visits, and explicit seeding. On upgrade, unrecognized existing
+builtin configurations are preserved as user-owned. Custom personas do not cause extra language bundles to be
 installed. Both language sets use the approved default expressions;
 expression variants remain design studies and do not switch
 automatically at runtime.
