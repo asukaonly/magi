@@ -98,16 +98,36 @@ def classifier() -> RiskClassifier:
         ),
         ("powershell", {"command": "Clear-Disk -Number 0"}, RiskLevel.DESTRUCTIVE),
         # File tools.
-        ("file_write", {"path": "/tmp/note.md"}, RiskLevel.MEDIUM),
+        ("file_write", {"path": "note.md"}, RiskLevel.MEDIUM),
+        ("file_write", {"path": "/tmp/note.md"}, RiskLevel.HIGH),
         ("file_edit", {"path": "src/app.py"}, RiskLevel.MEDIUM),
+        ("file_edit", {"path": "/tmp/outside.py"}, RiskLevel.HIGH),
         (
             "file_write",
             {"path": "/Users/alice/.ssh/authorized_keys"},
             RiskLevel.DESTRUCTIVE,
         ),
+        (
+            "file_write",
+            {"path": "/Users/alice/.magi/config/llm.yaml"},
+            RiskLevel.DESTRUCTIVE,
+        ),
+        (
+            "file_write",
+            {"path": "/Users/alice/Library/LaunchAgents/com.test.plist"},
+            RiskLevel.DESTRUCTIVE,
+        ),
+        (
+            "file_edit",
+            {"path": "/Users/alice/.zshrc"},
+            RiskLevel.DESTRUCTIVE,
+        ),
+        ("file_write", {"path": ".env.local"}, RiskLevel.DESTRUCTIVE),
         ("file_read", {"path": "src/app.py"}, RiskLevel.LOW),
         # Network.
+        ("web-fetch", {"url": "https://example.com"}, RiskLevel.MEDIUM),
         ("web_fetch", {"url": "https://example.com"}, RiskLevel.MEDIUM),
+        ("web-search", {"query": "python asyncio"}, RiskLevel.LOW),
         ("web_search", {"query": "python asyncio"}, RiskLevel.LOW),
         # External side effects.
         ("send_message", {"channel": "#general", "text": "hi"}, RiskLevel.HIGH),
@@ -202,6 +222,50 @@ def test_file_read_expanded_workspace_remains_low_risk(classifier, tmp_path, mon
         workspace=" $MAGI_TEST_WORKSPACE ",
     )
     assert result.level is RiskLevel.LOW
+
+
+@pytest.mark.parametrize("tool_name", ["file_write", "file_edit"])
+@pytest.mark.parametrize(
+    "path_kind,expected,signal_key",
+    [
+        ("inside", RiskLevel.MEDIUM, None),
+        ("outside", RiskLevel.HIGH, "outside_workspace"),
+        ("magi_home", RiskLevel.DESTRUCTIVE, "sensitive_user_path"),
+        ("launch_agent", RiskLevel.DESTRUCTIVE, "sensitive_user_path"),
+        ("env_file", RiskLevel.DESTRUCTIVE, "sensitive_user_path"),
+    ],
+)
+def test_file_write_and_edit_respect_workspace_and_sensitive_paths(
+    classifier, tmp_path, monkeypatch, tool_name, path_kind, expected, signal_key
+):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    magi_home = tmp_path / "custom-magi-home"
+    magi_home.mkdir()
+    monkeypatch.setenv("MAGI_HOME", str(magi_home))
+    path = {
+        "inside": "src/app.py",
+        "outside": str(tmp_path / "outside.txt"),
+        "magi_home": str(magi_home / "config" / "llm.yaml"),
+        "launch_agent": "~/Library/LaunchAgents/com.example.plist",
+        "env_file": ".env",
+    }[path_kind]
+    result = classifier.classify(
+        tool_name=tool_name, arguments={"path": path}, workspace=str(workspace)
+    )
+    assert result.level is expected
+    if signal_key is not None:
+        assert any(s.key == signal_key for s in result.signals)
+
+
+def test_builtin_web_fetch_and_search_names_match_classifier_rules(classifier):
+    from magi.tools.builtin.web_fetch_tool import WebFetchTool
+    from magi.tools.builtin.web_search_tool import WebSearchTool
+
+    fetch_name = WebFetchTool().get_schema().name
+    search_name = WebSearchTool().get_schema().name
+    assert classifier.classify(tool_name=fetch_name, arguments={"url": "https://example.com"}).level is RiskLevel.MEDIUM
+    assert classifier.classify(tool_name=search_name, arguments={"query": "magi"}).level is RiskLevel.LOW
 
 
 @pytest.mark.parametrize(

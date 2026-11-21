@@ -96,6 +96,7 @@ async def blocked_url_target_reason(
     allow_private_network: bool = False,
     private_network_allowlist: list[str] | tuple[str, ...] | None = None,
     allow_rfc2544_benchmark_range: bool = False,
+    fail_closed_on_dns_error: bool = False,
 ) -> str | None:
     """Return a policy reason when a URL targets local/private networks."""
     parsed = urlparse(url)
@@ -136,6 +137,11 @@ async def blocked_url_target_reason(
             type=socket.SOCK_STREAM,
         )
     except socket.gaierror:
+        if fail_closed_on_dns_error:
+            return (
+                f"host '{host}' could not be resolved locally while proxy/strict SSRF "
+                "validation is active (dns_unresolvable_blocked)."
+            )
         return None
 
     seen: set[str] = set()

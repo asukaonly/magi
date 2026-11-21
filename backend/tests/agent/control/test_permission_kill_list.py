@@ -126,6 +126,11 @@ from magi.control.permission.kill_list import check_kill_list
             "file_tool_system_path",
         ),
         (
+            "file_write",
+            {"path": "/System/../System/Library/foo"},
+            "file_tool_system_path",
+        ),
+        (
             "file_edit",
             {"path": "/usr/bin/login"},
             "file_tool_system_path",

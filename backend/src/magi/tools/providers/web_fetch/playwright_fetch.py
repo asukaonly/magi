@@ -73,6 +73,7 @@ class PlaywrightFetchProvider(Provider):
                         allow_private_network=allow_private_network,
                         private_network_allowlist=private_network_allowlist,
                         allow_rfc2544_benchmark_range=allow_rfc2544_benchmark_range,
+                        fail_closed_on_dns_error=bool(proxy_url),
                     )
                     if reason:
                         await route.abort()

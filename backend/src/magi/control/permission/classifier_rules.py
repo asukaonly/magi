@@ -6,6 +6,7 @@ from collections.abc import Callable
 import os
 from typing import Any
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from magi.utils.path_utils import expand_input_path, resolve_path_from_workspace
 
 from .classifier_models import ClassificationResult, RiskSignal
@@ -40,18 +41,26 @@ def _classify_file_write(
     arguments: dict[str, Any], *, workspace: str | None = None
 ) -> ClassificationResult:
     path = arguments.get("path") or arguments.get("file_path") or ""
+    path_text = str(path)
     signals = [RiskSignal(key="fs_write", description="filesystem write")]
-    if isinstance(path, str) and _is_sensitive_user_path(path, workspace):
+    if path_text and _is_sensitive_user_path(path_text, workspace):
         signals.append(
             RiskSignal(key="sensitive_user_path", description="writes to user-sensitive path")
         )
         return ClassificationResult(
-            level=RiskLevel.DESTRUCTIVE, signals=signals, preview=path[:200]
+            level=RiskLevel.DESTRUCTIVE, signals=signals, preview=path_text[:200]
+        )
+    if path_text and _is_outside_workspace(path_text, workspace):
+        signals.append(
+            RiskSignal(key="outside_workspace", description="writes outside active workspace")
+        )
+        return ClassificationResult(
+            level=RiskLevel.HIGH, signals=signals, preview=path_text[:200]
         )
     return ClassificationResult(
         level=RiskLevel.MEDIUM,
         signals=signals,
-        preview=str(path)[:200] if path else None,
+        preview=path_text[:200] if path_text else None,
     )
 
 
@@ -59,18 +68,26 @@ def _classify_file_edit(
     arguments: dict[str, Any], *, workspace: str | None = None
 ) -> ClassificationResult:
     path = arguments.get("path") or arguments.get("file_path") or ""
+    path_text = str(path)
     signals = [RiskSignal(key="fs_edit", description="filesystem edit")]
-    if isinstance(path, str) and _is_sensitive_user_path(path, workspace):
+    if path_text and _is_sensitive_user_path(path_text, workspace):
         signals.append(
             RiskSignal(key="sensitive_user_path", description="edits user-sensitive path")
         )
         return ClassificationResult(
-            level=RiskLevel.DESTRUCTIVE, signals=signals, preview=path[:200]
+            level=RiskLevel.DESTRUCTIVE, signals=signals, preview=path_text[:200]
+        )
+    if path_text and _is_outside_workspace(path_text, workspace):
+        signals.append(
+            RiskSignal(key="outside_workspace", description="edits outside active workspace")
+        )
+        return ClassificationResult(
+            level=RiskLevel.HIGH, signals=signals, preview=path_text[:200]
         )
     return ClassificationResult(
         level=RiskLevel.MEDIUM,
         signals=signals,
-        preview=str(path)[:200] if path else None,
+        preview=path_text[:200] if path_text else None,
     )
 
 
@@ -171,7 +188,33 @@ _SENSITIVE_USER_PATH_SUFFIXES: tuple[str, ...] = (
     "/.gnupg/",
     "/.config/gh/hosts.yml",
     "/.netrc",
+    "/.magi/",
+    "/library/launchagents/",
+    "/library/launchdaemons/",
+    "/.bashrc",
+    "/.zshrc",
+    "/.profile",
+    "/.kube/",
+    "/.npmrc",
+    "/.pypirc",
+    "/.docker/config.json",
 )
+
+
+def _is_env_secret_file(normalized_path: str) -> bool:
+    basename = normalized_path.rsplit("/", 1)[-1]
+    return basename == ".env" or basename.startswith(".env.")
+
+
+def _is_under_magi_home(resolved_path: str) -> bool:
+    try:
+        magi_home = os.path.realpath(str(get_magi_home()))
+    except Exception:
+        return False
+    try:
+        return os.path.commonpath([resolved_path, magi_home]) == magi_home
+    except ValueError:
+        return False
 
 
 def _is_sensitive_user_path(path: str, workspace: str | None) -> bool:
@@ -179,11 +222,15 @@ def _is_sensitive_user_path(path: str, workspace: str | None) -> bool:
         resolved = os.path.realpath(resolve_path_from_workspace(path, workspace=workspace))
     except ValueError:
         return True
-    return any(
-        marker in "/" + candidate.replace("\\", "/").lstrip("/")
-        for candidate in (path, resolved)
-        for marker in _SENSITIVE_USER_PATH_SUFFIXES
-    )
+    if _is_under_magi_home(resolved):
+        return True
+    for candidate in (path, resolved):
+        normalized = "/" + candidate.replace("\\", "/").lstrip("/").lower()
+        if _is_env_secret_file(normalized):
+            return True
+        if any(marker in normalized for marker in _SENSITIVE_USER_PATH_SUFFIXES):
+            return True
+    return False
 
 
 def _is_outside_workspace(path: str, workspace: str | None) -> bool:
@@ -216,9 +263,11 @@ RULES: dict[str, Callable[..., ClassificationResult]] = {
     "str_replace_editor": _classify_file_edit,
     "file_read": _classify_file_read,
     "read_file": _classify_file_read,
+    "web-fetch": _classify_web_fetch,
     "web_fetch": _classify_web_fetch,
     "fetch_url": _classify_web_fetch,
     "http_request": _classify_web_fetch,
+    "web-search": _classify_web_search,
     "web_search": _classify_web_search,
     "search_web": _classify_web_search,
     "send_message": _classify_send_message,

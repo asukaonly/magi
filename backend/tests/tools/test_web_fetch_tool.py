@@ -37,7 +37,14 @@ def _allow_tool_network_safety(monkeypatch) -> None:
         allow_private_network=False,
         private_network_allowlist=None,
         allow_rfc2544_benchmark_range=False,
+        fail_closed_on_dns_error=False,
     ):
+        _ = (
+            allow_private_network,
+            private_network_allowlist,
+            allow_rfc2544_benchmark_range,
+            fail_closed_on_dns_error,
+        )
         return None
 
     monkeypatch.setattr(
@@ -121,6 +128,75 @@ async def test_network_safety_applies_private_allowlist_to_resolved_addresses(mo
         )
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_network_safety_fails_closed_on_dns_error_when_requested(monkeypatch):
+    loop = asyncio.get_running_loop()
+
+    async def failing_getaddrinfo(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        raise socket.gaierror(8, "nodename nor servname provided")
+
+    monkeypatch.setattr(loop, "getaddrinfo", failing_getaddrinfo)
+
+    assert await blocked_url_target_reason("https://internal.corp.example") is None
+    blocked = await blocked_url_target_reason(
+        "https://internal.corp.example",
+        fail_closed_on_dns_error=True,
+    )
+    assert blocked and "dns_unresolvable_blocked" in blocked
+
+
+@pytest.mark.asyncio
+async def test_http_fetch_provider_bounds_response_bytes(monkeypatch):
+    from magi.tools.providers.web_fetch.http_fetch import HttpFetchProvider
+
+    class _FakeContent:
+        async def iter_chunked(self, size: int):
+            _ = size
+            for _ in range(10):
+                yield b"a" * 1024
+
+    class _FakeResponse:
+        status = 200
+        headers = {"Content-Type": "text/html"}
+        url = "https://example.com"
+        charset = "utf-8"
+        content = _FakeContent()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    class _FakeSession:
+        def __init__(self, *args, **kwargs):
+            _ = (args, kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def get(self, *args, **kwargs):
+            _ = (args, kwargs)
+            return _FakeResponse()
+
+    provider = HttpFetchProvider()
+    monkeypatch.setattr(provider, "MAX_RESPONSE_BYTES", 2500)
+    monkeypatch.setattr(
+        "magi.tools.providers.web_fetch.http_fetch.blocked_url_target_reason",
+        lambda *a, **kw: asyncio.sleep(0, result=None),
+    )
+    monkeypatch.setattr(
+        "magi.tools.providers.web_fetch.http_fetch.aiohttp.ClientSession",
+        _FakeSession,
+    )
+    result = await provider.execute({"url": "https://example.com"}, ProviderConfig())
+    assert len(result["html"]) == 2500
 
 
 @pytest.mark.asyncio

@@ -285,6 +285,11 @@ class WebFetchTool(MultiProviderTool):
             allow_private_network=request.allow_private_network,
             private_network_allowlist=request.private_network_allowlist,
             allow_rfc2544_benchmark_range=request.allow_rfc2544_benchmark_range,
+            **(
+                {"fail_closed_on_dns_error": True}
+                if request.proxy_url
+                else {}
+            ),
         )
         if block_reason:
             return self._blocked_url_result(request.url, block_reason)

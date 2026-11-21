@@ -15,6 +15,7 @@ criteria tight.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 from dataclasses import dataclass
@@ -261,9 +262,15 @@ _FILE_WRITE_TOOLS: tuple[str, ...] = (
 
 def _match_file_tool_system_path(args: dict[str, Any]) -> bool:
     path = args.get("path") or args.get("file_path") or args.get("filename") or ""
-    if not isinstance(path, str) or not path:
+    if not isinstance(path, str) or not path.strip():
         return False
-    return path.startswith(_SYSTEM_PATH_PREFIXES)
+    expanded = os.path.expanduser(path.strip())
+    candidates = {
+        expanded,
+        os.path.normpath(expanded),
+        os.path.realpath(expanded),
+    }
+    return any(candidate.startswith(_SYSTEM_PATH_PREFIXES) for candidate in candidates)
 
 
 # ---------------------------------------------------------------------------

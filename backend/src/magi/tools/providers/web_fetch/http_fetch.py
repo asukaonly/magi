@@ -16,6 +16,7 @@ class HttpFetchProvider(Provider):
     """Direct HTTP fetching provider."""
 
     MAX_REDIRECTS = 5
+    MAX_RESPONSE_BYTES = 5 * 1024 * 1024  # 5 MiB cap before decoding
 
     @property
     def name(self) -> str:
@@ -62,6 +63,7 @@ class HttpFetchProvider(Provider):
                     allow_private_network=allow_private_network,
                     private_network_allowlist=private_network_allowlist,
                     allow_rfc2544_benchmark_range=allow_rfc2544_benchmark_range,
+                    fail_closed_on_dns_error=bool(proxy_url),
                 )
                 if block_reason:
                     raise RuntimeError(f"Blocked web-fetch redirect target: {block_reason}")
@@ -76,7 +78,16 @@ class HttpFetchProvider(Provider):
                         current_url = urljoin(str(response.url), str(response.headers["Location"]))
                         continue
 
-                    html = await response.text(errors="ignore")
+                    chunks = bytearray()
+                    async for chunk in response.content.iter_chunked(65536):
+                        remaining = self.MAX_RESPONSE_BYTES - len(chunks)
+                        if remaining <= 0:
+                            break
+                        chunks.extend(chunk[:remaining])
+                        if len(chunks) >= self.MAX_RESPONSE_BYTES:
+                            break
+                    charset = response.charset or "utf-8"
+                    html = chunks.decode(charset, errors="ignore")
                     content_type = response.headers.get("Content-Type", "")
                     final_url = str(response.url)
                     status_code = response.status
