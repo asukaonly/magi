@@ -511,9 +511,9 @@ class UnifiedMemoryMaintenanceMixin:
 
     async def cleanup_old_data(
         self,
-        older_than_days: int = 30,
+        older_than_days: int = 90,
         *,
-        history_behavior: str = "delete",
+        history_behavior: str = "archive",
     ) -> Dict[str, int]:
         """Run lightweight cleanup jobs."""
         removed = _empty_maintenance_counts()
@@ -611,9 +611,9 @@ class UnifiedMemoryMaintenanceMixin:
 
     async def cleanup_l1_data(
         self,
-        older_than_days: int = 30,
+        older_than_days: int = 90,
         *,
-        history_behavior: str = "delete",
+        history_behavior: str = "archive",
     ) -> Dict[str, int]:
         """Run L1 retention maintenance."""
         removed: Dict[str, int] = {
@@ -671,9 +671,9 @@ class UnifiedMemoryMaintenanceMixin:
 
     async def cleanup_l3_data(
         self,
-        older_than_days: int = 30,
+        older_than_days: int = 365,
         *,
-        history_behavior: str = "delete",
+        history_behavior: str = "archive",
     ) -> Dict[str, int]:
         """Run L3 summary-retention maintenance."""
         removed: Dict[str, int] = {

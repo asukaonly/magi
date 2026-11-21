@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
+from typing import Literal
 
 from .models import ArchiveSearchResult
 from .ports import ArchiveGovernanceUnavailable, ArchiveSearchRepository
@@ -28,13 +29,24 @@ class MemoryArchiveSearch:
         limit: int = 20,
         offset: int = 0,
         event_ids: tuple[str, ...] | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
+        layer: Literal["l1", "l3"] | None = None,
+        source_filters: tuple[str, ...] | None = None,
     ) -> ArchiveSearchResult:
         epoch = self._operation_epoch()
         self._check_epoch(epoch)
         async with self._operation_guard():
             self._check_epoch(epoch)
             result = await self._repository.search(
-                query=query, limit=limit, offset=offset, event_ids=event_ids
+                query=query,
+                limit=limit,
+                offset=offset,
+                event_ids=event_ids,
+                start_time=start_time,
+                end_time=end_time,
+                layer=layer,
+                source_filters=source_filters,
             )
             self._check_epoch(epoch)
             return result

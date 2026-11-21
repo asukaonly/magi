@@ -1803,7 +1803,7 @@ describe('settings page draft saving', () => {
     await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
 
     expect(screen.queryByLabelText('settings.memory.fields.db_path.label')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'settings.actions.chooseDirectory' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.actions.chooseDirectory' })).toBeInTheDocument();
     expect(screen.queryByLabelText('settings.memory.fields.retention_days.label')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.memory.fields.history_behavior.label' }));
@@ -1874,18 +1874,23 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
     await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
 
+    const archivePathInput = await screen.findByLabelText('settings.memory.fields.archive_path.label');
+    expect(archivePathInput).toHaveValue(defaultArchivePath);
+
+    await user.click(screen.getByRole('button', { name: 'settings.memory.fields.history_behavior.label' }));
+    await user.click(screen.getByRole('button', { name: 'settings.memory.options.history_behavior.delete' }));
     expect(screen.queryByLabelText('settings.memory.fields.archive_path.label')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.memory.fields.history_behavior.label' }));
     await user.click(screen.getByRole('button', { name: 'settings.memory.options.history_behavior.archive' }));
 
-    const archivePathInput = await screen.findByLabelText('settings.memory.fields.archive_path.label');
-    expect(archivePathInput).toHaveValue(defaultArchivePath);
+    const restoredArchivePathInput = await screen.findByLabelText('settings.memory.fields.archive_path.label');
+    expect(restoredArchivePathInput).toHaveValue(defaultArchivePath);
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.chooseDirectory' }));
 
     await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledWith(defaultArchivePath));
-    expect(archivePathInput).toHaveValue('/tmp/magi-archive');
+    expect(restoredArchivePathInput).toHaveValue('/tmp/magi-archive');
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 

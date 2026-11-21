@@ -8,7 +8,7 @@ import heapq
 import json
 from pathlib import Path
 import re
-from typing import AsyncIterator
+from typing import AsyncIterator, Literal
 
 import aiosqlite
 
@@ -44,6 +44,10 @@ class ArchiveReader:
         limit: int = 20,
         offset: int = 0,
         event_ids: tuple[str, ...] | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
+        layer: Literal["l1", "l3"] | None = None,
+        source_filters: tuple[str, ...] | None = None,
     ) -> ArchiveSearchResult:
         if not 1 <= limit <= 100 or not 0 <= offset <= 10000:
             raise ValueError("Archive pagination is out of bounds")
@@ -54,6 +58,12 @@ class ArchiveReader:
             raise ValueError("Archive event filters are out of bounds")
         normalized_event_ids = tuple(dict.fromkeys(event_ids)) if event_ids is not None else None
         normalized_query = query.casefold().strip()
+        query_tokens = _query_tokens(normalized_query)
+        normalized_sources = (
+            {str(src).strip().casefold() for src in source_filters if str(src).strip()}
+            if source_filters
+            else None
+        )
         issues: Counter[str] = Counter()
         retained: list[tuple[float, str, str, ArchiveRecord]] = []
         seen: set[tuple[str, str]] = set()
@@ -95,11 +105,13 @@ class ArchiveReader:
                             ):
                                 issues["archive_unreadable"] += 1
                                 continue
-                            for layer, table, key in (
+                            for candidate_layer, table, key in (
                                 ("l1", "archived_l1_events", "event_id"),
                                 ("l3", "archived_l3_summaries", "summary_id"),
                             ):
-                                if table not in tables or (normalized_event_ids is not None and layer != "l1"):
+                                if layer is not None and candidate_layer != layer:
+                                    continue
+                                if table not in tables or (normalized_event_ids is not None and candidate_layer != "l1"):
                                     continue
                                 event_filter = (
                                     f" WHERE {key} IN (SELECT value FROM json_each(?))"
@@ -114,21 +126,29 @@ class ArchiveReader:
                                     while rows := await cursor.fetchmany(_PAGE_SIZE):
                                         candidates: list[tuple[ArchiveRecord, tuple[str, ...]]] = []
                                         for row in rows:
-                                            identity = (layer, str(row[key]))
+                                            identity = (candidate_layer, str(row[key]))
                                             if identity in seen:
                                                 continue
                                             seen.add(identity)
                                             try:
-                                                parsed = _record(layer, row, key)
+                                                parsed = _record(candidate_layer, row, key)
                                             except (ValueError, TypeError, KeyError, OverflowError):
                                                 issues["record_invalid"] += 1
                                                 continue
                                             if parsed is None:
                                                 continue
                                             item, references = parsed
-                                            if (
-                                                normalized_query
-                                                and normalized_query not in item.content.casefold()
+                                            item_end = item.period_end if item.period_end is not None else item.occurred_at
+                                            if start_time is not None and item_end < float(start_time):
+                                                continue
+                                            if end_time is not None and item.occurred_at > float(end_time):
+                                                continue
+                                            if normalized_sources and item.source.casefold() not in normalized_sources:
+                                                continue
+                                            if normalized_query and not _matches_archive_query(
+                                                item.content.casefold(),
+                                                normalized_query,
+                                                query_tokens,
                                             ):
                                                 continue
                                             if any(
@@ -287,3 +307,37 @@ def _record(
     if item.period_end is None or item.period_end < item.occurred_at:
         raise ValueError("Archive summary period is invalid")
     return item, references
+
+
+_TOKEN_RE = re.compile(r"[a-z0-9_]+|[\u4e00-\u9fff]+", re.IGNORECASE)
+
+
+def _query_tokens(normalized_query: str) -> tuple[str, ...]:
+    if not normalized_query:
+        return ()
+    tokens: list[str] = []
+    for match in _TOKEN_RE.findall(normalized_query):
+        if re.fullmatch(r"[\u4e00-\u9fff]+", match) and len(match) > 2:
+            try:
+                import jieba
+
+                tokens.extend(tok.strip() for tok in jieba.cut_for_search(match) if len(tok.strip()) >= 2)
+            except Exception:
+                tokens.append(match)
+        elif len(match) >= 2:
+            tokens.append(match)
+    return tuple(dict.fromkeys(tokens))
+
+
+def _matches_archive_query(
+    content_folded: str,
+    normalized_query: str,
+    tokens: tuple[str, ...],
+) -> bool:
+    if normalized_query in content_folded:
+        return True
+    if len(tokens) < 2:
+        return False
+    hits = sum(1 for tok in tokens if tok in content_folded)
+    required = max(2, (len(tokens) + 1) // 2)
+    return hits >= required

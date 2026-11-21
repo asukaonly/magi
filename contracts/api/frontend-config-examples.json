@@ -308,7 +308,7 @@
         "graph_spreading": {
           "enabled": true
         },
-        "history_behavior": "delete",
+        "history_behavior": "archive",
         "l0": {
           "attention_update_idle_seconds": 30,
           "attention_update_max_delay_seconds": 90,
@@ -318,7 +318,7 @@
         },
         "l1": {
           "enabled": true,
-          "retention_days": 30,
+          "retention_days": 90,
           "vectors_enabled": true
         },
         "l2": {
@@ -332,7 +332,7 @@
         "l3": {
           "enabled": true,
           "llm_summary_enabled": true,
-          "retention_days": 180,
+          "retention_days": 365,
           "temporal_llm_min_event_count": 2,
           "temporal_llm_timeout_seconds": 3.0,
           "vectors_enabled": true
@@ -739,7 +739,7 @@
           "graph_spreading": {
             "enabled": true
           },
-          "history_behavior": "delete",
+          "history_behavior": "archive",
           "l0": {
             "attention_update_idle_seconds": 30,
             "attention_update_max_delay_seconds": 90,
@@ -749,7 +749,7 @@
           },
           "l1": {
             "enabled": true,
-            "retention_days": 30,
+            "retention_days": 90,
             "vectors_enabled": true
           },
           "l2": {
@@ -763,7 +763,7 @@
           "l3": {
             "enabled": true,
             "llm_summary_enabled": true,
-            "retention_days": 180,
+            "retention_days": 365,
             "temporal_llm_min_event_count": 2,
             "temporal_llm_timeout_seconds": 3.0,
             "vectors_enabled": true

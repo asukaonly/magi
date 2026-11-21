@@ -95,7 +95,7 @@ class MemoryL1Settings(BaseModel):
     """L1 long-term event memory settings."""
 
     enabled: bool = Field(default=True)
-    retention_days: int = Field(default=30, ge=1)
+    retention_days: int = Field(default=90, ge=1)
     t1_importance_enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
     maintenance_enabled: bool = Field(
@@ -519,9 +519,9 @@ class MemoryL3Settings(BaseModel):
 
     enabled: bool = Field(default=True)
     retention_days: int = Field(
-        default=180,
+        default=365,
         ge=1,
-        description="Retention window for L3 reflection summaries before retention maintenance may remove unreferenced hot-path summaries.",
+        description="Retention window for L3 reflection summaries before retention maintenance moves unreferenced hot-path summaries to archive or deletes them.",
     )
     vectors_enabled: bool = Field(default=True)
     llm_summary_enabled: bool = Field(default=True)
@@ -639,7 +639,7 @@ class MemorySettings(BaseModel):
 
     db_path: str = Field(default_factory=lambda: str(get_magi_home() / "data/memory"))
     retention_days: int = Field(default=90, ge=1)
-    history_behavior: MemoryHistoryBehavior = Field(default=MemoryHistoryBehavior.DELETE)
+    history_behavior: MemoryHistoryBehavior = Field(default=MemoryHistoryBehavior.ARCHIVE)
     archive_path: str = Field(default_factory=lambda: str(get_magi_home() / "data/memory/archive"))
     async_embeddings: bool = Field(default=True)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)

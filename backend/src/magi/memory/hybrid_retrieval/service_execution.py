@@ -81,6 +81,11 @@ class HybridRetrievalExecutionMixin(
             request=request,
             primary_plans=primary_plans,
         )
+        await self._maybe_supplement_cold_archives(
+            decision,
+            request=request,
+            payload=payload,
+        )
         await self._maybe_supplement_activity_summary(
             host,
             decision,

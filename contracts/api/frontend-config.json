@@ -2389,7 +2389,7 @@
             "$ref": "#/components/schemas/GraphSpreadingConfigModel"
           },
           "history_behavior": {
-            "default": "delete",
+            "default": "archive",
             "title": "History Behavior",
             "type": "string"
           },
@@ -2493,7 +2493,7 @@
             "type": "boolean"
           },
           "retention_days": {
-            "default": 30,
+            "default": 90,
             "minimum": 1,
             "title": "Retention Days",
             "type": "integer"
@@ -2572,7 +2572,7 @@
             "type": "boolean"
           },
           "retention_days": {
-            "default": 180,
+            "default": 365,
             "minimum": 1,
             "title": "Retention Days",
             "type": "integer"

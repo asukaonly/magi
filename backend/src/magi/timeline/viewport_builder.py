@@ -90,11 +90,13 @@ class TimelineViewportBuilder:
         l4_store: Any | None = None,
         entity_catalog: Any | None = None,
         location_resolver: Any | None = None,
+        archive_search: Any | None = None,
     ) -> None:
         self._l1 = l1_store
         self._l2 = l2_store
         self._l3 = l3_store
         self._l4 = l4_store
+        self._archives = archive_search
         # Optional entity catalog (L2EntityCatalog). When wired, themes are
         # derived from real entity canonical_names aggregated across the
         # window's episodes — concrete nouns the user actually touched,
@@ -175,7 +177,7 @@ class TimelineViewportBuilder:
         )
         return ViewportSourceData(
             events=await self._load_events(start=query.start, end=query.end),
-            summaries=await self._load_summaries(),
+            summaries=await self._load_summaries(start=query.start, end=query.end),
             assertions=await self._load_assertions(),
             snapshots=await self._load_snapshots(),
             episodes=episodes,
@@ -455,7 +457,43 @@ class TimelineViewportBuilder:
                 window_end=end,
                 window_hours=round((end - start) / 3600, 1),
             )
+        if self._archives is not None and len(events) < EVENT_QUERY_LIMIT:
+            archived_events = await self._load_archived_l1_events(start=start, end=end)
+            if archived_events:
+                seen_ids = {str(ev.get("event_id") or "") for ev in events}
+                for archived in archived_events:
+                    if archived["event_id"] not in seen_ids:
+                        events.append(archived)
+                        seen_ids.add(archived["event_id"])
+                events.sort(key=lambda item: float(item.get("timestamp") or 0.0), reverse=True)
         return events
+
+    async def _load_archived_l1_events(self, *, start: float, end: float) -> list[dict[str, Any]]:
+        if self._archives is None:
+            return []
+        try:
+            result = await self._archives.search(
+                query="",
+                layer="l1",
+                start_time=start,
+                end_time=end,
+                limit=100,
+            )
+        except Exception as exc:
+            logger.debug("Cold archive L1 viewport read skipped", error=str(exc))
+            return []
+        return [
+            {
+                "event_id": item.record_id,
+                "timestamp": float(item.occurred_at),
+                "source": item.source,
+                "event_type": item.event_type,
+                "content": item.content,
+                "metadata_json": {"archived": True},
+                "archived": True,
+            }
+            for item in result.items
+        ]
 
     async def _resolve_place_hints(
         self,
@@ -484,10 +522,46 @@ class TimelineViewportBuilder:
             labels = [resolved.primary_label]
         return labels
 
-    async def _load_summaries(self) -> list[dict[str, Any]]:
-        if self._l3 is None:
-            return []
-        return await self._l3.list_summaries(limit=200)
+    async def _load_summaries(
+        self,
+        *,
+        start: float | None = None,
+        end: float | None = None,
+    ) -> list[dict[str, Any]]:
+        summaries: list[dict[str, Any]] = []
+        if self._l3 is not None:
+            summaries = list(await self._l3.list_summaries(limit=200))
+        if self._archives is not None and start is not None and end is not None:
+            try:
+                archived = await self._archives.search(
+                    query="",
+                    layer="l3",
+                    start_time=start,
+                    end_time=end,
+                    limit=50,
+                )
+            except Exception as exc:
+                logger.debug("Cold archive L3 viewport read skipped", error=str(exc))
+                archived = None
+            if archived is not None and archived.items:
+                seen_ids = {str(s.get("summary_id") or "") for s in summaries}
+                for item in archived.items:
+                    if item.record_id in seen_ids:
+                        continue
+                    summaries.append(
+                        {
+                            "summary_id": item.record_id,
+                            "summary_type": item.event_type,
+                            "summary_category": "archived",
+                            "period_start": float(item.occurred_at),
+                            "period_end": float(item.period_end or item.occurred_at),
+                            "content": item.content,
+                            "source_event_ids": list(item.evidence_event_ids),
+                            "archived": True,
+                        }
+                    )
+                    seen_ids.add(item.record_id)
+        return summaries
 
     async def _load_assertions(self) -> list[dict[str, Any]]:
         if self._l2 is None or not hasattr(self._l2, "list_tom_assertions"):

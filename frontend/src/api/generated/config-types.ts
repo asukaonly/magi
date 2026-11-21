@@ -991,7 +991,7 @@ export interface components {
             graph_spreading: components["schemas"]["GraphSpreadingConfigModel"];
             /**
              * History Behavior
-             * @default delete
+             * @default archive
              */
             history_behavior: string;
             l0: components["schemas"]["MemoryL0ConfigModel"];
@@ -1044,7 +1044,7 @@ export interface components {
             enabled: boolean;
             /**
              * Retention Days
-             * @default 30
+             * @default 90
              */
             retention_days: number;
             /**
@@ -1100,7 +1100,7 @@ export interface components {
             llm_summary_enabled: boolean;
             /**
              * Retention Days
-             * @default 180
+             * @default 365
              */
             retention_days: number;
             /**

@@ -134,7 +134,7 @@ class MemoryL0ConfigModel(BaseModel):
 
 class MemoryL1ConfigModel(BaseModel):
     enabled: bool = Field(default=True)
-    retention_days: int = Field(default=30, ge=1)
+    retention_days: int = Field(default=90, ge=1)
     vectors_enabled: bool = Field(default=True)
 
 
@@ -151,7 +151,7 @@ class MemoryL3ConfigModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = Field(default=True)
-    retention_days: int = Field(default=180, ge=1)
+    retention_days: int = Field(default=365, ge=1)
     vectors_enabled: bool = Field(default=True)
     llm_summary_enabled: bool = Field(default=True)
     temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
@@ -204,7 +204,7 @@ class EntitySemanticEdgeConfigModel(BaseModel):
 class MemoryConfigModel(BaseModel):
     db_path: Optional[str] = Field(default_factory=lambda: str(get_magi_home() / "data/memory"))
     retention_days: int = Field(default=90, ge=1)
-    history_behavior: str = Field(default="delete")
+    history_behavior: str = Field(default="archive")
     archive_path: Optional[str] = Field(default_factory=lambda: str(get_magi_home() / "data/memory/archive"))
     embedding: EmbeddingConfigModel = Field(default_factory=EmbeddingConfigModel)
     reranker: MemoryRerankerConfigModel = Field(default_factory=MemoryRerankerConfigModel)

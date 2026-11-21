@@ -17,7 +17,7 @@ agent:
 
   memory:
     retention_days: 90
-    history_behavior: "delete" # "delete" or "archive"
+    history_behavior: "archive" # "archive" (default, preserves history) or "delete"
     embedding:
       mode: "remote" # "remote" or "local"
       local:
@@ -68,7 +68,7 @@ agent:
 
     l1:
       enabled: true
-      retention_days: 30
+      retention_days: 90
       vectors_enabled: true
 
     l2:
@@ -146,6 +146,7 @@ agent:
 
     l3:
       enabled: true
+      retention_days: 365
       vectors_enabled: true
       llm_summary_enabled: true
       temporal_llm_timeout_seconds: 3.0

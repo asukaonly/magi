@@ -683,7 +683,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       enabled: true,
     },
     retention_days: 90,
-    history_behavior: 'delete',
+    history_behavior: 'archive',
     l0: {
       enabled: true,
       checkpoint_interval_seconds: 30,
@@ -693,7 +693,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     },
     l1: {
       enabled: true,
-      retention_days: 30,
+      retention_days: 90,
       vectors_enabled: true,
     },
     l2: {
@@ -706,7 +706,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     },
     l3: {
       enabled: true,
-      retention_days: 180,
+      retention_days: 365,
       vectors_enabled: true,
       llm_summary_enabled: true,
       temporal_llm_timeout_seconds: 3.0,

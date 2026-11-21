@@ -241,7 +241,7 @@ def test_public_configuration_defaults_preserve_policy_and_ownership(tmp_path, m
     assert config.memory.l0.enabled is True
     assert config.memory.l4.enabled is True
     assert config.memory.retention_days == 90
-    assert config.memory.history_behavior == "delete"
+    assert config.memory.history_behavior == "archive"
     assert config.memory.archive_path == str(tmp_path / "data/memory/archive")
     assert config.memory.l0.checkpoint_interval_seconds == 30
     assert config.memory.l0.attention_update_turn_threshold == 3
@@ -250,10 +250,10 @@ def test_public_configuration_defaults_preserve_policy_and_ownership(tmp_path, m
     assert config.memory.l2.batch_flush_interval_seconds == 60
     assert config.memory.l2.shadow_conflict_notification_enabled is True
     assert config.memory.l2.portrait_projection_refresh_delay_seconds == 120
-    assert config.memory.l1.retention_days == 30
+    assert config.memory.l1.retention_days == 90
     assert config.memory.l3.temporal_llm_timeout_seconds == 3.0
     assert config.memory.l3.temporal_llm_min_event_count == 2
-    assert config.memory.l3.retention_days == 180
+    assert config.memory.l3.retention_days == 365
     assert config.memory.l4.inactive_skill_retention_days == 30
     assert config.memory.l4.inactive_skill_min_attempts == 5
     assert config.memory.l1.vectors_enabled is True
