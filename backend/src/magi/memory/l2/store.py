@@ -139,6 +139,46 @@ class L2CognitionStore(
         self._graph_conflict_rule_lock = asyncio.Lock()
         self._evidence_timestamp_resolver = evidence_timestamp_resolver
         self._evidence_record_resolver = evidence_record_resolver
+        self._edge_vector_index: Any | None = None
+
+    def set_edge_vector_index(self, edge_vector_index: Any | None) -> None:
+        """Bind the optional vec_l2_edges vector index for immediate cleanup on forget/correction."""
+        self._edge_vector_index = edge_vector_index
+
+    async def delete_edge_vectors(self, triple_ids: Iterable[str]) -> None:
+        """Delete vec_l2_edges rows for archived or invalidated knowledge-graph edges."""
+        edge_vector_index = self._edge_vector_index
+        if edge_vector_index is None:
+            return
+        unique_ids = list(dict.fromkeys(str(tid).strip() for tid in triple_ids if str(tid or "").strip()))
+        if not unique_ids:
+            return
+        failed_ids: list[str] = []
+        for triple_id in unique_ids:
+            try:
+                await edge_vector_index.delete_entity(entity_id=triple_id)
+            except Exception as exc:
+                failed_ids.append(triple_id)
+                logger.warning(
+                    "Failed to delete L2 edge vector; marking for maintenance retry",
+                    triple_id=triple_id,
+                    error=str(exc),
+                )
+        if failed_ids:
+            placeholders = ", ".join("?" for _ in failed_ids)
+            try:
+                async with sqlite_connection_async(self.db_path) as db:
+                    await db.execute(
+                        f"""
+                        UPDATE knowledge_graph
+                        SET embedding_status = 'pending'
+                        WHERE triple_id IN ({placeholders}) AND status != 'active'
+                        """,
+                        tuple(failed_ids),
+                    )
+                    await db.commit()
+            except Exception:
+                pass
 
     async def resolve_independent_evidence_keys(self, event_ids: List[str]) -> Dict[str, str]:
         """Resolve evidence groups from L1; standalone callers own their event identity contract."""

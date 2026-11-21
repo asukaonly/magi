@@ -6,6 +6,7 @@ import json
 import math
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import asdict
 from typing import Any, Dict, Mapping, Optional, Protocol, cast
 
@@ -55,8 +56,11 @@ _EVIDENCE_TIMESTAMP_REFRESH_BATCH_SIZE = 500
 class _ForgettingHostProtocol(Protocol):
     db_path: str
     _graph_conflict_rules: Mapping[str, GraphConflictRule]
+    _edge_vector_index: Any | None
 
     async def initialize(self) -> None: ...
+
+    async def delete_edge_vectors(self, triple_ids: Iterable[str]) -> None: ...
 
     async def get_relationship(self, *, triple_id: str) -> Optional[Dict[str, Any]]: ...
 
@@ -147,6 +151,7 @@ class L2StoreForgettingMixin:
         result = await MemoryCorrectionService(
             host.db_path,
             graph_conflict_rules=host._graph_conflict_rules,
+            edge_vector_index=getattr(host, "_edge_vector_index", None),
         ).apply_relationship_correction(
             ApplyRelationshipCorrectionCommand(
                 triple_id=triple_id,
@@ -196,7 +201,10 @@ class L2StoreForgettingMixin:
         """Revert one relationship correction."""
         host = cast(_ForgettingHostProtocol, self)
         await host.initialize()
-        result = await MemoryCorrectionService(host.db_path).revert_relationship_correction(
+        result = await MemoryCorrectionService(
+            host.db_path,
+            edge_vector_index=getattr(host, "_edge_vector_index", None),
+        ).revert_relationship_correction(
             correction_id=correction_id,
             request_id=request_id,
             actor_id=actor_id,
@@ -314,6 +322,9 @@ class L2StoreForgettingMixin:
                 """
                 UPDATE knowledge_graph
                 SET status = 'archived', status_reason = 'user_forget',
+                    embedding_status = 'disabled',
+                    embedding_profile_id = NULL,
+                    last_embedded_at = NULL,
                     authority_ref = ?, updated_at = ?
                 WHERE (subject_id = ? OR object_id = ?) AND status NOT IN ('archived', 'user_rejected')
                 """,
@@ -326,6 +337,9 @@ class L2StoreForgettingMixin:
                 """
                 UPDATE knowledge_graph
                 SET status = 'archived', status_reason = 'user_forget',
+                    embedding_status = 'disabled',
+                    embedding_profile_id = NULL,
+                    last_embedded_at = NULL,
                     authority_ref = ?, updated_at = ?
                 WHERE (subject_id = ? OR object_id = ?)
                   AND COALESCE(authority_ref, '') != ?
@@ -424,9 +438,22 @@ class L2StoreForgettingMixin:
                     operation_key=operation_key or f"direct:{entity_id}",
                 )
             )
+            async with db.execute(
+                """
+                SELECT triple_id
+                FROM knowledge_graph
+                WHERE updated_at >= ?
+                  AND (status != 'active' OR COALESCE(embedding_status, '') != 'ready')
+                """,
+                (now,),
+            ) as stale_edge_cursor:
+                stale_edge_ids = [
+                    str(row[0]) for row in await stale_edge_cursor.fetchall() if row[0]
+                ]
 
             await db.commit()
 
+        await host.delete_edge_vectors(stale_edge_ids)
         for subject_key in affected_subjects:
             mark_subject_changed(host.db_path, subject_key)
         await rebuild_forgotten_subject_views(
@@ -626,9 +653,22 @@ class L2StoreForgettingMixin:
                 forgotten_edges=forgotten_edges,
                 now=now,
             )
+            async with db.execute(
+                """
+                SELECT triple_id
+                FROM knowledge_graph
+                WHERE updated_at >= ?
+                  AND (status != 'active' OR COALESCE(embedding_status, '') != 'ready')
+                """,
+                (now,),
+            ) as stale_edge_cursor:
+                stale_edge_ids = [
+                    str(row[0]) for row in await stale_edge_cursor.fetchall() if row[0]
+                ]
 
             await db.commit()
 
+        await host.delete_edge_vectors(stale_edge_ids)
         for subject_key in affected_subjects:
             mark_subject_changed(host.db_path, subject_key)
         await rebuild_forgotten_subject_views(
@@ -1181,7 +1221,9 @@ async def _apply_time_range_to_claim_rows(
                 SET status = 'archived', status_reason = 'user_forget',
                     evidence_event_ids = '[]', observation_count = 0,
                     evidence_text = '', natural_summary = '',
-                    embedding_status = 'pending',
+                    embedding_status = 'disabled',
+                    embedding_profile_id = NULL,
+                    last_embedded_at = NULL,
                     authority_ref = CASE
                         WHEN authority_ref = 'forget:entity' THEN authority_ref
                         ELSE 'forget:time_range'

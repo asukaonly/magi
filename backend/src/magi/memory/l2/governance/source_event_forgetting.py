@@ -82,6 +82,8 @@ class _SourceEventForgettingHostProtocol(Protocol):
 
     def memory_correction_job_guard(self) -> Any: ...
 
+    async def delete_edge_vectors(self, triple_ids: Iterable[str]) -> None: ...
+
     async def _stage_source_event_link_forget_on_connection(
         self,
         db: aiosqlite.Connection,
@@ -318,11 +320,24 @@ class L2StoreSourceEventForgettingMixin:
                             reason=reason,
                         )
                     )
+                    async with db.execute(
+                        """
+                        SELECT triple_id
+                        FROM knowledge_graph
+                        WHERE updated_at >= ?
+                          AND (status != 'active' OR COALESCE(embedding_status, '') != 'ready')
+                        """,
+                        (now,),
+                    ) as stale_edge_cursor:
+                        stale_edge_ids = [
+                            str(row[0]) for row in await stale_edge_cursor.fetchall() if row[0]
+                        ]
                     await db.commit()
                 except Exception:
                     await db.rollback()
                     raise
 
+        await host.delete_edge_vectors(stale_edge_ids)
         for subject_key in affected_subjects:
             mark_subject_changed(host.db_path, subject_key)
         await rebuild_forgotten_subject_views(host=host, revisions=affected_subjects)
@@ -2483,7 +2498,9 @@ async def _remove_relationship_evidence(
                 SET status = 'archived', status_reason = 'user_forget',
                     evidence_event_ids = '[]', observation_count = 0,
                     evidence_text = '', natural_summary = '',
-                    embedding_status = 'pending',
+                    embedding_status = 'disabled',
+                    embedding_profile_id = NULL,
+                    last_embedded_at = NULL,
                     authority_ref = CASE
                         WHEN authority_ref = 'forget:entity' THEN authority_ref
                         ELSE 'forget:event'

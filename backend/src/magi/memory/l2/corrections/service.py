@@ -149,10 +149,12 @@ class MemoryCorrectionService:
         db_path: str,
         *,
         graph_conflict_rules: Mapping[str, GraphConflictRule] | None = None,
+        edge_vector_index: Any | None = None,
     ):
         self.db_path = db_path
         self.repository = MemoryCorrectionRepository(db_path)
         self.graph_conflict_rules = graph_conflict_rules
+        self._edge_vector_index = edge_vector_index
 
     async def apply_relationship_correction(
         self,
@@ -164,6 +166,7 @@ class MemoryCorrectionService:
         return await RelationshipCorrectionService(
             self.db_path,
             graph_conflict_rules=self.graph_conflict_rules,
+            edge_vector_index=self._edge_vector_index,
         ).apply(command)
 
     async def revert_relationship_correction(
@@ -176,7 +179,10 @@ class MemoryCorrectionService:
         """Revert a governed relationship correction."""
         from .relationship_service import RelationshipCorrectionService
 
-        return await RelationshipCorrectionService(self.db_path).revert(
+        return await RelationshipCorrectionService(
+            self.db_path,
+            edge_vector_index=self._edge_vector_index,
+        ).revert(
             correction_id=correction_id,
             request_id=request_id,
             actor_id=actor_id,

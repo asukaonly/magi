@@ -186,6 +186,21 @@ class L2EntitySourceEventGovernanceMixin:
                 (float(updated_after),),
             ) as cursor:
                 entity_ids.update(str(row[0]) for row in await cursor.fetchall())
+        edge_vector_index = getattr(host, "edge_vector_index", None)
+        if edge_vector_index is not None:
+            async with sqlite_connection_async(host.db_path) as db:
+                async with db.execute(
+                    """
+                    SELECT triple_id
+                    FROM knowledge_graph
+                    WHERE updated_at >= ?
+                      AND (status != 'active' OR COALESCE(embedding_status, '') != 'ready')
+                    """,
+                    (float(updated_after),),
+                ) as cursor:
+                    stale_edge_ids = [str(row[0]) for row in await cursor.fetchall() if row[0]]
+            for triple_id in stale_edge_ids:
+                await edge_vector_index.delete_entity(entity_id=triple_id)
         if not entity_ids:
             return 0
         if host._vector_index is not None:

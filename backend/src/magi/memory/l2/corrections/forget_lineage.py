@@ -586,6 +586,9 @@ async def _archive_cancelled_replacement(
                 WHEN status_reason = 'user_forget' THEN status_reason
                 ELSE 'correction_cancelled'
             END,
+            embedding_status = 'disabled',
+            embedding_profile_id = NULL,
+            last_embedded_at = NULL,
             valid_to = COALESCE(valid_to, valid_from), updated_at = ?
         WHERE triple_id = ? AND authority_ref = ?
         """,

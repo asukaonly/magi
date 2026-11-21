@@ -330,6 +330,7 @@ class UnifiedMemoryStore(
             memory_config_getter=context.memory_config_getter,
             vector_enabled=context.tuning.enable_l2_vectors,
         )
+        self.l2.set_edge_vector_index(self.l2_entity_catalog.edge_vector_index)
         self.l2_promotion_counter = L2PromotionCounter(db_path=context.paths.shared_memory_db_path)
         self.l2_llm_service = L2LLMService(context.scenario_llm_pool)
         semantic_edge_builder = self._build_semantic_edge_builder(context.memory_config_getter)

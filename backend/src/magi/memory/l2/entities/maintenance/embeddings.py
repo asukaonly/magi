@@ -35,27 +35,40 @@ class L2EntityEmbeddingMaintenanceMixin:
         async with sqlite_connection_async(host._db_path) as db:
             async with db.execute("""
                 SELECT triple_id FROM knowledge_graph
-                WHERE status != 'active' AND embedding_status = 'ready'
+                WHERE status != 'active' AND COALESCE(embedding_status, '') != 'disabled'
                 LIMIT 500
                 """) as cur:
                 rows = await cur.fetchall()
         if not rows:
             return
+        cleaned_ids: list[str] = []
         for row in rows:
             triple_id = str(row[0])
             try:
                 await host._edge_vector_index.delete_entity(entity_id=triple_id)
-            except Exception:
-                pass
-        triple_ids = [str(r[0]) for r in rows]
-        placeholders = ", ".join("?" for _ in triple_ids)
+                cleaned_ids.append(triple_id)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to delete non-active L2 edge vector during maintenance",
+                    triple_id=triple_id,
+                    error=str(exc),
+                )
+        if not cleaned_ids:
+            return
+        placeholders = ", ".join("?" for _ in cleaned_ids)
         async with sqlite_connection_async(host._db_path) as db:
             await db.execute(
-                f"UPDATE knowledge_graph SET embedding_status = 'disabled' WHERE triple_id IN ({placeholders})",
-                tuple(triple_ids),
+                f"""
+                UPDATE knowledge_graph
+                SET embedding_status = 'disabled',
+                    embedding_profile_id = NULL,
+                    last_embedded_at = NULL
+                WHERE triple_id IN ({placeholders})
+                """,
+                tuple(cleaned_ids),
             )
             await db.commit()
-        stats.edge_embeddings_cleaned = len(triple_ids)
+        stats.edge_embeddings_cleaned = len(cleaned_ids)
 
     def _embedding_maintenance_host(self) -> _EmbeddingMaintenanceHostProtocol:
         return self  # type: ignore[return-value]

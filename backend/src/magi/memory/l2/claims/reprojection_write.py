@@ -1450,6 +1450,7 @@ async def _archive_target(
         """
         UPDATE knowledge_graph
         SET status = 'archived', status_reason = ?,
+            embedding_status = 'disabled', embedding_profile_id = NULL, last_embedded_at = NULL,
             valid_to = COALESCE(valid_to, ?), deprecated_at = COALESCE(deprecated_at, ?),
             updated_at = ?
         WHERE triple_id = ? AND status = 'active'

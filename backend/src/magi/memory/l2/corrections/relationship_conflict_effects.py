@@ -165,7 +165,11 @@ async def restore_relationship_conflict_effects(
                 """
                 UPDATE knowledge_graph
                 SET status = ?, status_reason = ?, deprecated_by = ?,
-                    deprecated_at = ?, valid_to = ?, updated_at = ?
+                    deprecated_at = ?, valid_to = ?,
+                    embedding_status = CASE WHEN ? = 'active' THEN 'pending' ELSE 'disabled' END,
+                    embedding_profile_id = NULL,
+                    last_embedded_at = NULL,
+                    updated_at = ?
                 WHERE triple_id = ? AND deprecated_by = ?
                   AND status IN ('deprecated', 'conflicted')
                 """,
@@ -175,6 +179,7 @@ async def restore_relationship_conflict_effects(
                     row["pre_deprecated_by"],
                     row["pre_deprecated_at"],
                     row["pre_valid_to"],
+                    row["pre_status"],
                     now,
                     triple_id,
                     replacement_id,
@@ -341,7 +346,11 @@ async def _suppress_conflicts(
             """
             UPDATE knowledge_graph
             SET status = ?, status_reason = ?, deprecated_by = ?,
-                deprecated_at = ?, valid_to = ?, updated_at = ?
+                deprecated_at = ?, valid_to = ?,
+                embedding_status = 'disabled',
+                embedding_profile_id = NULL,
+                last_embedded_at = NULL,
+                updated_at = ?
             WHERE triple_id = ? AND status = 'active'
             """,
             (

@@ -110,12 +110,40 @@ class RelationshipCorrectionService:
         db_path: str,
         *,
         graph_conflict_rules: Mapping[str, GraphConflictRule] | None = None,
+        edge_vector_index: Any | None = None,
     ):
         self.db_path = db_path
         self.repository = MemoryCorrectionRepository(db_path)
         self._graph_conflict_rules = (
             dict(graph_conflict_rules) if graph_conflict_rules is not None else None
         )
+        self._edge_vector_index = edge_vector_index
+
+    async def _delete_edge_vectors(self, triple_ids: list[str]) -> None:
+        if self._edge_vector_index is None or not triple_ids:
+            return
+        unique_ids = list(dict.fromkeys(str(tid).strip() for tid in triple_ids if str(tid or "").strip()))
+        failed_ids: list[str] = []
+        for triple_id in unique_ids:
+            try:
+                await self._edge_vector_index.delete_entity(entity_id=triple_id)
+            except Exception:
+                failed_ids.append(triple_id)
+        if failed_ids:
+            placeholders = ", ".join("?" for _ in failed_ids)
+            try:
+                async with sqlite_connection_async(self.db_path) as db:
+                    await db.execute(
+                        f"""
+                        UPDATE knowledge_graph
+                        SET embedding_status = 'pending'
+                        WHERE triple_id IN ({placeholders}) AND status != 'active'
+                        """,
+                        tuple(failed_ids),
+                    )
+                    await db.commit()
+            except Exception:
+                pass
 
     async def apply(
         self,
@@ -352,11 +380,24 @@ class RelationshipCorrectionService:
                         target_revision=0,
                         now=now,
                     )
+                async with db.execute(
+                    """
+                    SELECT triple_id
+                    FROM knowledge_graph
+                    WHERE updated_at >= ?
+                      AND (status != 'active' OR COALESCE(embedding_status, '') != 'ready')
+                    """,
+                    (now,),
+                ) as stale_edge_cursor:
+                    stale_edge_ids = [
+                        str(row[0]) for row in await stale_edge_cursor.fetchall() if row[0]
+                    ]
                 await db.commit()
             except Exception:
                 await db.rollback()
                 raise
 
+        await self._delete_edge_vectors(stale_edge_ids)
         for subject_key in affected_subjects:
             mark_subject_changed(self.db_path, subject_key)
 
@@ -449,7 +490,11 @@ class RelationshipCorrectionService:
                     archive_cursor = await db.execute(
                         """
                         UPDATE knowledge_graph
-                        SET status = 'archived', valid_to = COALESCE(valid_to, ?),
+                        SET status = 'archived',
+                            embedding_status = 'disabled',
+                            embedding_profile_id = NULL,
+                            last_embedded_at = NULL,
+                            valid_to = COALESCE(valid_to, ?),
                             updated_at = ?
                         WHERE triple_id = ? AND authority_ref = ?
                         """,
@@ -540,11 +585,24 @@ class RelationshipCorrectionService:
                             now=now,
                         )
                     subject_revision = subject_revisions[str(correction.before["subject_id"])]
+                async with db.execute(
+                    """
+                    SELECT triple_id
+                    FROM knowledge_graph
+                    WHERE updated_at >= ?
+                      AND (status != 'active' OR COALESCE(embedding_status, '') != 'ready')
+                    """,
+                    (now,),
+                ) as stale_edge_cursor:
+                    stale_edge_ids = [
+                        str(row[0]) for row in await stale_edge_cursor.fetchall() if row[0]
+                    ]
                 await db.commit()
             except Exception:
                 await db.rollback()
                 raise
 
+        await self._delete_edge_vectors(stale_edge_ids)
         for subject_key in affected_subjects:
             mark_subject_changed(self.db_path, subject_key)
 
@@ -1076,6 +1134,7 @@ async def _close_original_edge(
             """
             UPDATE knowledge_graph
             SET status = 'user_rejected', status_reason = 'user_correction',
+                embedding_status = 'disabled', embedding_profile_id = NULL, last_embedded_at = NULL,
                 deprecated_by = ?, deprecated_at = ?, updated_at = ?
             WHERE triple_id = ?
             """,
@@ -1086,6 +1145,7 @@ async def _close_original_edge(
         """
         UPDATE knowledge_graph
         SET status = 'deprecated', status_reason = 'user_correction',
+            embedding_status = 'disabled', embedding_profile_id = NULL, last_embedded_at = NULL,
             deprecated_by = ?, deprecated_at = ?, valid_to = ?, updated_at = ?
         WHERE triple_id = ?
         """,
@@ -1246,6 +1306,12 @@ async def _restore_original_edge(
             f"Correction snapshot is missing relationship fields: {', '.join(missing)}"
         )
     restored = dict(before)
+    if str(restored.get("status") or "active") == "active":
+        restored["embedding_status"] = "pending"
+    else:
+        restored["embedding_status"] = "disabled"
+    restored["embedding_profile_id"] = None
+    restored["last_embedded_at"] = None
     evidence_snapshot = await _latest_relationship_evidence_for_segment(
         db,
         triple_id=triple_id,
