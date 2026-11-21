@@ -85,6 +85,8 @@
     }
   },
   "timeline": {
+    "manual_entry_title": "Your note",
+    "standout_brief_duration": "<1m",
     "sources": {
       "chrome_history": "Chrome history",
       "manual_journal": "Manual journal",
@@ -488,9 +490,5 @@
       "ask_request_not_pending": "Ask request {request_id!r} is not pending",
       "ask_response_option_required": "Choose one of the available answers."
     }
-  },
-  "timeline": {
-    "manual_entry_title": "Your note",
-    "standout_brief_duration": "<1m"
   }
 }
