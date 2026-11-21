@@ -189,99 +189,124 @@ export function SettingsPreferencesSection({
         </>
       ) : null}
 
-      {section === 'network' ? <SettingsGroup title={t('settings.fields.networkProxy')}>
-        <div className="space-y-4">
-          <LabeledSelectField
-            label=""
-            ariaLabel={t('settings.fields.networkProxy')}
-            value={draftConfig.network.enabled ? draftConfig.network.proxy_type : 'off'}
-            options={[
-              { label: t('settings.proxyOff'), value: 'off' },
-              { label: 'HTTP', value: 'http' },
-              { label: 'SOCKS5', value: 'socks5' },
-            ]}
-            onChange={(value) => patchDraftConfig((draft) => {
-              if (value === 'off') {
-                draft.network.enabled = false;
-              } else {
-                draft.network.enabled = true;
-                draft.network.proxy_type = value as 'http' | 'socks5';
-              }
-            })}
-          />
-          {draftConfig.network.enabled && (
-            <div className="grid gap-4">
-              <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-4">
-                <label className="flex flex-col gap-2.5">
-                  <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyHost')}</span>
-                  <Input
-                    aria-label={t('settings.fields.proxyHost')}
-                    value={draftConfig.network.host}
-                    placeholder="127.0.0.1"
-                    className={settingsInputClassName}
-                    onChange={(e) => patchDraftConfig((draft) => {
-                      draft.network.host = e.target.value;
-                    })}
-                  />
-                </label>
-                <label className="flex flex-col gap-2.5">
-                  <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyPort')}</span>
-                  <Input
-                    type="number"
-                    aria-label={t('settings.fields.proxyPort')}
-                    value={draftConfig.network.port}
-                    min={1}
-                    max={65535}
-                    placeholder="7890"
-                    className={cn(settingsInputClassName, 'tabular-nums')}
-                    onChange={(e) => patchDraftConfig((draft) => {
-                      const port = parseInt(e.target.value, 10);
-                      if (!Number.isNaN(port) && port >= 1 && port <= 65535) {
-                        draft.network.port = port;
-                      }
-                    })}
-                  />
-                </label>
+      {section === 'network' ? <>
+        <SettingsGroup title={t('settings.fields.networkProxy')}>
+          <div className="space-y-4">
+            <LabeledSelectField
+              label=""
+              ariaLabel={t('settings.fields.networkProxy')}
+              value={draftConfig.network.enabled ? draftConfig.network.proxy_type : 'off'}
+              options={[
+                { label: t('settings.proxyOff'), value: 'off' },
+                { label: 'HTTP', value: 'http' },
+                { label: 'SOCKS5', value: 'socks5' },
+              ]}
+              onChange={(value) => patchDraftConfig((draft) => {
+                if (value === 'off') {
+                  draft.network.enabled = false;
+                } else {
+                  draft.network.enabled = true;
+                  draft.network.proxy_type = value as 'http' | 'socks5';
+                }
+              })}
+            />
+            {draftConfig.network.enabled && (
+              <div className="grid gap-4">
+                <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-4">
+                  <label className="flex flex-col gap-2.5">
+                    <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyHost')}</span>
+                    <Input
+                      aria-label={t('settings.fields.proxyHost')}
+                      value={draftConfig.network.host}
+                      placeholder="127.0.0.1"
+                      className={settingsInputClassName}
+                      onChange={(e) => patchDraftConfig((draft) => {
+                        draft.network.host = e.target.value;
+                      })}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2.5">
+                    <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyPort')}</span>
+                    <Input
+                      type="number"
+                      aria-label={t('settings.fields.proxyPort')}
+                      value={draftConfig.network.port}
+                      min={1}
+                      max={65535}
+                      placeholder="7890"
+                      className={cn(settingsInputClassName, 'tabular-nums')}
+                      onChange={(e) => patchDraftConfig((draft) => {
+                        const port = parseInt(e.target.value, 10);
+                        if (!Number.isNaN(port) && port >= 1 && port <= 65535) {
+                          draft.network.port = port;
+                        }
+                      })}
+                    />
+                  </label>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="flex flex-col gap-2.5">
+                    <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyUsername')}</span>
+                    <Input
+                      aria-label={t('settings.fields.proxyUsername')}
+                      value={draftConfig.network.username ?? ''}
+                      placeholder={t('settings.fields.proxyUsername')}
+                      className={settingsInputClassName}
+                      onChange={(e) => patchDraftConfig((draft) => {
+                        draft.network.username = e.target.value;
+                      })}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2.5">
+                    <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyPassword')}</span>
+                    <Input
+                      type="password"
+                      aria-label={t('settings.fields.proxyPassword')}
+                      value={draftConfig.network.password ?? ''}
+                      placeholder={t('settings.fields.proxyPassword')}
+                      autoComplete="off"
+                      className={settingsInputClassName}
+                      onChange={(e) => patchDraftConfig((draft) => {
+                        draft.network.password = e.target.value;
+                      })}
+                    />
+                  </label>
+                </div>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="flex flex-col gap-2.5">
-                  <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyUsername')}</span>
-                  <Input
-                    aria-label={t('settings.fields.proxyUsername')}
-                    value={draftConfig.network.username ?? ''}
-                    placeholder={t('settings.fields.proxyUsername')}
-                    className={settingsInputClassName}
-                    onChange={(e) => patchDraftConfig((draft) => {
-                      draft.network.username = e.target.value;
-                    })}
-                  />
-                </label>
-                <label className="flex flex-col gap-2.5">
-                  <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyPassword')}</span>
-                  <Input
-                    type="password"
-                    aria-label={t('settings.fields.proxyPassword')}
-                    value={draftConfig.network.password ?? ''}
-                    placeholder={t('settings.fields.proxyPassword')}
-                    autoComplete="off"
-                    className={settingsInputClassName}
-                    onChange={(e) => patchDraftConfig((draft) => {
-                      draft.network.password = e.target.value;
-                    })}
-                  />
-                </label>
-              </div>
-            </div>
-          )}
-          <PreferenceToggleRow
-            label={t('settings.fakeIpCompatibility')}
-            description={t('settings.fakeIpCompatibilityDesc')}
-            checked={fakeIpCompatibilityEnabled === true}
-            disabled={fakeIpCompatibilityEnabled === undefined}
-            onCheckedChange={onFakeIpCompatibilityChange}
-          />
-        </div>
-      </SettingsGroup> : null}
+            )}
+            <PreferenceToggleRow
+              label={t('settings.fakeIpCompatibility')}
+              description={t('settings.fakeIpCompatibilityDesc')}
+              checked={fakeIpCompatibilityEnabled === true}
+              disabled={fakeIpCompatibilityEnabled === undefined}
+              onCheckedChange={onFakeIpCompatibilityChange}
+            />
+          </div>
+        </SettingsGroup>
+        <SettingsGroup
+          title={t('settings.ambientLookups.title')}
+          description={t('settings.ambientLookups.description')}
+        >
+          <div className="space-y-1.5">
+            <PreferenceToggleRow
+              label={t('settings.ambientLookups.ipLocationLabel')}
+              description={t('settings.ambientLookups.ipLocationDesc')}
+              checked={draftConfig.preferences.ambient_ip_location_enabled}
+              onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                draft.preferences.ambient_ip_location_enabled = checked;
+              })}
+            />
+            <PreferenceToggleRow
+              label={t('settings.ambientLookups.manualEntryWeatherLabel')}
+              description={t('settings.ambientLookups.manualEntryWeatherDesc')}
+              checked={draftConfig.preferences.manual_entry_weather_enrichment_enabled}
+              onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                draft.preferences.manual_entry_weather_enrichment_enabled = checked;
+              })}
+            />
+          </div>
+        </SettingsGroup>
+      </> : null}
 
       {section === 'diagnostics' ? <><SettingsGroup
         title={t('settings.diagnostics.title')}

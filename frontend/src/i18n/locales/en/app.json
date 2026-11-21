@@ -1633,6 +1633,14 @@
     "fakeIpCompatibilityEnableRetry": "Enable and retry",
     "fakeIpCompatibilityEnabling": "Enabling…",
     "fakeIpCompatibilityEnableFailed": "Could not enable proxy compatibility: {{message}}",
+    "ambientLookups": {
+      "title": "Optional ambient lookups",
+      "description": "Control external services queried in the background for approximate city or weather context. Both are off by default and follow the network proxy above.",
+      "ipLocationLabel": "Estimate host city via IP lookup",
+      "ipLocationDesc": "Periodically queries ipapi.co from the service host to estimate city-level location for Timeline context. May reflect your VPN or remote server exit rather than your physical device.",
+      "manualEntryWeatherLabel": "Fetch weather for manual timeline notes",
+      "manualEntryWeatherDesc": "Queries Open-Meteo using available coordinates to attach historical weather chips when you create or reschedule a manual timeline entry."
+    },
     "defaultChatWorkspaceDesc": "Set the default working directory for new desktop conversations. You can still choose a different directory inside a specific conversation.",
     "control": {
       "title": "Safety and execution",

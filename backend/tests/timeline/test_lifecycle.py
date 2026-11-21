@@ -20,7 +20,6 @@ async def test_init_registers_all_contributors_when_deps_present(tmp_path):
     # Location pollers now reuse the sources owned by LocationModule, exposed
     # on context.location (no longer fished off unified_memory).
     context.location.ipgeo_source = MagicMock()
-    context.location.wifi_source = MagicMock()
     context.memory.media_source_registry = MagicMock()
 
     scheduler = MagicMock()
@@ -38,11 +37,11 @@ async def test_init_registers_all_contributors_when_deps_present(tmp_path):
     assert ScheduledTargetType.TIMELINE_STANDOUT_RESCORE in registered_targets
     assert ScheduledTargetType.TIMELINE_MOOD_AGGREGATE in registered_targets
     assert ScheduledTargetType.TIMELINE_REPRESENTATIVE_ASSET in registered_targets
-    # ...plus two location pollers (IPGeo + WiFi).
+    # ...plus the opt-in IPGeo location poller (retired WiFi poller removed).
     assert ScheduledTargetType.LOCATION_IPGEO_POLL in registered_targets
-    assert ScheduledTargetType.LOCATION_WIFI_POLL in registered_targets
+    assert not hasattr(ScheduledTargetType, "LOCATION_WIFI_POLL")
 
-    assert scheduler.schedule_interval.await_count == 6
+    assert scheduler.schedule_interval.await_count == 5
 
 
 @pytest.mark.asyncio
@@ -84,7 +83,6 @@ async def test_shutdown_unregisters_all_contributors(tmp_path):
     # Location pollers now reuse the sources owned by LocationModule, exposed
     # on context.location (no longer fished off unified_memory).
     context.location.ipgeo_source = MagicMock()
-    context.location.wifi_source = MagicMock()
     context.memory.media_source_registry = MagicMock()
     scheduler = MagicMock()
     scheduler.register_handler = MagicMock()
@@ -105,12 +103,11 @@ async def test_shutdown_unregisters_all_contributors(tmp_path):
         "timeline_mood_aggregate",
         "timeline_representative_asset",
         "location_ipgeo_poll",
-        "location_wifi_poll",
     }
-    assert scheduler.schedule_interval.await_count == 6
+    assert scheduler.schedule_interval.await_count == 5
     await module.shutdown()
 
-    assert scheduler.unschedule.await_count == 6
+    assert scheduler.unschedule.await_count == 5
     removed = {
         call.args[0]: (call.kwargs["target_type"], call.kwargs["target_key"])
         for call in scheduler.unschedule.await_args_list

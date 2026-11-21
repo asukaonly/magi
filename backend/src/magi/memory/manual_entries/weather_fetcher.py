@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
 
+from ...config import get_config
 from ...core.logger import get_logger
 
 logger = get_logger("magi.memory.manual_entries.weather")
@@ -116,14 +118,20 @@ class WeatherFetcher:
         url: str = OPEN_METEO_URL,
         timeout: float = OPEN_METEO_TIMEOUT_SECONDS,
         client_factory: Optional[Any] = None,
+        proxy_url_resolver: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self._url = url
         self._timeout = timeout
+        self._proxy_url_resolver = proxy_url_resolver or (lambda: get_config().network.proxy_url())
         # `client_factory` lets tests inject a stub without monkey-patching
         # httpx — call signature is `() -> httpx.AsyncClient`. Production
-        # callers stick with the default.
+        # callers stick with the default, which honors configured network proxy.
         self._client_factory = client_factory or (
-            lambda: httpx.AsyncClient(timeout=self._timeout)
+            lambda: httpx.AsyncClient(
+                timeout=self._timeout,
+                proxy=self._proxy_url_resolver(),
+                trust_env=False,
+            )
         )
         self._cache: "OrderedDict[tuple, Optional[dict]]" = OrderedDict()
         self._lock = asyncio.Lock()

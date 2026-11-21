@@ -1834,6 +1834,11 @@ export interface components {
              */
             allow_media_grounding_for_conversation: boolean;
             /**
+             * Ambient Ip Location Enabled
+             * @default false
+             */
+            ambient_ip_location_enabled: boolean;
+            /**
              * Conversation Rhythm Enabled
              * @default true
              */
@@ -1853,6 +1858,11 @@ export interface components {
              * @default zh
              */
             language: string;
+            /**
+             * Manual Entry Weather Enrichment Enabled
+             * @default false
+             */
+            manual_entry_weather_enrichment_enabled: boolean;
             /**
              * Onboarding Completed
              * @default false

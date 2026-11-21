@@ -10851,7 +10851,7 @@ return errors === 0;
 }
 validate144.evaluated = {"props":{"background_reflection_enabled":true,"deep_persona_enabled":true,"proactive_sharing_enabled":true,"reflection_daily_limit":true,"state_memory_enabled":true,"state_transition_enabled":true},"dynamicProps":false,"dynamicItems":false};
 
-const schema67 = {"properties":{"allow_ask_in_background":{"default":false,"title":"Allow Ask In Background","type":"boolean"},"allow_interjection":{"default":false,"title":"Allow Interjection","type":"boolean"},"allow_media_grounding_for_conversation":{"default":true,"title":"Allow Media Grounding For Conversation","type":"boolean"},"conversation_rhythm_enabled":{"default":true,"title":"Conversation Rhythm Enabled","type":"boolean"},"default_chat_workspace_path":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Default Chat Workspace Path"},"delivery_targets":{"items":{"$ref":"#/components/schemas/EndpointRef"},"maxItems":32,"title":"Delivery Targets","type":"array"},"first_conversation_completed":{"default":false,"description":"Legacy onboarding state retained for existing saved preferences. The chat UI no longer uses it to show starter prompts.","title":"First Conversation Completed","type":"boolean"},"language":{"default":"zh","title":"Language","type":"string"},"onboarding_completed":{"default":false,"title":"Onboarding Completed","type":"boolean"},"product_tour_completed":{"default":false,"description":"True once the user has completed (or skipped) the one-time main-page product tour shown on first visit after onboarding.","title":"Product Tour Completed","type":"boolean"},"scenario":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Scenario"},"streaming_chat_enabled":{"default":false,"title":"Streaming Chat Enabled","type":"boolean"},"suggestion_dismissals":{"additionalProperties":{"$ref":"#/components/schemas/DismissalRecord"},"description":"Map of dedupe_key → DismissalRecord. The signal matcher filters out any candidate whose dedupe_key appears here and whose TTL (based on kind) has not yet expired.","title":"Suggestion Dismissals","type":"object"},"user_mode":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"User Mode"}},"required":["delivery_targets","onboarding_completed","first_conversation_completed","product_tour_completed","suggestion_dismissals","user_mode","scenario","language","default_chat_workspace_path","streaming_chat_enabled","conversation_rhythm_enabled","allow_media_grounding_for_conversation","allow_interjection","allow_ask_in_background"],"title":"UserPreferencesModel","type":"object"};
+const schema67 = {"properties":{"allow_ask_in_background":{"default":false,"title":"Allow Ask In Background","type":"boolean"},"allow_interjection":{"default":false,"title":"Allow Interjection","type":"boolean"},"allow_media_grounding_for_conversation":{"default":true,"title":"Allow Media Grounding For Conversation","type":"boolean"},"ambient_ip_location_enabled":{"default":false,"title":"Ambient Ip Location Enabled","type":"boolean"},"conversation_rhythm_enabled":{"default":true,"title":"Conversation Rhythm Enabled","type":"boolean"},"default_chat_workspace_path":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Default Chat Workspace Path"},"delivery_targets":{"items":{"$ref":"#/components/schemas/EndpointRef"},"maxItems":32,"title":"Delivery Targets","type":"array"},"first_conversation_completed":{"default":false,"description":"Legacy onboarding state retained for existing saved preferences. The chat UI no longer uses it to show starter prompts.","title":"First Conversation Completed","type":"boolean"},"language":{"default":"zh","title":"Language","type":"string"},"manual_entry_weather_enrichment_enabled":{"default":false,"title":"Manual Entry Weather Enrichment Enabled","type":"boolean"},"onboarding_completed":{"default":false,"title":"Onboarding Completed","type":"boolean"},"product_tour_completed":{"default":false,"description":"True once the user has completed (or skipped) the one-time main-page product tour shown on first visit after onboarding.","title":"Product Tour Completed","type":"boolean"},"scenario":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Scenario"},"streaming_chat_enabled":{"default":false,"title":"Streaming Chat Enabled","type":"boolean"},"suggestion_dismissals":{"additionalProperties":{"$ref":"#/components/schemas/DismissalRecord"},"description":"Map of dedupe_key → DismissalRecord. The signal matcher filters out any candidate whose dedupe_key appears here and whose TTL (based on kind) has not yet expired.","title":"Suggestion Dismissals","type":"object"},"user_mode":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"User Mode"}},"required":["delivery_targets","onboarding_completed","first_conversation_completed","product_tour_completed","suggestion_dismissals","user_mode","scenario","language","default_chat_workspace_path","streaming_chat_enabled","conversation_rhythm_enabled","allow_media_grounding_for_conversation","allow_interjection","allow_ask_in_background","ambient_ip_location_enabled","manual_entry_weather_enrichment_enabled"],"title":"UserPreferencesModel","type":"object"};
 const schema68 = {"description":"Address one contribution target without conflating it with a user/session.","properties":{"connection_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Connection Id"},"contribution_id":{"title":"Contribution Id","type":"string"},"device_id":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Device Id"},"target_id":{"title":"Target Id","type":"string"},"thread_id":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Thread Id"}},"required":["connection_id","contribution_id","target_id","thread_id","device_id"],"title":"EndpointRef","type":"object"};
 
 function validate147(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
@@ -11264,7 +11264,7 @@ evaluated0.items = undefined;
 if(errors === 0){
 if(data && typeof data == "object" && !Array.isArray(data)){
 let missing0;
-if(((((((((((((((data.delivery_targets === undefined) && (missing0 = "delivery_targets")) || ((data.onboarding_completed === undefined) && (missing0 = "onboarding_completed"))) || ((data.first_conversation_completed === undefined) && (missing0 = "first_conversation_completed"))) || ((data.product_tour_completed === undefined) && (missing0 = "product_tour_completed"))) || ((data.suggestion_dismissals === undefined) && (missing0 = "suggestion_dismissals"))) || ((data.user_mode === undefined) && (missing0 = "user_mode"))) || ((data.scenario === undefined) && (missing0 = "scenario"))) || ((data.language === undefined) && (missing0 = "language"))) || ((data.default_chat_workspace_path === undefined) && (missing0 = "default_chat_workspace_path"))) || ((data.streaming_chat_enabled === undefined) && (missing0 = "streaming_chat_enabled"))) || ((data.conversation_rhythm_enabled === undefined) && (missing0 = "conversation_rhythm_enabled"))) || ((data.allow_media_grounding_for_conversation === undefined) && (missing0 = "allow_media_grounding_for_conversation"))) || ((data.allow_interjection === undefined) && (missing0 = "allow_interjection"))) || ((data.allow_ask_in_background === undefined) && (missing0 = "allow_ask_in_background"))){
+if(((((((((((((((((data.delivery_targets === undefined) && (missing0 = "delivery_targets")) || ((data.onboarding_completed === undefined) && (missing0 = "onboarding_completed"))) || ((data.first_conversation_completed === undefined) && (missing0 = "first_conversation_completed"))) || ((data.product_tour_completed === undefined) && (missing0 = "product_tour_completed"))) || ((data.suggestion_dismissals === undefined) && (missing0 = "suggestion_dismissals"))) || ((data.user_mode === undefined) && (missing0 = "user_mode"))) || ((data.scenario === undefined) && (missing0 = "scenario"))) || ((data.language === undefined) && (missing0 = "language"))) || ((data.default_chat_workspace_path === undefined) && (missing0 = "default_chat_workspace_path"))) || ((data.streaming_chat_enabled === undefined) && (missing0 = "streaming_chat_enabled"))) || ((data.conversation_rhythm_enabled === undefined) && (missing0 = "conversation_rhythm_enabled"))) || ((data.allow_media_grounding_for_conversation === undefined) && (missing0 = "allow_media_grounding_for_conversation"))) || ((data.allow_interjection === undefined) && (missing0 = "allow_interjection"))) || ((data.allow_ask_in_background === undefined) && (missing0 = "allow_ask_in_background"))) || ((data.ambient_ip_location_enabled === undefined) && (missing0 = "ambient_ip_location_enabled"))) || ((data.manual_entry_weather_enrichment_enabled === undefined) && (missing0 = "manual_entry_weather_enrichment_enabled"))){
 validate146.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
 return false;
 }
@@ -11305,10 +11305,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.conversation_rhythm_enabled !== undefined){
+if(data.ambient_ip_location_enabled !== undefined){
 const _errs7 = errors;
-if(typeof data.conversation_rhythm_enabled !== "boolean"){
-validate146.errors = [{instancePath:instancePath+"/conversation_rhythm_enabled",schemaPath:"#/properties/conversation_rhythm_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.ambient_ip_location_enabled !== "boolean"){
+validate146.errors = [{instancePath:instancePath+"/ambient_ip_location_enabled",schemaPath:"#/properties/ambient_ip_location_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs7 === errors;
@@ -11317,13 +11317,25 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.default_chat_workspace_path !== undefined){
-let data4 = data.default_chat_workspace_path;
+if(data.conversation_rhythm_enabled !== undefined){
 const _errs9 = errors;
-const _errs10 = errors;
-let valid1 = false;
+if(typeof data.conversation_rhythm_enabled !== "boolean"){
+validate146.errors = [{instancePath:instancePath+"/conversation_rhythm_enabled",schemaPath:"#/properties/conversation_rhythm_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs9 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.default_chat_workspace_path !== undefined){
+let data5 = data.default_chat_workspace_path;
 const _errs11 = errors;
-if(typeof data4 !== "string"){
+const _errs12 = errors;
+let valid1 = false;
+const _errs13 = errors;
+if(typeof data5 !== "string"){
 const err0 = {instancePath:instancePath+"/default_chat_workspace_path",schemaPath:"#/properties/default_chat_workspace_path/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err0];
@@ -11333,10 +11345,10 @@ vErrors.push(err0);
 }
 errors++;
 }
-var _valid0 = _errs11 === errors;
+var _valid0 = _errs13 === errors;
 valid1 = valid1 || _valid0;
-const _errs13 = errors;
-if(data4 !== null){
+const _errs15 = errors;
+if(data5 !== null){
 const err1 = {instancePath:instancePath+"/default_chat_workspace_path",schemaPath:"#/properties/default_chat_workspace_path/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
 if(vErrors === null){
 vErrors = [err1];
@@ -11346,7 +11358,7 @@ vErrors.push(err1);
 }
 errors++;
 }
-var _valid0 = _errs13 === errors;
+var _valid0 = _errs15 === errors;
 valid1 = valid1 || _valid0;
 if(!valid1){
 const err2 = {instancePath:instancePath+"/default_chat_workspace_path",schemaPath:"#/properties/default_chat_workspace_path/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
@@ -11361,41 +11373,41 @@ validate146.errors = vErrors;
 return false;
 }
 else {
-errors = _errs10;
+errors = _errs12;
 if(vErrors !== null){
-if(_errs10){
-vErrors.length = _errs10;
+if(_errs12){
+vErrors.length = _errs12;
 }
 else {
 vErrors = null;
 }
 }
 }
-var valid0 = _errs9 === errors;
+var valid0 = _errs11 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
 if(data.delivery_targets !== undefined){
-let data5 = data.delivery_targets;
-const _errs15 = errors;
-if(errors === _errs15){
-if(Array.isArray(data5)){
-if(data5.length > 32){
+let data6 = data.delivery_targets;
+const _errs17 = errors;
+if(errors === _errs17){
+if(Array.isArray(data6)){
+if(data6.length > 32){
 validate146.errors = [{instancePath:instancePath+"/delivery_targets",schemaPath:"#/properties/delivery_targets/maxItems",keyword:"maxItems",params:{limit: 32},message:"must NOT have more than 32 items"}];
 return false;
 }
 else {
 var valid2 = true;
-const len0 = data5.length;
+const len0 = data6.length;
 for(let i0=0; i0<len0; i0++){
-const _errs17 = errors;
-if(!(validate147(data5[i0], {instancePath:instancePath+"/delivery_targets/" + i0,parentData:data5,parentDataProperty:i0,rootData,dynamicAnchors}))){
+const _errs19 = errors;
+if(!(validate147(data6[i0], {instancePath:instancePath+"/delivery_targets/" + i0,parentData:data6,parentDataProperty:i0,rootData,dynamicAnchors}))){
 vErrors = vErrors === null ? validate147.errors : vErrors.concat(validate147.errors);
 errors = vErrors.length;
 }
-var valid2 = _errs17 === errors;
+var valid2 = _errs19 === errors;
 if(!valid2){
 break;
 }
@@ -11407,28 +11419,16 @@ validate146.errors = [{instancePath:instancePath+"/delivery_targets",schemaPath:
 return false;
 }
 }
-var valid0 = _errs15 === errors;
+var valid0 = _errs17 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
 if(data.first_conversation_completed !== undefined){
-const _errs18 = errors;
+const _errs20 = errors;
 if(typeof data.first_conversation_completed !== "boolean"){
 validate146.errors = [{instancePath:instancePath+"/first_conversation_completed",schemaPath:"#/properties/first_conversation_completed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
-return false;
-}
-var valid0 = _errs18 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
-if(data.language !== undefined){
-const _errs20 = errors;
-if(typeof data.language !== "string"){
-validate146.errors = [{instancePath:instancePath+"/language",schemaPath:"#/properties/language/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
 var valid0 = _errs20 === errors;
@@ -11437,10 +11437,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.onboarding_completed !== undefined){
+if(data.language !== undefined){
 const _errs22 = errors;
-if(typeof data.onboarding_completed !== "boolean"){
-validate146.errors = [{instancePath:instancePath+"/onboarding_completed",schemaPath:"#/properties/onboarding_completed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.language !== "string"){
+validate146.errors = [{instancePath:instancePath+"/language",schemaPath:"#/properties/language/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
 var valid0 = _errs22 === errors;
@@ -11449,10 +11449,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.product_tour_completed !== undefined){
+if(data.manual_entry_weather_enrichment_enabled !== undefined){
 const _errs24 = errors;
-if(typeof data.product_tour_completed !== "boolean"){
-validate146.errors = [{instancePath:instancePath+"/product_tour_completed",schemaPath:"#/properties/product_tour_completed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.manual_entry_weather_enrichment_enabled !== "boolean"){
+validate146.errors = [{instancePath:instancePath+"/manual_entry_weather_enrichment_enabled",schemaPath:"#/properties/manual_entry_weather_enrichment_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs24 === errors;
@@ -11461,13 +11461,37 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.scenario !== undefined){
-let data11 = data.scenario;
+if(data.onboarding_completed !== undefined){
 const _errs26 = errors;
-const _errs27 = errors;
-let valid3 = false;
+if(typeof data.onboarding_completed !== "boolean"){
+validate146.errors = [{instancePath:instancePath+"/onboarding_completed",schemaPath:"#/properties/onboarding_completed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs26 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.product_tour_completed !== undefined){
 const _errs28 = errors;
-if(typeof data11 !== "string"){
+if(typeof data.product_tour_completed !== "boolean"){
+validate146.errors = [{instancePath:instancePath+"/product_tour_completed",schemaPath:"#/properties/product_tour_completed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs28 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.scenario !== undefined){
+let data13 = data.scenario;
+const _errs30 = errors;
+const _errs31 = errors;
+let valid3 = false;
+const _errs32 = errors;
+if(typeof data13 !== "string"){
 const err3 = {instancePath:instancePath+"/scenario",schemaPath:"#/properties/scenario/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err3];
@@ -11477,10 +11501,10 @@ vErrors.push(err3);
 }
 errors++;
 }
-var _valid1 = _errs28 === errors;
+var _valid1 = _errs32 === errors;
 valid3 = valid3 || _valid1;
-const _errs30 = errors;
-if(data11 !== null){
+const _errs34 = errors;
+if(data13 !== null){
 const err4 = {instancePath:instancePath+"/scenario",schemaPath:"#/properties/scenario/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
 if(vErrors === null){
 vErrors = [err4];
@@ -11490,7 +11514,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-var _valid1 = _errs30 === errors;
+var _valid1 = _errs34 === errors;
 valid3 = valid3 || _valid1;
 if(!valid3){
 const err5 = {instancePath:instancePath+"/scenario",schemaPath:"#/properties/scenario/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
@@ -11505,46 +11529,46 @@ validate146.errors = vErrors;
 return false;
 }
 else {
-errors = _errs27;
+errors = _errs31;
 if(vErrors !== null){
-if(_errs27){
-vErrors.length = _errs27;
+if(_errs31){
+vErrors.length = _errs31;
 }
 else {
 vErrors = null;
 }
 }
 }
-var valid0 = _errs26 === errors;
+var valid0 = _errs30 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
 if(data.streaming_chat_enabled !== undefined){
-const _errs32 = errors;
+const _errs36 = errors;
 if(typeof data.streaming_chat_enabled !== "boolean"){
 validate146.errors = [{instancePath:instancePath+"/streaming_chat_enabled",schemaPath:"#/properties/streaming_chat_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
-var valid0 = _errs32 === errors;
+var valid0 = _errs36 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
 if(data.suggestion_dismissals !== undefined){
-let data13 = data.suggestion_dismissals;
-const _errs34 = errors;
-if(errors === _errs34){
-if(data13 && typeof data13 == "object" && !Array.isArray(data13)){
-for(const key0 in data13){
-const _errs37 = errors;
-if(!(validate149(data13[key0], {instancePath:instancePath+"/suggestion_dismissals/" + key0.replace(/~/g, "~0").replace(/\//g, "~1"),parentData:data13,parentDataProperty:key0,rootData,dynamicAnchors}))){
+let data15 = data.suggestion_dismissals;
+const _errs38 = errors;
+if(errors === _errs38){
+if(data15 && typeof data15 == "object" && !Array.isArray(data15)){
+for(const key0 in data15){
+const _errs41 = errors;
+if(!(validate149(data15[key0], {instancePath:instancePath+"/suggestion_dismissals/" + key0.replace(/~/g, "~0").replace(/\//g, "~1"),parentData:data15,parentDataProperty:key0,rootData,dynamicAnchors}))){
 vErrors = vErrors === null ? validate149.errors : vErrors.concat(validate149.errors);
 errors = vErrors.length;
 }
-var valid4 = _errs37 === errors;
+var valid4 = _errs41 === errors;
 if(!valid4){
 break;
 }
@@ -11555,19 +11579,19 @@ validate146.errors = [{instancePath:instancePath+"/suggestion_dismissals",schema
 return false;
 }
 }
-var valid0 = _errs34 === errors;
+var valid0 = _errs38 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
 if(data.user_mode !== undefined){
-let data15 = data.user_mode;
-const _errs38 = errors;
-const _errs39 = errors;
+let data17 = data.user_mode;
+const _errs42 = errors;
+const _errs43 = errors;
 let valid5 = false;
-const _errs40 = errors;
-if(typeof data15 !== "string"){
+const _errs44 = errors;
+if(typeof data17 !== "string"){
 const err6 = {instancePath:instancePath+"/user_mode",schemaPath:"#/properties/user_mode/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err6];
@@ -11577,10 +11601,10 @@ vErrors.push(err6);
 }
 errors++;
 }
-var _valid2 = _errs40 === errors;
+var _valid2 = _errs44 === errors;
 valid5 = valid5 || _valid2;
-const _errs42 = errors;
-if(data15 !== null){
+const _errs46 = errors;
+if(data17 !== null){
 const err7 = {instancePath:instancePath+"/user_mode",schemaPath:"#/properties/user_mode/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
 if(vErrors === null){
 vErrors = [err7];
@@ -11590,7 +11614,7 @@ vErrors.push(err7);
 }
 errors++;
 }
-var _valid2 = _errs42 === errors;
+var _valid2 = _errs46 === errors;
 valid5 = valid5 || _valid2;
 if(!valid5){
 const err8 = {instancePath:instancePath+"/user_mode",schemaPath:"#/properties/user_mode/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
@@ -11605,20 +11629,22 @@ validate146.errors = vErrors;
 return false;
 }
 else {
-errors = _errs39;
+errors = _errs43;
 if(vErrors !== null){
-if(_errs39){
-vErrors.length = _errs39;
+if(_errs43){
+vErrors.length = _errs43;
 }
 else {
 vErrors = null;
 }
 }
 }
-var valid0 = _errs38 === errors;
+var valid0 = _errs42 === errors;
 }
 else {
 var valid0 = true;
+}
+}
 }
 }
 }
@@ -11643,7 +11669,7 @@ return false;
 validate146.errors = vErrors;
 return errors === 0;
 }
-validate146.evaluated = {"props":{"allow_ask_in_background":true,"allow_interjection":true,"allow_media_grounding_for_conversation":true,"conversation_rhythm_enabled":true,"default_chat_workspace_path":true,"delivery_targets":true,"first_conversation_completed":true,"language":true,"onboarding_completed":true,"product_tour_completed":true,"scenario":true,"streaming_chat_enabled":true,"suggestion_dismissals":true,"user_mode":true},"dynamicProps":false,"dynamicItems":false};
+validate146.evaluated = {"props":{"allow_ask_in_background":true,"allow_interjection":true,"allow_media_grounding_for_conversation":true,"ambient_ip_location_enabled":true,"conversation_rhythm_enabled":true,"default_chat_workspace_path":true,"delivery_targets":true,"first_conversation_completed":true,"language":true,"manual_entry_weather_enrichment_enabled":true,"onboarding_completed":true,"product_tour_completed":true,"scenario":true,"streaming_chat_enabled":true,"suggestion_dismissals":true,"user_mode":true},"dynamicProps":false,"dynamicItems":false};
 
 const schema71 = {"properties":{"asr":{"$ref":"#/components/schemas/ASRSettings"},"tts":{"$ref":"#/components/schemas/TTSSettings"}},"required":["tts","asr"],"title":"SpeechSettings","type":"object"};
 const schema72 = {"properties":{"enabled":{"default":false,"title":"Enabled","type":"boolean"},"language":{"default":"auto","enum":["auto","zh","en"],"title":"Language","type":"string"},"local_model_id":{"default":"sensevoice-zh-en-ja-ko-yue","title":"Local Model Id","type":"string"},"mode":{"default":"local","enum":["local","remote"],"title":"Mode","type":"string"},"provider_id":{"default":"","title":"Provider Id","type":"string"}},"required":["enabled","mode","local_model_id","provider_id","language"],"title":"ASRSettings","type":"object"};

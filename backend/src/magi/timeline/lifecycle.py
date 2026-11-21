@@ -8,6 +8,7 @@ from typing import Any, TYPE_CHECKING
 from ..awareness.kg_write_queue import KnowledgeGraphWriteQueue
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
+from ..config import get_user_preference
 from ..core.logger import get_logger
 from .adapter import TimelineAdapter
 from .service import TimelineService
@@ -83,7 +84,6 @@ class TimelineSchedulerDependencies:
     media_registry: Any | None
     scenario_pool: Any | None
     ipgeo_source: Any | None
-    wifi_source: Any | None
 
 
 class TimelineSchedulersModule(LifecycleModule):
@@ -151,7 +151,6 @@ class TimelineSchedulersModule(LifecycleModule):
             media_registry=getattr(self._context.memory, "media_source_registry", None),
             scenario_pool=getattr(getattr(self._context, "llm", None), "scenario_llm_pool", None),
             ipgeo_source=getattr(loc, "ipgeo_source", None),
-            wifi_source=getattr(loc, "wifi_source", None),
         )
 
     async def _register_diary_narrative(self, deps: TimelineSchedulerDependencies) -> None:
@@ -237,28 +236,19 @@ class TimelineSchedulersModule(LifecycleModule):
         logger_schedulers.info("Registered TIMELINE_REPRESENTATIVE_ASSET scheduler")
 
     async def _register_location_pollers(self, deps: TimelineSchedulerDependencies) -> None:
-        from ..location.scheduler_contrib import (
-            IPGeoPollSchedulerContrib,
-            WiFiPollSchedulerContrib,
-        )
+        from ..location.scheduler_contrib import IPGeoPollSchedulerContrib
 
         if deps.ipgeo_source is not None:
-            contrib = IPGeoPollSchedulerContrib(ipgeo_source=deps.ipgeo_source)
+            contrib = IPGeoPollSchedulerContrib(
+                ipgeo_source=deps.ipgeo_source,
+                is_enabled=lambda: bool(get_user_preference("ambient_ip_location_enabled", False)),
+            )
             await contrib.register_schedules(deps.scheduler_service)
             self._contribs.append(contrib)
-            logger_schedulers.info("Registered LOCATION_IPGEO_POLL scheduler")
+            logger_schedulers.info("Registered opt-in LOCATION_IPGEO_POLL scheduler")
         else:
             logger_schedulers.warning(
                 "Skipping ipgeo scheduler: location source unavailable",
-            )
-        if deps.wifi_source is not None:
-            contrib = WiFiPollSchedulerContrib(wifi_source=deps.wifi_source)
-            await contrib.register_schedules(deps.scheduler_service)
-            self._contribs.append(contrib)
-            logger_schedulers.info("Registered LOCATION_WIFI_POLL scheduler")
-        else:
-            logger_schedulers.warning(
-                "Skipping wifi scheduler: location source unavailable",
             )
 
     async def shutdown(self) -> None:

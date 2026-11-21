@@ -23,7 +23,7 @@ _TARGET_MODULES = {
     **{target: "runtime_timeline_schedulers" for target in (
         ScheduledTargetType.TIMELINE_DIARY_NARRATIVE, ScheduledTargetType.TIMELINE_STANDOUT_RESCORE,
         ScheduledTargetType.TIMELINE_MOOD_AGGREGATE, ScheduledTargetType.TIMELINE_REPRESENTATIVE_ASSET,
-        ScheduledTargetType.LOCATION_IPGEO_POLL, ScheduledTargetType.LOCATION_WIFI_POLL,
+        ScheduledTargetType.LOCATION_IPGEO_POLL,
     )},
 }
 

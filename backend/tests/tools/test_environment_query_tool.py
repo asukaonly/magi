@@ -127,9 +127,9 @@ async def test_location_is_read_only_host_evidence_with_per_source_freshness(env
     snapshot = result.data["location"]
     assert snapshot["subject"] == "service_host"
     assert snapshot["user_location"] == "unknown"
-    assert len(snapshot["observations"]) == 2
-    wifi, ip = snapshot["observations"]
-    assert wifi["freshness"] == "stale"
+    assert len(snapshot["observations"]) == 1
+    (ip,) = snapshot["observations"]
+    assert ip["source"] == "ipgeo"
     assert ip["freshness"] == "fresh"
     assert ip["accuracy_m"] is None
     assert "lat" not in ip and "lng" not in ip

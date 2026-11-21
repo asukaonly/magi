@@ -6,7 +6,6 @@ import time
 from typing import Any
 
 from .sources.ipgeo import IPGEO_VALIDITY_SECONDS
-from .sources.wifi import WIFI_VALIDITY_SECONDS
 from .store import LocationSampleStore
 
 
@@ -14,7 +13,7 @@ async def read_host_location(store: LocationSampleStore) -> dict[str, Any]:
     """Keep each observation's own provenance and expiry; do not merge confidence."""
     now = time.time()
     observations: list[dict[str, Any]] = []
-    for source, validity in (("wifi", WIFI_VALIDITY_SECONDS), ("ipgeo", IPGEO_VALIDITY_SECONDS)):
+    for source, validity in (("ipgeo", IPGEO_VALIDITY_SECONDS),):
         sample = await store.latest(source=source, before=now)
         if sample is None or not sample.primary_label():
             continue
@@ -28,8 +27,8 @@ async def read_host_location(store: LocationSampleStore) -> dict[str, Any]:
                 "sampled_at": sample.sampled_at,
                 "expires_at": expires_at,
                 "freshness": "fresh" if now < expires_at else "stale",
-                "precision": "city_estimate" if source == "ipgeo" else "wifi_estimate",
-                "accuracy_m": sample.accuracy_m if source == "wifi" else None,
+                "precision": "city_estimate",
+                "accuracy_m": None,
             }
         )
     return {

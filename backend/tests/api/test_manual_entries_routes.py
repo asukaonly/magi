@@ -1074,6 +1074,10 @@ async def test_weather_commit_ack_loss_projects_confirmed_snapshot(
             assert await original_set_weather(entry_id, snapshot)
             raise sqlite3.OperationalError("weather commit acknowledgement lost")
 
+        monkeypatch.setattr(
+            "magi.memory.manual_entries.application.get_user_preference",
+            lambda key, default=None: True if key == "manual_entry_weather_enrichment_enabled" else default,
+        )
         monkeypatch.setattr(store, "set_weather", set_weather_then_lose_ack)
         monkeypatch.setattr(
             routes,
@@ -1458,6 +1462,10 @@ async def test_event_time_update_persists_and_projects_one_weather_snapshot(monk
         async def fetch(self, **_kwargs):
             return {"code": 9, "temp_c": 30.0}
 
+    monkeypatch.setattr(
+        "magi.memory.manual_entries.application.get_user_preference",
+        lambda key, default=None: True if key == "manual_entry_weather_enrichment_enabled" else default,
+    )
     store, _, projector = _install_stores(
         monkeypatch,
         _entry(location_lat=30.0, location_lng=120.0),
@@ -1472,6 +1480,34 @@ async def test_event_time_update_persists_and_projects_one_weather_snapshot(monk
     assert result["weather"] == {"code": 9, "temp_c": 30.0}
     assert store.entry.weather == {"code": 9, "temp_c": 30.0}
     assert projector.calls[-1][2] == {"code": 9, "temp_c": 30.0}
+
+
+@pytest.mark.asyncio
+async def test_manual_entry_weather_enrichment_disabled_by_default(monkeypatch):
+    called = False
+
+    class _WeatherFetcher:
+        async def fetch(self, **_kwargs):
+            nonlocal called
+            called = True
+            return {"code": 1, "temp_c": 22.0}
+
+    monkeypatch.setattr(
+        "magi.memory.manual_entries.application.get_user_preference",
+        lambda key, default=None: default,
+    )
+    store, _, _ = _install_stores(
+        monkeypatch,
+        _entry(location_lat=30.0, location_lng=120.0),
+        weather_fetcher=_WeatherFetcher(),
+    )
+    result = await routes.update_manual_entry(
+        "manual-1",
+        routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, event_at=1000.0),
+    )
+
+    assert called is False
+    assert result["weather"] is None
 
 
 @pytest.mark.asyncio

@@ -162,7 +162,6 @@ class LocationBootstrapState:
     sample_store: Any = None
     geocode_cache: Any = None
     resolver: Any = None
-    wifi_source: Any = None
     ipgeo_source: Any = None
 
 

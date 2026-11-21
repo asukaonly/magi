@@ -7,6 +7,7 @@ resolver treats no-samples as "next source please."
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import time
 from typing import Optional
 
@@ -44,8 +45,14 @@ class IPGeoLocationSource:
     priority = IPGEO_PRIORITY
     validity_seconds = IPGEO_VALIDITY_SECONDS
 
-    def __init__(self, *, store: LocationSampleStore) -> None:
+    def __init__(
+        self,
+        *,
+        store: LocationSampleStore,
+        proxy_url_resolver: Optional[Callable[[], Optional[str]]] = None,
+    ) -> None:
         self._store = store
+        self._proxy_url_resolver = proxy_url_resolver
 
     async def query_samples(
         self, *, time_start: float, time_end: float,
@@ -67,8 +74,13 @@ class IPGeoLocationSource:
         """Hit ipapi.co once and store the result. Returns the persisted
         sample, or None on failure (network, rate-limit, malformed JSON).
         """
+        proxy_url = self._proxy_url_resolver() if self._proxy_url_resolver is not None else None
         try:
-            async with httpx.AsyncClient(timeout=IPAPI_TIMEOUT_SECONDS) as client:
+            async with httpx.AsyncClient(
+                timeout=IPAPI_TIMEOUT_SECONDS,
+                proxy=proxy_url,
+                trust_env=False,
+            ) as client:
                 response = await client.get(IPAPI_URL)
                 response.raise_for_status()
                 payload = response.json()

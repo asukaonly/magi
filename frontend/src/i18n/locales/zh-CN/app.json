@@ -1632,6 +1632,14 @@
     "fakeIpCompatibilityEnableRetry": "开启兼容并重试",
     "fakeIpCompatibilityEnabling": "正在开启…",
     "fakeIpCompatibilityEnableFailed": "无法开启代理兼容：{{message}}",
+    "ambientLookups": {
+      "title": "可选环境上下文查询",
+      "description": "控制是否向第三方服务发起城市定位或天气查询。默认均关闭，开启后遵循上方网络代理设置。",
+      "ipLocationLabel": "通过 IP 估算服务主机所在城市",
+      "ipLocationDesc": "定期从服务主机请求 ipapi.co 获取城市级位置，用于时间轴背景信息。使用代理或远程部署时，结果可能反映网络出口或服务器位置而非你当前设备位置。",
+      "manualEntryWeatherLabel": "为手动记录自动补充天气",
+      "manualEntryWeatherDesc": "新建或修改手动时间轴记录时，基于已有坐标向 Open-Meteo 查询对应时段的天气标签。"
+    },
     "defaultChatWorkspaceDesc": "设置桌面端新对话默认使用的工作目录。进入具体会话后，仍然可以单独改成别的目录。",
     "control": {
       "title": "安全与执行",

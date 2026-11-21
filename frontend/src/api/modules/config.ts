@@ -50,6 +50,8 @@ export interface UserPreferences extends DevicePreferences {
   allow_media_grounding_for_conversation: boolean;
   allow_interjection: boolean;
   allow_ask_in_background: boolean;
+  ambient_ip_location_enabled: boolean;
+  manual_entry_weather_enrichment_enabled: boolean;
 }
 
 export interface AgentConfig {
@@ -736,6 +738,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     allow_media_grounding_for_conversation: true,
     allow_interjection: false,
     allow_ask_in_background: false,
+    ambient_ip_location_enabled: false,
+    manual_entry_weather_enrichment_enabled: false,
   },
   network: {
     enabled: false,

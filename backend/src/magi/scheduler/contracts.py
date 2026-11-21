@@ -32,7 +32,6 @@ class ScheduledTargetType(str, Enum):
     TIMELINE_MOOD_AGGREGATE = "timeline_mood_aggregate"
     TIMELINE_REPRESENTATIVE_ASSET = "timeline_representative_asset"
     LOCATION_IPGEO_POLL = "location_ipgeo_poll"
-    LOCATION_WIFI_POLL = "location_wifi_poll"
     OUTREACH_OUTBOX_DRAIN = "outreach_outbox_drain"
     MEMORY_L2_DERIVE = "memory_l2_derive"
     RUNTIME_OPERATIONAL_GC = "runtime_operational_gc"

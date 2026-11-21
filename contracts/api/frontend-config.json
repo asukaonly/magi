@@ -3932,6 +3932,11 @@
             "title": "Allow Media Grounding For Conversation",
             "type": "boolean"
           },
+          "ambient_ip_location_enabled": {
+            "default": false,
+            "title": "Ambient Ip Location Enabled",
+            "type": "boolean"
+          },
           "conversation_rhythm_enabled": {
             "default": true,
             "title": "Conversation Rhythm Enabled",
@@ -3966,6 +3971,11 @@
             "default": "zh",
             "title": "Language",
             "type": "string"
+          },
+          "manual_entry_weather_enrichment_enabled": {
+            "default": false,
+            "title": "Manual Entry Weather Enrichment Enabled",
+            "type": "boolean"
           },
           "onboarding_completed": {
             "default": false,
@@ -4030,7 +4040,9 @@
           "conversation_rhythm_enabled",
           "allow_media_grounding_for_conversation",
           "allow_interjection",
-          "allow_ask_in_background"
+          "allow_ask_in_background",
+          "ambient_ip_location_enabled",
+          "manual_entry_weather_enrichment_enabled"
         ],
         "title": "UserPreferencesModel",
         "type": "object"

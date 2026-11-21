@@ -11,6 +11,7 @@ import time
 from dataclasses import replace
 from functools import wraps
 from typing import TYPE_CHECKING, Optional
+from magi.config import get_user_preference
 from magi.core.logger import get_logger
 from magi.memory.manual_entries import ManualEntry
 from magi.memory.manual_entries.l1_projector import ManualEntryProjectionGovernedError
@@ -336,6 +337,8 @@ async def _attach_weather(*, weather_fetcher, location_samples, store, entry) ->
 async def _fetch_weather(*, weather_fetcher, location_samples, entry) -> Optional[dict]:
     """Resolve weather without mutating the source row."""
     if weather_fetcher is None:
+        return None
+    if not bool(get_user_preference("manual_entry_weather_enrichment_enabled", False)):
         return None
     coords = await _resolve_weather_coords(location_samples=location_samples, entry=entry)
     if coords is None:

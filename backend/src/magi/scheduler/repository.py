@@ -43,7 +43,37 @@ class ScheduleRepository(
             await db.close()
 
     async def initialize(self) -> None:
+        valid_target_types = tuple(target.value for target in ScheduledTargetType)
+        placeholders = ", ".join("?" for _ in valid_target_types)
         async with self._connect() as db:
+            jobs_cursor = await db.execute(
+                """
+                SELECT 1
+                FROM sqlite_master
+                WHERE type = 'table' AND name = 'apscheduler_jobs'
+                LIMIT 1
+                """
+            )
+            if await jobs_cursor.fetchone() is not None:
+                await db.execute(
+                    f"""
+                    DELETE FROM apscheduler_jobs
+                    WHERE id IN (
+                        SELECT COALESCE(job_id, schedule_id)
+                        FROM schedules
+                        WHERE target_type NOT IN ({placeholders})
+                    )
+                    """,
+                    valid_target_types,
+                )
+            await db.execute(
+                f"DELETE FROM schedules WHERE target_type NOT IN ({placeholders})",
+                valid_target_types,
+            )
+            await db.execute(
+                f"DELETE FROM target_state WHERE target_type NOT IN ({placeholders})",
+                valid_target_types,
+            )
             await db.commit()
 
     async def reset_running_flags(self) -> None:

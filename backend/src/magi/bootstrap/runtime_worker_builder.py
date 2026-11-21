@@ -49,6 +49,7 @@ from ..chat.lifecycle import (
     ChatStoreModule,
     ControlTranscriptSubscriberModule,
 )
+from ..config import get_config
 from ..config.lifecycle import ConfigurationModule
 from ..context.lifecycle import ContextModule
 from ..core.lifecycle import CoreDependenciesModule, InitializationStateModule
@@ -258,7 +259,10 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         PluginActivationModule(context),
         ChatForgettingRecoveryModule(context),
         MediaRegistryModule(context),  # after memory store so unified_memory.l1 exists
-        LocationModule(context),  # owns location pipeline; reads memory.db path directly
+        LocationModule(
+            context,
+            proxy_url_resolver=lambda: get_config().network.proxy_url(),
+        ),  # owns location pipeline; reads memory.db path directly
         ManualEntriesModule(context),  # owns manual-entry store/asset/weather construction
         HistoryImportsModule(context),  # owns one-shot preview/import continuation
         MemoryIngestionSubscriberModule(context),

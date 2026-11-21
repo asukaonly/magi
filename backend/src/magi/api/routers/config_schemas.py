@@ -255,6 +255,8 @@ class UserPreferencesModel(BaseModel):
     allow_media_grounding_for_conversation: bool = Field(default=True)
     allow_interjection: bool = Field(default=False)
     allow_ask_in_background: bool = Field(default=False)
+    ambient_ip_location_enabled: bool = Field(default=False)
+    manual_entry_weather_enrichment_enabled: bool = Field(default=False)
 
 
 class LanguagePreferenceUpdateRequest(BaseModel):

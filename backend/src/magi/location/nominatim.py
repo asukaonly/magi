@@ -7,6 +7,7 @@ calls for coordinates we've already resolved.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Optional
 
 import httpx
@@ -26,8 +27,14 @@ LocationLabels = dict[str, Optional[str]]
 class NominatimClient:
     """Reverse-geocode (lat, lng) → city/region/country, with cache."""
 
-    def __init__(self, *, cache: PlaceGeocodeCache) -> None:
+    def __init__(
+        self,
+        *,
+        cache: PlaceGeocodeCache,
+        proxy_url_resolver: Optional[Callable[[], Optional[str]]] = None,
+    ) -> None:
         self._cache = cache
+        self._proxy_url_resolver = proxy_url_resolver
 
     async def reverse(self, lat: float, lng: float) -> Optional[LocationLabels]:
         """Return ``{city, region, country, poi_name}`` for the coordinate.
@@ -65,10 +72,13 @@ class NominatimClient:
         }
 
     async def _fetch_reverse_payload(self, lat: float, lng: float) -> dict[str, object] | None:
+        proxy_url = self._proxy_url_resolver() if self._proxy_url_resolver is not None else None
         try:
             async with httpx.AsyncClient(
                 timeout=NOMINATIM_TIMEOUT,
                 headers={"User-Agent": USER_AGENT, "Accept-Language": "zh,en"},
+                proxy=proxy_url,
+                trust_env=False,
             ) as client:
                 response = await client.get(NOMINATIM_URL, params=_reverse_params(lat, lng))
                 response.raise_for_status()
