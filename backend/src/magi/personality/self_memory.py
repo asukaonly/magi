@@ -302,16 +302,26 @@ class SelfMemory:
         """
         if not self.enable_evolution:
             return False
+        from .feature_flags import get_personality_feature_flags
+
+        features = get_personality_feature_flags()
+        if not features.state_memory_enabled:
+            return False
         growth, emotion = self._outcome_engines(persona_id)
         updated = False
         if growth is not None:
+            milestones_to_record = (
+                {key: (milestone_conditions or {}).get(key, key) for key in analysis.milestone_keys}
+                if features.deep_persona_enabled
+                else {}
+            )
             updated = await growth.apply_turn_outcome(
                 outcome_id=outcome_id, user_id=user_id,
                 outcome=analysis.outcome_str, sentiment=analysis.sentiment,
                 notes=f"Message: {user_message[:100]}...",
-                milestones={key: (milestone_conditions or {}).get(key, key) for key in analysis.milestone_keys},
+                milestones=milestones_to_record,
             )
-        if emotion is not None:
+        if emotion is not None and features.state_transition_enabled:
             updated = await emotion.apply_turn_outcome(
                 outcome_id=outcome_id, user_id=user_id,
                 outcome=analysis.outcome, user_engagement=analysis.engagement,

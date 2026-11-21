@@ -69,11 +69,14 @@ def test_nonpositive_elapsed_time_preserves_complete_emotional_state(elapsed):
     assert asdict(state) == before
 
 
-def test_apply_decay_drops_energy_linearly() -> None:
-    cfg = EmotionalConfig(energy_decay_rate=0.01)
-    state = EmotionalState(energy_level=0.8, stress_level=0.0)
+def test_apply_decay_relaxes_elevated_energy_to_resting_baseline() -> None:
+    cfg = EmotionalConfig(energy_decay_rate=0.01, resting_energy_level=0.7)
+    state = EmotionalState(energy_level=0.9, stress_level=0.0)
     apply_decay_to_state(state, elapsed_minutes=10.0, config=cfg)
-    assert state.energy_level == pytest.approx(0.7, rel=1e-3)
+    assert state.energy_level == pytest.approx(0.8, rel=1e-3)
+    # Prolonged idle never drops below the resting baseline.
+    apply_decay_to_state(state, elapsed_minutes=600.0, config=cfg)
+    assert state.energy_level == pytest.approx(0.7, rel=1e-6)
 
 
 def test_apply_decay_recovers_stress() -> None:
@@ -84,11 +87,22 @@ def test_apply_decay_recovers_stress() -> None:
     assert state.stress_level == pytest.approx(0.6, rel=1e-3)
 
 
-def test_apply_decay_clamps_at_zero() -> None:
-    cfg = EmotionalConfig(energy_decay_rate=0.5)
-    state = EmotionalState(energy_level=0.1, stress_level=0.0)
-    apply_decay_to_state(state, elapsed_minutes=10.0, config=cfg)
-    assert state.energy_level == 0.0
+def test_apply_decay_recovers_fatigued_energy_toward_baseline() -> None:
+    cfg = EmotionalConfig(energy_recovery_rate=0.005, resting_energy_level=0.7)
+    state = EmotionalState(energy_level=0.2, stress_level=0.0)
+    apply_decay_to_state(state, elapsed_minutes=60.0, config=cfg)
+    assert state.energy_level == pytest.approx(0.5, rel=1e-3)
+    apply_decay_to_state(state, elapsed_minutes=120.0, config=cfg)
+    assert state.energy_level == pytest.approx(0.7, rel=1e-6)
+
+
+@pytest.mark.parametrize("idle_hours", [2.0, 8.0, 24.0])
+def test_apply_decay_keeps_resting_energy_stable_across_long_idle(idle_hours: float) -> None:
+    cfg = EmotionalConfig()
+    state = EmotionalState(energy_level=0.7, stress_level=0.2)
+    apply_decay_to_state(state, elapsed_minutes=idle_hours * 60.0, config=cfg)
+    assert state.energy_level == pytest.approx(0.7, rel=1e-6)
+    assert state.stress_level == 0.0
 
 
 def test_apply_decay_snaps_mood_back_to_neutral() -> None:
@@ -138,7 +152,7 @@ async def test_get_current_state_skips_decay_when_recent(engine: EmotionalStateE
 @pytest.mark.asyncio
 async def test_get_current_state_applies_decay_after_threshold(engine: EmotionalStateEngine) -> None:
     state = await engine.get_current_state()
-    state.energy_level = 0.7
+    state.energy_level = 0.3
     state.stress_level = 0.5
     state.updated_at = time.time() - 600  # 10 minutes ago
     await engine._save_current_state()
@@ -146,8 +160,8 @@ async def test_get_current_state_applies_decay_after_threshold(engine: Emotional
 
     refreshed = await engine.get_current_state()
 
-    # 10 minutes * 0.01 = 0.1 energy drop
-    assert refreshed.energy_level == pytest.approx(0.6, abs=0.02)
+    # 10 minutes * 0.005/min = +0.05 energy recovery toward 0.7 baseline
+    assert refreshed.energy_level == pytest.approx(0.35, abs=0.02)
     # 10 minutes * 0.05 = 0.5 stress recovered; clamped at 0
     assert refreshed.stress_level == pytest.approx(0.0, abs=0.02)
     # updated_at refreshed to current time
@@ -179,3 +193,49 @@ async def test_get_current_state_decay_is_persisted(engine, monkeypatch):
     assert saved_at == time.time()
     engine._current_state = None
     assert asdict(await engine.get_current_state()) == asdict(first)
+
+
+@pytest.mark.asyncio
+async def test_state_transition_flag_gates_emotional_turn_updates(monkeypatch) -> None:
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from magi.personality.feature_flags import PersonalityFeatureFlags
+    from magi.personality.self_memory import SelfMemory
+
+    memory = SelfMemory.__new__(SelfMemory)
+    memory.enable_evolution = True
+    growth = SimpleNamespace(apply_turn_outcome=AsyncMock(return_value=True))
+    emotion = SimpleNamespace(apply_turn_outcome=AsyncMock(return_value=True))
+    memory._outcome_engines = lambda _persona_id: (growth, emotion)
+    analysis = SimpleNamespace(
+        outcome_str="success",
+        sentiment=0.5,
+        milestone_keys=["first_bond"],
+        outcome="success",
+        engagement="high",
+        complexity=0.4,
+    )
+
+    monkeypatch.setattr(
+        "magi.personality.feature_flags.get_personality_feature_flags",
+        lambda: PersonalityFeatureFlags(
+            state_memory_enabled=True,
+            state_transition_enabled=False,
+            deep_persona_enabled=False,
+        ),
+    )
+
+    updated = await memory.process_turn_outcome(
+        user_id="u1",
+        user_message="hello",
+        analysis=analysis,
+        milestone_conditions={"first_bond": "Bond formed"},
+        outcome_id="out-1",
+    )
+
+    assert updated is True
+    emotion.apply_turn_outcome.assert_not_awaited()
+    growth.apply_turn_outcome.assert_awaited_once()
+    assert growth.apply_turn_outcome.await_args.kwargs["milestones"] == {}
+

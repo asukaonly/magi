@@ -93,15 +93,16 @@ class PromptSelfMemoryMixin:
         emotional_state = None
         relationship: Dict[str, Any] = {}
         milestones: List[Dict[str, Any]] = []
+        features = get_personality_feature_flags()
 
         if self_memory is not None:
             if hasattr(self_memory, "get_core_personality"):
                 config = await self_memory.get_core_personality() or config
-            if hasattr(self_memory, "get_emotional_state"):
+            if features.state_transition_enabled and hasattr(self_memory, "get_emotional_state"):
                 emotional_state = await self_memory.get_emotional_state()
-            if user_id and hasattr(self_memory, "get_relationship"):
+            if features.state_memory_enabled and user_id and hasattr(self_memory, "get_relationship"):
                 relationship = await self_memory.get_relationship(user_id) or {}
-            if hasattr(self_memory, "get_milestones"):
+            if features.deep_persona_enabled and hasattr(self_memory, "get_milestones"):
                 milestones = await self_memory.get_milestones(limit=200) or []
 
         plan = PersonaTurnPlanner().build_plan(

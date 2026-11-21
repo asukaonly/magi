@@ -30,15 +30,18 @@ def apply_decay_to_state(
     elapsed_minutes: float,
     config: EmotionalConfig,
 ) -> None:
-    """Mutate ``state`` in place by applying ``elapsed_minutes`` worth of decay.
+    """Mutate ``state`` in place by applying ``elapsed_minutes`` worth of idle evolution.
 
     Pure function so the storage mixin can call this on lazy reads without
     going through ``EmotionalStateEngine.decay_over_time`` (which would
     recursively re-enter ``get_current_state``). Callers are responsible for
     updating ``state.updated_at`` and persisting.
 
-    Decay model:
-    - energy drops linearly with ``energy_decay_rate`` per minute.
+    Homeostatic idle model:
+    - energy below ``resting_energy_level`` recovers linearly at
+      ``energy_recovery_rate`` per minute toward ``resting_energy_level``;
+      elevated energy above ``resting_energy_level`` relaxes back down at
+      ``energy_decay_rate`` per minute without dropping below baseline.
     - stress recovers linearly with ``stress_recovery_rate`` per minute.
     - social state "engaged" drops back to "neutral" after the equivalent
       of a half-unit social decay (configurable per persona).
@@ -48,8 +51,13 @@ def apply_decay_to_state(
     if elapsed_minutes <= 0:
         return
 
-    energy_decay = elapsed_minutes * config.energy_decay_rate
-    state.energy_level = max(0.0, state.energy_level - energy_decay)
+    baseline_energy = max(0.0, min(1.0, config.resting_energy_level))
+    if state.energy_level < baseline_energy:
+        energy_recovery = elapsed_minutes * config.energy_recovery_rate
+        state.energy_level = min(baseline_energy, state.energy_level + energy_recovery)
+    elif state.energy_level > baseline_energy:
+        energy_relaxation = elapsed_minutes * config.energy_decay_rate
+        state.energy_level = max(baseline_energy, state.energy_level - energy_relaxation)
 
     stress_recovery = elapsed_minutes * config.stress_recovery_rate
     state.stress_level = max(0.0, state.stress_level - stress_recovery)

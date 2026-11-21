@@ -43,6 +43,8 @@ class EngagementLevel(Enum):
 class EmotionalConfig:
     """Configuration parameters for emotional state evolution."""
     energy_decay_rate: float = 0.01
+    energy_recovery_rate: float = 0.005
+    resting_energy_level: float = 0.7
     stress_growth_rate: float = 0.1
     stress_recovery_rate: float = 0.05
     mood_fluctuation: float = 0.1
