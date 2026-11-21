@@ -13,7 +13,6 @@
   <a href="https://github.com/asukaonly/magi/releases"><img src="https://img.shields.io/github/v/release/asukaonly/magi" alt="Release"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-black" alt="Platform">
   <img src="https://img.shields.io/badge/status-beta-2d7ff9" alt="Beta">
-  <img src="https://img.shields.io/badge/LongMemEval-87.2%25-success" alt="LongMemEval">
 </p>
 
 <p align="center">
@@ -23,7 +22,7 @@
 ---
 
 <p align="center">
-  <img src="./docs/assets/hero.png" alt="Magi chat workspace screenshot" width="100%">
+  <img src="./docs/assets/hero.png" alt="Magi desktop app" width="100%">
 </p>
 
 Magi is a local-first desktop agent for work that does not fit inside one chat window.
@@ -158,18 +157,17 @@ Most installable plugins live in the companion repository [magi-plugins](https:/
 
 Magi is designed to be local-first:
 
-- **Application data stays local**: on macOS/Linux it lives under `~/.magi/`; on Windows under `%USERPROFILE%\.magi`
-- **Data is only sent out during LLM calls**: your chat content and retrieved context are sent as needed to the model providers you configure, such as OpenAI, Anthropic, or local Ollama
-- **Permission tiers**: tool execution supports permission levels, and sensitive actions such as file writes, commits, or pushes require confirmation
-- **Powerful local tools are explicit**: built-in tools can read and write files, run shell commands, fetch public web pages, search the web, and call configured external services. File reads inside the active workspace stay low-friction; reads outside the workspace are permission-gated, with sensitive user paths treated as higher risk. Web fetch blocks localhost/private-network targets unless the user explicitly enables private-network fetch and allowlists trusted hosts/IP ranges. Disable tools you do not want Magi to use, and review permission prompts before allowing sensitive actions.
+- **Application data stays local**: on macOS/Linux it lives under `~/.magi/`; on Windows under `%USERPROFILE%\.magi`. Full-content diagnostic logging is disabled by default and only records full prompts/replies when explicitly enabled in Settings for troubleshooting.
+- **Explicit outbound network boundaries**: chat and retrieved context are sent only to the model providers you configure (OpenAI, Anthropic, DashScope, local Ollama, etc.) or when you invoke network tools. Optional ambient lookups (host IP city estimation via `ipapi.co` and manual-entry weather via Open-Meteo) are **off by default** and follow your configured network proxy when enabled.
+- **Workspace-scoped permission tiers**: file reads and writes inside the active workspace stay low-friction (`low`/`medium` risk under the default policy), while writes/edits outside the active workspace require confirmation (`high` risk) and sensitive user paths (`~/.magi`, SSH/cloud credentials, shell profiles, LaunchAgents, `.env`) are escalated as destructive. Web fetch blocks localhost and private-network targets (failing closed on DNS errors when proxied) unless you explicitly allowlist trusted hosts/IP ranges.
 - **Network tools use configured providers**: weather uses keyless Open-Meteo by default with QWeather available for users who prefer it, while web search defaults to keyless DuckDuckGo and can use Brave, Tavily, Perplexity, or a user-hosted SearXNG instance when configured. Search and fetch results are cached briefly in memory to reduce duplicate requests. DuckDuckGo availability depends on the user's network and anti-bot checks; app network proxy settings are opt-in.
 - **Memory can be deleted**: all stored memories can be reviewed and cleared from the memory workbench
 
 If you want to fully wipe Magi data, deleting the directory above is enough.
 
-## Benchmark
+## Benchmark (Historical v0.1.2 Snapshot)
 
-The current long-term memory and retrieval pipeline reaches **87.2% accuracy** on LongMemEval:
+On **Magi v0.1.2** (2026-05-14), the memory and retrieval pipeline reached **87.2% accuracy** on LongMemEval `_s` (500 questions, LLM answer synthesis over retrieved hits, judged by `glm-5`; a second judge `bailian` scored 87.6%). Because the memory architecture has since evolved significantly, treat these numbers as a historical baseline until the current pipeline is re-evaluated:
 
 | LongMemEval category | Accuracy | Count |
 | -------------------- | -------: | ----: |
@@ -181,7 +179,7 @@ The current long-term memory and retrieval pipeline reaches **87.2% accuracy** o
 | Single-session preference | 0.6000 |    30 |
 | Single-session user  |   0.9857 |    70 |
 
-Scored on LongMemEval `_s` (500 questions) with an LLM judge (`glm-5`); a second judge (`bailian`) independently scores 87.6%. Raw predictions, per-question judge verdicts, and reproduction steps: [`benchmark/longmemeval/results/v0.1.2/`](./benchmark/longmemeval/results/v0.1.2/RESULTS.md). For the runner and model configuration, see [`benchmark/README.md`](./benchmark/README.md).
+Raw predictions, per-question judge verdicts, caveats, and reproduction steps: [`benchmark/longmemeval/results/v0.1.2/`](./benchmark/longmemeval/results/v0.1.2/RESULTS.md). For the runner and model configuration, see [`benchmark/README.md`](./benchmark/README.md).
 
 ## Install
 

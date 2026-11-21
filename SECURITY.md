@@ -45,15 +45,11 @@ the Rust lockfile. Rust exceptions are exact and self-expiring: a changed
 package version, dependency path, or feature reachability fails the check and
 requires a new review.
 
-- `RUSTSEC-2026-0194` and `RUSTSEC-2026-0195` remain associated with
-  `quick-xml 0.37.5` only because `tauri-winrt-notification 0.7.2` uses its
-  escaping helper when building Windows notification text. That dependency
-  does not call the affected XML parsing APIs. The XML parser used by Tauri's
-  plist dependency has been upgraded to patched `quick-xml 0.41.0`.
-- `RUSTSEC-2026-0235` remains present only in the lockfile as an optional
-  `rust_decimal` dependency. `rkyv` is not enabled or compiled by any Magi
-  workspace target or feature.
+- `RUSTSEC-2024-0429` (`glib 0.18.5`): the workspace patches `glib` via a
+  checksum-verified local crate carrying the upstream `VariantStrIter` safety
+  fix rather than the unpatched crates.io release. Integrity is verified on
+  every audit run by `scripts/check-vendored-glib.py`.
 
-These are reviewed non-reachable paths, not blanket advisory suppressions. The
-enforcement and exact dependency checks live in
+This is a reviewed, checksum-verified exception, not a blanket advisory
+suppression. The enforcement and exact dependency checks live in
 `scripts/check-rust-advisories.py`.

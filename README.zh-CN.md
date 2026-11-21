@@ -13,7 +13,6 @@
   <a href="https://github.com/asukaonly/magi/releases"><img src="https://img.shields.io/github/v/release/asukaonly/magi" alt="Release"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-black" alt="Platform">
   <img src="https://img.shields.io/badge/status-beta-2d7ff9" alt="Beta">
-  <img src="https://img.shields.io/badge/LongMemEval-87.2%25-success" alt="LongMemEval">
 </p>
 
 <p align="center">
@@ -159,16 +158,17 @@ flowchart LR
 
 Magi 是本地优先设计：
 
-- **应用数据保存在本地**：macOS/Linux 在 `~/.magi/`，Windows 在 `%USERPROFILE%\.magi`
-- **数据外发只发生在 LLM 调用**：你的对话和检索上下文会按需发送给你配置的模型提供商（OpenAI / Anthropic / 本地 Ollama 等）
-- **权限分级**：工具执行支持权限分级，敏感操作（文件写入、commit、push 等）需要确认
-- **记忆可删除**：所有沉淀的记忆都可以在记忆工作台中查看和清除
+- **应用数据保存在本地**：macOS/Linux 在 `~/.magi/`，Windows 在 `%USERPROFILE%\.magi`。完整对话诊断日志默认关闭，仅在设置中手动开启排查时才记录完整提示词与回复。
+- **清晰的网络外发边界**：对话内容和检索上下文仅按需发送给你配置的模型提供商（OpenAI、Anthropic、DashScope、本地 Ollama 等）或你显式调用的网络工具。可选环境查询（基于 `ipapi.co` 的主机 IP 城市估算、基于 Open-Meteo 的手动记录天气补充）**默认关闭**，开启后遵循应用网络代理配置。
+- **按工作区分级的工具权限**：当前会话工作区内的文件读写保持低摩擦；超出工作区的写入/编辑需要用户确认（高危）；涉及敏感路径（`~/.magi`、SSH/云凭证、Shell 启动脚本、LaunchAgents、`.env` 等）会按破坏性操作拦截或二次确认。网页抓取默认拦截本机与内网地址（代理模式下 DNS 失败默认 fail-closed），除非显式开启内网访问并加入白名单。
+- **网络工具使用可配置的提供商**：天气工具默认使用免密钥的 Open-Meteo（也支持和风天气），网页搜索默认使用免密钥的 DuckDuckGo，也可切换 Brave、Tavily、Perplexity 或自建 SearXNG。应用网络代理默认关闭，按需开启。
+- **记忆可检查、可修正、可删除**：所有沉淀的记忆都可以在记忆工作台中查看、修正和清除。
 
 需要彻底清除 Magi 数据时，删除上述目录即可。
 
-## Benchmark
+## Benchmark（历史 v0.1.2 快照）
 
-当前长期记忆与检索链路在 LongMemEval 上达到 **87.2% accuracy**：
+在 **Magi v0.1.2**（2026-05-14）上，长期记忆与检索链路在 LongMemEval `_s`（500 题，基于检索命中进行 LLM 答案综合，由 `glm-5` 判分；第二个 judge `bailian` 独立评分为 87.6%）上达到 **87.2% accuracy**。由于后续记忆架构已历经大幅重构，该分数仅作为历史基线参考，当前版本尚未重新跑分：
 
 | LongMemEval 分类          |   Accuracy |  数量 |
 | ------------------------- | ---------: | ----: |
@@ -180,9 +180,11 @@ Magi 是本地优先设计：
 | Single-session preference |     0.6000 |    30 |
 | Single-session user       |     0.9857 |    70 |
 
-在 LongMemEval `_s`（500 题）上用 LLM judge（`glm-5`）评分；换第二个 judge（`bailian`）独立评分为 87.6%。原始 predictions、逐题判分与复现步骤见 [`benchmark/longmemeval/results/v0.1.2/`](./benchmark/longmemeval/results/v0.1.2/RESULTS.md)；runner 与模型配置见 [`benchmark/README.md`](./benchmark/README.md)。
+原始 predictions、逐题判分、说明与复现步骤见 [`benchmark/longmemeval/results/v0.1.2/`](./benchmark/longmemeval/results/v0.1.2/RESULTS.md)；runner 与模型配置见 [`benchmark/README.md`](./benchmark/README.md)。
 
 ## 安装
+
+如果你希望在一台 Mac 上独立托管 Magi 服务以供其他设备连接，请使用独立的 **MagiServer** 安装包并参考[服务部署指南](server/README.md)，通过 `magi-server` 可执行文件初始化与管理服务。源码开发模式下可运行 `./scripts/dev-server.sh` 打开独立开发配置控制台，并通过 `./scripts/dev-server.sh run` 启动该部署。
 
 Magi 以打包好的桌面应用交付。普通用户不需要安装 Python、Node.js 或 Rust。
 

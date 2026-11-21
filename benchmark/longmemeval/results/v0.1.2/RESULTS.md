@@ -1,16 +1,18 @@
-# LongMemEval results — Magi v0.1.2
+# LongMemEval results — Magi v0.1.2 (Historical Snapshot)
 
-Raw outputs backing the **87.2%** LongMemEval figure quoted in the project README.
+Raw outputs backing the historical **87.2%** LongMemEval figure recorded on **Magi v0.1.2** (2026-05-14).
+
+> **Status note**: This directory archives the v0.1.2 evaluation snapshot. Subsequent memory/retrieval refactors on `main` have not yet been re-scored on LongMemEval `_s`, and the exact generation/embedding model identifiers used during the v0.1.2 run were not recorded inside `summary.json`.
 
 ## Setup
 
 | Item | Value |
 | ---- | ----- |
 | Benchmark | LongMemEval **`_s`** (500 questions, full-haystack retrieval, ≈115K-token haystack per question) |
-| System under test | Magi long-term memory + retrieval pipeline (backend `eval_support`), run via `benchmark/longmemeval/run_all.py` |
+| System under test | Magi **v0.1.2** long-term memory + retrieval pipeline (backend `eval_support`), run via `benchmark/longmemeval/run_all.py` |
 | Run id | `0514-22-16-test` (2026-05-14) |
 | Judge | LLM-as-judge, **`glm-5`** (per-question correct/incorrect) |
-| Predictions | deterministic from top retrieval hits; falls back to `"unknown"` (abstention) when no hit is available |
+| Predictions | LLM answer synthesis over retrieved memory hits (falls back to `"unknown"` abstention when no usable evidence is retrieved; exact synthesis/embedding model names were not captured in the v0.1.2 `summary.json`) |
 
 A second independent judge (`bailian`) scored the **same** `predictions.jsonl` at **438/500 = 0.8760**, i.e. the headline number is stable across judges. Only the `glm-5` scoring is published here, as requested.
 
