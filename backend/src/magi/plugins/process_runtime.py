@@ -538,6 +538,7 @@ class ProcessPluginProxy(Plugin):
     ) -> Any:
         from magi_plugin_sdk.tools import ToolExecutionContext
         from .host_services import permitted_host_methods
+        from .i18n import resolve_host_plugin_language
 
         tool_context = next((
             value for value in (*args, *kwargs.values())
@@ -559,6 +560,7 @@ class ProcessPluginProxy(Plugin):
                 "method": method,
                 "args": self._safe_args(args),
                 "kwargs": self._safe_args(kwargs),
+                "language": resolve_host_plugin_language(),
                 "progress": progress is not None,
                 "host_methods": list(permitted_host_methods(tool_context)) if tool_context is not None else [],
             },
@@ -570,6 +572,8 @@ class ProcessPluginProxy(Plugin):
         )
 
     def invoke_sync(self, target: str, method: str, *args: Any, storage_handler: Any = None, **kwargs: Any) -> Any:
+        from .i18n import resolve_host_plugin_language
+
         return self._request_sync(
             "invoke",
             {
@@ -577,6 +581,7 @@ class ProcessPluginProxy(Plugin):
                 "method": method,
                 "args": self._safe_args(args),
                 "kwargs": self._safe_args(kwargs),
+                "language": resolve_host_plugin_language(),
             },
             storage_handler=storage_handler,
         )

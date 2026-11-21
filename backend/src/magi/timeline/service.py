@@ -21,24 +21,40 @@ from .cover_preferences import (
 from .insight_pipeline import TimelineInsightPipeline
 from .viewport_builder import TimelineViewportBuilder
 
-_WEEKDAY_LABELS = ("一", "二", "三", "四", "五", "六", "日")
+_WEEKDAY_LABELS_ZH = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+_WEEKDAY_LABELS_EN = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
-def _synthesize_standout_title(time_start: float, time_end: float) -> str:
-    """Build a readable fallback title from time + duration metadata.
+def _resolve_timezone(timezone_name: Optional[str]):
+    if timezone_name:
+        try:
+            from zoneinfo import ZoneInfo
+
+            return ZoneInfo(timezone_name)
+        except Exception:
+            pass
+    return None
+
+
+def _synthesize_standout_title(
+    time_start: float,
+    time_end: float,
+    *,
+    locale: Optional[str] = None,
+    timezone_name: Optional[str] = None,
+) -> str:
+    """Build a localized fallback title from time + duration metadata.
 
     Used when an episode has no slice_narrative, user_label, or label.
-    Format: "周日 14:00 · 3h" (no source/topic info — that would require
-    pulling them from the row, which the caller can add later if needed).
+    Format: "周日 14:00 · 3h" (zh-CN) or "Sun 14:00 · 3h" (en).
     """
     from datetime import datetime
 
-    # Local time — the standout list above formats `date` in local time
-    # for the same reason (server tz = user tz for desktop deployment).
-    # Mixing UTC here would put the title's "14:00" 8 hours off from
-    # the "date" it's stamped under for non-UTC users.
-    dt = datetime.fromtimestamp(time_start)
-    weekday = _WEEKDAY_LABELS[dt.weekday()]
+    tz = _resolve_timezone(timezone_name)
+    dt = datetime.fromtimestamp(time_start, tz=tz)
+    effective_lang = core_i18n.get_effective_language(locale)
+    is_zh = effective_lang.lower().startswith("zh")
+    weekday = (_WEEKDAY_LABELS_ZH if is_zh else _WEEKDAY_LABELS_EN)[dt.weekday()]
     hh_mm = dt.strftime("%H:%M")
 
     duration_seconds = max(0.0, time_end - time_start)
@@ -49,9 +65,13 @@ def _synthesize_standout_title(time_start: float, time_end: float) -> str:
         minutes = int(duration_seconds // 60)
         duration_label = f"{minutes}m"
     else:
-        duration_label = "短"
+        duration_label = core_i18n.t(
+            "timeline.standout_brief_duration",
+            language=effective_lang,
+            fallback="<1m",
+        )
 
-    return f"周{weekday} {hh_mm} · {duration_label}"
+    return f"{weekday} {hh_mm} · {duration_label}"
 
 
 async def _resolve_photo_library_asset(asset_ref: str) -> tuple[Optional[str], Optional[str]]:
@@ -240,6 +260,8 @@ class TimelineService:
         period_start: Optional[float],
         period_end: Optional[float],
         limit: int = 50,
+        locale: Optional[str] = None,
+        timezone: Optional[str] = None,
     ) -> list[dict]:
         """List standout episodes — Magi-curated + user-pinned — for the sidebar.
 
@@ -256,6 +278,7 @@ class TimelineService:
             period_end=period_end,
             limit=limit,
         )
+        tz = _resolve_timezone(timezone)
         items: list[dict] = []
         for r in rows:
             ts = float(r.get("time_start") or 0.0)
@@ -264,12 +287,12 @@ class TimelineService:
             #   slice_narrative (LLM-written sentence, available after diary scheduler runs)
             #   → user_label (manual)
             #   → label (rule-based, usually empty)
-            #   → synthetic ("周日 14:00 · 3h" derived from time + duration)
+            #   → localized synthetic title derived from time + duration
             title = (
                 str(r.get("slice_narrative") or "").strip()
                 or str(r.get("user_label") or "").strip()
                 or str(r.get("label") or "").strip()
-                or _synthesize_standout_title(ts, te)
+                or _synthesize_standout_title(ts, te, locale=locale, timezone_name=timezone)
             )
             items.append(
                 {
@@ -278,15 +301,7 @@ class TimelineService:
                     "start": ts,
                     "end": te,
                     "title": title,
-                    # Format in the server's local timezone. For magi's
-                    # desktop-app deployment, server tz = user tz, so this
-                    # matches the user's day boundary. This is the same
-                    # convention daily_mood_aggregate's day_local_date uses
-                    # — keep them aligned so the sidebar standout list and
-                    # mood calendar pin events to the same calendar day.
-                    # (If we ever multi-user this server-side, a tz query
-                    # param will be needed.)
-                    "date": datetime.fromtimestamp(ts).strftime("%Y-%m-%d"),
+                    "date": datetime.fromtimestamp(ts, tz=tz).strftime("%Y-%m-%d"),
                     "source": "user" if r.get("user_pinned") else "magi",
                     "score": float(r.get("standout_score") or 0.0),
                 }

@@ -113,19 +113,21 @@ async def get_standout_endpoint(
     period_start: Optional[float] = Query(default=None),
     period_end: Optional[float] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
+    locale: Optional[str] = Query(default=None),
+    timezone: Optional[str] = Query(default=None),
 ):
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone as dt_timezone
 
     ps: Optional[float] = period_start
     pe: Optional[float] = period_end
     if ps is None and pe is None and month:
         try:
             year, mo = (int(p) for p in month.split("-", 1))
-            start_dt = datetime(year, mo, 1, tzinfo=timezone.utc)
+            start_dt = datetime(year, mo, 1, tzinfo=dt_timezone.utc)
             end_dt = (
-                datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+                datetime(year + 1, 1, 1, tzinfo=dt_timezone.utc)
                 if mo == 12
-                else datetime(year, mo + 1, 1, tzinfo=timezone.utc)
+                else datetime(year, mo + 1, 1, tzinfo=dt_timezone.utc)
             )
             ps = start_dt.timestamp()
             pe = end_dt.timestamp()
@@ -140,6 +142,8 @@ async def get_standout_endpoint(
         period_start=ps,
         period_end=pe,
         limit=limit,
+        locale=locale,
+        timezone=timezone,
     )
     return {"month": month, "items": items}
 

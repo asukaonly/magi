@@ -22,6 +22,7 @@ from typing import Any
 from .base import Plugin
 from .context import PluginContext
 from .host_services import RemoteHostServices
+from .i18n import language_context
 from .runtime import (
     PLUGIN_PROTOCOL_VERSION,
     SDK_VERSION,
@@ -305,11 +306,14 @@ class WorkerServer:
 
                 args = tuple(bind_context(value) for value in args)
                 kwargs = {key: bind_context(value) for key, value in kwargs.items()}
-                result = self.catalog.method(payload["target"], payload["method"])(
-                    *args, **kwargs
-                )
-                if inspect.isawaitable(result):
-                    result = await result
+                language = payload.get("language")
+                normalized_language = str(language).strip() if isinstance(language, str) and language.strip() else None
+                with language_context(normalized_language):
+                    result = self.catalog.method(payload["target"], payload["method"])(
+                        *args, **kwargs
+                    )
+                    if inspect.isawaitable(result):
+                        result = await result
             elif method == "start_source_watch":
                 payload = frame["payload"]
                 lease = payload["lease"]

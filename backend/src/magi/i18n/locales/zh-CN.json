@@ -488,5 +488,9 @@
       "ask_request_not_pending": "提问请求 {request_id!r} 不在待处理状态",
       "ask_response_option_required": "请选择一个已有答案。"
     }
+  },
+  "timeline": {
+    "manual_entry_title": "你写下的",
+    "standout_brief_duration": "短"
   }
 }

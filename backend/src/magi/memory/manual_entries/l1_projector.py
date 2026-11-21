@@ -110,9 +110,11 @@ def _build_memory_event(
     timestamp = ``event_at`` (when the memory happened), NOT ``created_at``
     — this is what positions it in the timeline view.
     """
+    from ... import i18n as core_i18n
+
     metadata: dict[str, Any] = {
         ACTIVITY_SNAPSHOT_METADATA_KEY: {
-            "title": "你写下的",
+            "title": core_i18n.t("timeline.manual_entry_title", fallback="Your note"),
             "source_type": "manual_entry",
             "summary": entry.body,
         },

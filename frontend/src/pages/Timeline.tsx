@@ -224,12 +224,18 @@ export const TimelinePage: React.FC = () => {
       return;
     }
     try {
-      const standout = await timelineApi.getStandout({ periodStart: viewportStart, periodEnd: viewportEnd, limit: 3 });
+      const standout = await timelineApi.getStandout({
+        periodStart: viewportStart,
+        periodEnd: viewportEnd,
+        limit: 3,
+        locale: timelineLocale,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
       if (isCurrent()) setSidebarSnapshot({ scope, mood: NO_MOOD_DAYS, standout: standout.items ?? [] });
     } catch {
       /* sidebar is best-effort; failures don't block the main pane */
     }
-  }, [beginRequest, scope, scale, query, viewportStart, viewportEnd]);
+  }, [beginRequest, scope, scale, query, viewportStart, viewportEnd, timelineLocale]);
 
   useEffect(() => {
     setActivePanel("timeline");

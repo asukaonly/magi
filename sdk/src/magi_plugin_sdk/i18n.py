@@ -21,11 +21,12 @@ Translation file structure (plugins/<plugin_id>/i18n/zh-CN.json):
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import contextvars
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,21 @@ def set_current_language(language: Optional[str]) -> None:
 def get_current_language() -> str:
     """Get the current context's language, defaulting to DEFAULT_LANGUAGE."""
     return _current_language.get() or DEFAULT_LANGUAGE
+
+
+def get_explicit_current_language() -> Optional[str]:
+    """Return the explicitly bound context language, or None when unset."""
+    return _current_language.get()
+
+
+@contextmanager
+def language_context(language: Optional[str]) -> Iterator[None]:
+    """Temporarily bind the plugin i18n language for the current async context."""
+    token = _current_language.set(language)
+    try:
+        yield
+    finally:
+        _current_language.reset(token)
 
 
 class PluginI18n:

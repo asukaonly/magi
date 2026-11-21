@@ -281,12 +281,21 @@ export const timelineApi = {
   },
 
   getStandout: async (
-    options?: { month?: string; periodStart?: number; periodEnd?: number; limit?: number }
+    options?: {
+      month?: string;
+      periodStart?: number;
+      periodEnd?: number;
+      limit?: number;
+      locale?: string;
+      timezone?: string;
+    }
   ): Promise<TimelineStandoutResponse> => {
     const params: Record<string, string> = { limit: String(options?.limit ?? 50) };
     if (options?.month) params.month = options.month;
     if (options?.periodStart !== undefined) params.period_start = String(options.periodStart);
     if (options?.periodEnd !== undefined) params.period_end = String(options.periodEnd);
+    if (options?.locale) params.locale = options.locale;
+    if (options?.timezone) params.timezone = options.timezone;
     const response = await api.get<TimelineStandoutResponse>('/timeline/standout', { params });
     return unwrapGatewayPayload(response);
   },

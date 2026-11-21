@@ -89,6 +89,10 @@ class SourceProxy(Source):
         return self.owner.invoke_sync(self.target, "l2_batch_policy", output)
 
     def t(self, key: str, *args: Any, **kwargs: Any) -> str:
+        if "language" not in kwargs and not args:
+            from .i18n import resolve_host_plugin_language
+
+            kwargs["language"] = resolve_host_plugin_language()
         return self.owner.invoke_sync(self.target, "t", key, *args, **kwargs)
 
     def __getattr__(self, name: str) -> Any:
