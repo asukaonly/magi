@@ -59,4 +59,36 @@ describe("HourDetail", () => {
     const { container } = render(<HourDetail viewport={makeViewport(clusters)} />);
     expect(container.querySelector("h2")).not.toBeInTheDocument();
   });
+
+  it("renders manual entries even when raw events and clusters are empty", () => {
+    render(
+      <HourDetail
+        viewport={makeViewport([])}
+        manualEntries={[
+          {
+            entry_id: "me-1",
+            revision: "1",
+            created_at: 600,
+            event_at: 600,
+            kind: "quick",
+            body: "午休散步回来",
+            body_doc: null,
+            mood: null,
+            location_label: "西湖边",
+            location_lat: null,
+            location_lng: null,
+            attachments: [],
+            exclude_from_llm: false,
+            user_pinned: false,
+            deleted_at: null,
+            l1_event_id: null,
+            weather: null,
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId("hour-manual-entry")).toBeInTheDocument();
+    expect(screen.getByText("午休散步回来")).toBeInTheDocument();
+    expect(screen.getByText("西湖边")).toBeInTheDocument();
+  });
 });

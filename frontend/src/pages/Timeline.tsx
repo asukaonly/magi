@@ -56,18 +56,18 @@ const shiftPeriodDate = (scale: TimelineScale, start: Date, amount: number): Dat
   return next;
 };
 
-const getLatestCompletePeriodStart = (scale: TimelineScale, now = new Date()): number => {
-  if (scale === "month") return toUnixSeconds(shiftPeriodDate(scale, startOfLocalMonth(now), -1));
-  if (scale === "week") return toUnixSeconds(shiftPeriodDate(scale, startOfLocalWeek(now), -1));
-  if (scale === "day") return toUnixSeconds(shiftPeriodDate(scale, startOfLocalDay(now), -1));
-  return toUnixSeconds(shiftPeriodDate(scale, startOfLocalHour(now), -1));
+const getCurrentPeriodStart = (scale: TimelineScale, now = new Date()): number => {
+  if (scale === "month") return toUnixSeconds(startOfLocalMonth(now));
+  if (scale === "week") return toUnixSeconds(startOfLocalWeek(now));
+  if (scale === "day") return toUnixSeconds(startOfLocalDay(now));
+  return toUnixSeconds(startOfLocalHour(now));
 };
 const getPeriodEnd = (scale: TimelineScale, start: number): number =>
   toUnixSeconds(shiftPeriodDate(scale, new Date(start * 1000), 1));
 const shiftPeriodStart = (scale: TimelineScale, start: number, amount: number): number =>
   toUnixSeconds(shiftPeriodDate(scale, new Date(start * 1000), amount));
-const clampToLatestCompletePeriod = (scale: TimelineScale, start: number): number =>
-  Math.min(start, getLatestCompletePeriodStart(scale));
+const clampToCurrentPeriod = (scale: TimelineScale, start: number): number =>
+  Math.min(start, getCurrentPeriodStart(scale));
 
 function formatWindowLabel(scale: TimelineScale, start: number, end: number, locale: string): string {
   const s = new Date(start * 1000);
@@ -136,7 +136,7 @@ export const TimelinePage: React.FC = () => {
 
   const [scale, setScale] = useState<TimelineScale>("day");
   const [viewportStart, setViewportStart] = useState<number>(
-    () => getLatestCompletePeriodStart("day"),
+    () => getCurrentPeriodStart("day"),
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const viewportRequest = useRef<AbortController | null>(null);
@@ -162,8 +162,9 @@ export const TimelinePage: React.FC = () => {
   const [coverSaving, setCoverSaving] = useState(false);
 
   const viewportEnd = getPeriodEnd(scale, viewportStart);
-  const latestPeriodStart = getLatestCompletePeriodStart(scale);
-  const canGoNext = shiftPeriodStart(scale, viewportStart, 1) <= latestPeriodStart;
+  const currentPeriodStart = getCurrentPeriodStart(scale);
+  const isCurrentPeriod = viewportStart === currentPeriodStart;
+  const canGoNext = shiftPeriodStart(scale, viewportStart, 1) <= currentPeriodStart;
   const dateLabel = formatWindowLabel(scale, viewportStart, viewportEnd, timelineLocale);
 
   const loadViewport = useCallback(async (silent = false) => {
@@ -203,7 +204,7 @@ export const TimelinePage: React.FC = () => {
   const loadManualEntries = useCallback(async () => {
     const isCurrent = beginRequest('entries');
     if (!isCurrent()) return;
-    if (scale !== 'day') { setManualSnapshot({ scope, entries: NO_ENTRIES }); return; }
+    if (scale !== 'day' && scale !== 'hour') { setManualSnapshot({ scope, entries: NO_ENTRIES }); return; }
     try {
       const entries = await manualEntriesApi.list({
         timeStart: viewportStart,
@@ -384,14 +385,14 @@ export const TimelinePage: React.FC = () => {
           : scale === "week"
             ? toUnixSeconds(startOfLocalWeek(dt))
             : toUnixSeconds(startOfLocalMonth(dt));
-    setViewportStart(clampToLatestCompletePeriod(scale, newStart));
+    setViewportStart(clampToCurrentPeriod(scale, newStart));
   }, [scale]);
 
   const selectPeriod = useCallback((period: TimelineReviewPeriod) => {
     setTrail(current => [...current, { scale, start: viewportStart, scrollTop: scrollRef.current?.scrollTop ?? 0, focusId: `review-period-${period.target_start}` }]);
     pendingScroll.current = { top: 0 };
     setScale(period.scale);
-    setViewportStart(clampToLatestCompletePeriod(period.scale, period.target_start));
+    setViewportStart(clampToCurrentPeriod(period.scale, period.target_start));
   }, [scale, viewportStart]);
 
   const returnToPeriod = (index: number) => {
@@ -407,7 +408,7 @@ export const TimelinePage: React.FC = () => {
     const start = next === 'month' ? startOfLocalMonth(date) : next === 'week' ? startOfLocalWeek(date) : next === 'day' ? startOfLocalDay(date) : startOfLocalHour(date);
     setTrail([]); pendingScroll.current = { top: 0 };
     setScale(next);
-    setViewportStart(clampToLatestCompletePeriod(next, toUnixSeconds(start)));
+    setViewportStart(clampToCurrentPeriod(next, toUnixSeconds(start)));
   }, [viewportStart]);
 
   const handlePrevious = useCallback(() => {
@@ -417,7 +418,7 @@ export const TimelinePage: React.FC = () => {
 
   const handleNext = useCallback(() => {
     setTrail([]); pendingScroll.current = { top: 0 };
-    setViewportStart(value => clampToLatestCompletePeriod(scale, shiftPeriodStart(scale, value, 1)));
+    setViewportStart(value => clampToCurrentPeriod(scale, shiftPeriodStart(scale, value, 1)));
   }, [scale]);
 
   const handleDraftQueryChange = useCallback((next: string) => {
@@ -440,14 +441,14 @@ export const TimelinePage: React.FC = () => {
     if (!item) return;
     const dayStart = toUnixSeconds(startOfLocalDay(new Date(item.start * 1000)));
     setScale("day");
-    setViewportStart(clampToLatestCompletePeriod("day", dayStart));
+    setViewportStart(clampToCurrentPeriod("day", dayStart));
   }, [standoutItems]);
 
   const handleSelectFromDateInput = useCallback((value: string) => {
     const parsed = parsePeriodInputValue(scale, value);
     if (parsed == null) return;
     setTrail([]); pendingScroll.current = { top: 0 };
-    setViewportStart(clampToLatestCompletePeriod(scale, parsed));
+    setViewportStart(clampToCurrentPeriod(scale, parsed));
   }, [scale]);
 
   const handleOpenExperience = useCallback(
@@ -538,14 +539,43 @@ export const TimelinePage: React.FC = () => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  const handleEntrySaved = useCallback(() => {
+  const handleEntrySaved = useCallback((savedEntry?: ManualEntry) => {
     // Re-fetch entries (primary timeline placement) + viewport (so any
     // L2-derived clusters reflect the new event) + sidebar.
     void loadManualEntries();
     void loadViewport();
     void loadSidebar();
     setEditingEntry(null);
-  }, [loadManualEntries, loadViewport, loadSidebar]);
+    if (savedEntry && typeof savedEntry.event_at === 'number') {
+      const inCurrentViewport =
+        (scale === 'day' || scale === 'hour') &&
+        savedEntry.event_at >= viewportStart &&
+        savedEntry.event_at < viewportEnd;
+      if (!inCurrentViewport) {
+        const targetDayStart = clampToCurrentPeriod(
+          'day',
+          toUnixSeconds(startOfLocalDay(new Date(savedEntry.event_at * 1000))),
+        );
+        toast(
+          t('timeline.manualEntry.savedOutsideViewport', {
+            defaultValue: '已保存至 {{date}}',
+            date: isoDateForTimestamp(savedEntry.event_at),
+          }),
+          {
+            action: {
+              label: t('timeline.manualEntry.jumpToEntry', { defaultValue: '查看当天' }),
+              onClick: () => {
+                setTrail([]);
+                pendingScroll.current = { top: 0 };
+                setScale('day');
+                setViewportStart(targetDayStart);
+              },
+            },
+          },
+        );
+      }
+    }
+  }, [loadManualEntries, loadViewport, loadSidebar, scale, viewportStart, viewportEnd, t]);
 
   const handleEditEntry = useCallback((entry: ManualEntry) => {
     setEditingEntry(entry);
@@ -582,6 +612,12 @@ export const TimelinePage: React.FC = () => {
           <span>{t('timeline.period.filter', { query })}</span>
           <button type="button" onClick={() => { setDraftQuery(''); setQuery(''); setTrail([]); }} className="shrink-0 underline underline-offset-4">{t('timeline.period.clearFilter')}</button>
         </div> : null}
+        {isCurrentPeriod && !query ? (
+          <div className="mx-auto flex w-full max-w-[1180px] items-center gap-2 px-5 pt-4 text-[12px] text-muted-foreground sm:px-8 lg:px-10">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500/80" aria-hidden="true" />
+            <span>{t('timeline.period.inProgress', { defaultValue: '进行中' })}</span>
+          </div>
+        ) : null}
         {loading && !viewport ? (
           <div className="flex h-full w-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <LoadingSpinner className="h-4 w-4" />
@@ -589,7 +625,12 @@ export const TimelinePage: React.FC = () => {
           </div>
         ) : viewport ? (
           scale === "hour" ? (
-            <HourDetail viewport={viewport} />
+            <HourDetail
+              viewport={viewport}
+              manualEntries={manualEntries}
+              onEditManualEntry={handleEditEntry}
+              onDeleteManualEntry={asEventHandler(handleDeleteEntry)}
+            />
           ) : (
             <PeriodCard
               scale={scale}

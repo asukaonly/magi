@@ -571,7 +571,8 @@
       "returnTo": "返回上一级",
       "loadError": "暂时无法加载这个时段。",
       "filter": "筛选：{{query}}",
-      "clearFilter": "清除筛选"
+      "clearFilter": "清除筛选",
+      "inProgress": "进行中"
     },
     "scale": {
       "month": "月",
@@ -890,6 +891,8 @@
       "savedToast": "已记录",
       "savedPendingToast": "已记录，相关记忆稍后完成",
       "deletedToast": "已删除",
+      "savedOutsideViewport": "已保存至 {{date}}",
+      "jumpToEntry": "查看当天",
       "groupLabel": "你的记录",
       "entryCount": "{{count}} 条",
       "openImage": "查看图片",

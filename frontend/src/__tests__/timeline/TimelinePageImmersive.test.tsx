@@ -110,14 +110,20 @@ describe("TimelinePage (immersive)", () => {
     });
   });
 
-  it("defaults to day scale on mount", async () => {
+  it("defaults to day scale on today (current local day) on mount", async () => {
     renderPage();
 
     await waitFor(() => {
       expect(timelineApi.getViewport).toHaveBeenCalled();
     });
     const call = (timelineApi.getViewport as any).mock.calls[0][0];
+    const now = new Date();
+    const expectedTodayStart = Math.floor(
+      new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000,
+    );
     expect(call.scale).toBe("day");
+    expect(call.start).toBe(expectedTodayStart);
+    expect(screen.getByText(/进行中|In progress/i)).toBeInTheDocument();
   });
 
   it("opens the evidence drawer only after the scene is selected", async () => {

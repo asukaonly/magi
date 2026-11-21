@@ -656,7 +656,8 @@
       "returnTo": "Return to a broader view",
       "loadError": "This period could not be loaded.",
       "filter": "Filter: {{query}}",
-      "clearFilter": "Clear filter"
+      "clearFilter": "Clear filter",
+      "inProgress": "In progress"
     },
     "scale": {
       "month": "Month",
@@ -890,6 +891,8 @@
       "savedToast": "Saved",
       "savedPendingToast": "Saved. Related memory will finish shortly.",
       "deletedToast": "Deleted",
+      "savedOutsideViewport": "Saved to {{date}}",
+      "jumpToEntry": "View day",
       "groupLabel": "Your notes",
       "entryCount": "{{count}} notes",
       "openImage": "View image",
