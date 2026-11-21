@@ -2193,7 +2193,14 @@
           "l4": "Procedures",
           "archives": "Archive records",
           "manualEntries": "Manual memories",
-          "managedAssets": "Managed memory assets"
+          "managedAssets": "Managed memory assets",
+          "chatMessages": "Chat messages",
+          "chatAttachments": "Chat attachments",
+          "personas": "Personas",
+          "growthMilestones": "Relationship milestones",
+          "emotionalStates": "Emotional states",
+          "personalTasks": "Personal tasks",
+          "userAvatars": "Custom avatars"
         },
         "scope": {
           "l0": "Current attention",
@@ -2202,13 +2209,21 @@
           "l3": "Summaries",
           "l4": "Procedures",
           "archives": "Archives",
-          "managedAssets": "Managed memory assets"
+          "managedAssets": "Managed memory assets",
+          "chat": "Chat history",
+          "chatAttachments": "Chat attachments",
+          "personas": "Personas",
+          "growthMemory": "Relationship growth",
+          "emotionalState": "Emotional state",
+          "personalTasks": "Personal tasks",
+          "userAvatars": "Custom avatars"
         },
         "warnings": {
           "restore_replaces_current_memory": "Restoring replaces the current memory snapshot.",
           "deleted_memories_may_return": "Memory deleted after this backup was created may return.",
           "l0_runtime_attention_not_restored": "Current runtime attention is not restored from a backup.",
           "chat_records_and_attachments_not_included": "Chat records and attachments are not included in this backup.",
+          "device_credentials_and_caches_not_included": "Device pairing state, API keys, downloaded model caches, and raw plugin fetch caches are excluded for security.",
           "source_evidence_may_be_unavailable": "Some original evidence may no longer be available after restore.",
           "raw_history_import_content_redacted": "Imported raw history content remains redacted where required.",
           "chat_evidence_unavailable": "Some linked chat evidence is not available in this backup.",

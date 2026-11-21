@@ -38,7 +38,11 @@ from .fs_helpers import (
 from .models import (
     MAX_BACKUP_FILE_COUNT,
     MAX_BACKUP_UNCOMPRESSED_BYTES,
+    VAULT_OPTIONAL_DATABASES,
+    VAULT_OPTIONAL_DATABASE_BY_PURPOSE,
     BackupManifest,
+    BackupPurpose,
+    _is_safe_relative_subpath,
 )
 from .recovery import (
     FileFingerprint,
@@ -53,9 +57,29 @@ from .recovery import (
     update_restore_phase,
     write_restore_journal,
 )
-from .storage import create_memory_snapshot, discard_snapshot
+from .storage import (
+    create_memory_snapshot,
+    discard_snapshot,
+    vault_optional_db_path,
+    vault_user_avatar_dir,
+)
 
-RestorePurpose = Literal["l1", "memory", "archive", "manual_entry_asset"]
+RestorePurpose = BackupPurpose
+_VALID_RESTORE_PURPOSES = frozenset(
+    {
+        "l1",
+        "memory",
+        "archive",
+        "manual_entry_asset",
+        "chat",
+        "chat_attachment",
+        "persona_registry",
+        "growth_memory",
+        "emotional_state",
+        "personal_tasks",
+        "user_avatar",
+    }
+)
 RestoreFailpoint = Callable[[str], None]
 
 _ARCHIVE_DB_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}\.db$")
@@ -86,7 +110,7 @@ class RestoreCandidateFile:
         sha256 = raw["sha256"]
         if not isinstance(path, str) or not path or len(path) > 1024:
             raise ValueError("invalid restore member path")
-        if purpose not in {"l1", "memory", "archive", "manual_entry_asset"}:
+        if purpose not in _VALID_RESTORE_PURPOSES:
             raise ValueError("invalid restore member purpose")
         if isinstance(size_bytes, bool) or not isinstance(size_bytes, int) or size_bytes < 0:
             raise ValueError("invalid restore member size")
@@ -222,6 +246,14 @@ class RestoreTransaction:
                 self._promote_assets(current)
                 self._run_failpoint("after_asset_cutover")
 
+                current = update_restore_phase(
+                    self._runtime_paths,
+                    self.transaction_id,
+                    "cutting_vault",
+                )
+                self._promote_vault(current)
+                self._run_failpoint("after_vault_cutover")
+
                 update_restore_phase(
                     self._runtime_paths,
                     self.transaction_id,
@@ -306,6 +338,7 @@ class RestoreTransaction:
         assert journal.staged_memory is not None
         assert journal.staged_archives is not None
         assert journal.staged_assets is not None
+        assert journal.staged_vault is not None
         _require_file_fingerprint(paths["db_stage"] / "l1_events.db", journal.staged_l1)
         _require_file_fingerprint(paths["db_stage"] / "memory.db", journal.staged_memory)
         _require_tree_fingerprint(
@@ -318,6 +351,7 @@ class RestoreTransaction:
             journal.staged_assets,
             path_validator=_asset_relative_path_valid,
         )
+        _require_tree_fingerprint(paths["vault_stage"], journal.staged_vault)
 
     def _promote_database(self, journal: RestoreJournal, *, role: Literal["l1", "memory"]) -> None:
         paths = {key: Path(value) for key, value in journal.paths.items()}
@@ -395,6 +429,61 @@ class RestoreTransaction:
             live.chmod(0o700)
         fsync_directory(paths["asset_discard"])
         fsync_directory(live.parent)
+
+    def _promote_vault(self, journal: RestoreJournal) -> None:
+        paths = {key: Path(value) for key, value in journal.paths.items()}
+        vault_stage = paths["vault_stage"]
+        vault_discard = paths["vault_discard"]
+        discard_db_dir = vault_discard / "databases"
+        discard_db_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for purpose, archive_path, *_rest in VAULT_OPTIONAL_DATABASES:
+            live = vault_optional_db_path(self._runtime_paths, purpose)
+            for current in (live, *(Path(f"{live}{suffix}") for suffix in SQLITE_SIDECAR_SUFFIXES)):
+                try:
+                    details = current.lstat()
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISDIR(details.st_mode) and not stat.S_ISLNK(details.st_mode):
+                    raise MemoryPortabilityError(
+                        "restore_target_invalid",
+                        "A live vault database target conflicts with a directory.",
+                        status_code=500,
+                    )
+                os.replace(current, discard_db_dir / current.name)
+            staged = vault_stage / archive_path
+            if staged.exists():
+                live.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                os.replace(staged, live)
+                if os.name != "nt":
+                    live.chmod(0o600)
+                fsync_directory(live.parent)
+
+        for rel_tree, live_dir, discard_name in (
+            ("assets/chat", self._runtime_paths.chat_resources_dir, "chat"),
+            ("assets/user_avatars", vault_user_avatar_dir(self._runtime_paths), "user_avatars"),
+        ):
+            try:
+                details = live_dir.lstat()
+            except FileNotFoundError:
+                details = None
+            if details is not None:
+                if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
+                    raise MemoryPortabilityError(
+                        "restore_target_invalid",
+                        "A live vault asset target is not a real directory.",
+                        status_code=500,
+                    )
+                discard_target = vault_discard / "assets" / discard_name
+                discard_target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                os.replace(live_dir, discard_target)
+            staged_dir = vault_stage / rel_tree
+            if staged_dir.exists():
+                live_dir.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                os.replace(staged_dir, live_dir)
+                if os.name != "nt":
+                    live_dir.chmod(0o700)
+                fsync_directory(live_dir.parent)
+        fsync_directory(vault_discard)
 
     def _run_failpoint(self, name: str) -> None:
         if self._failpoint is not None:
@@ -608,6 +697,9 @@ def _stage_restore_transaction(
         "asset_stage",
         "asset_rollback",
         "asset_discard",
+        "vault_stage",
+        "vault_rollback",
+        "vault_discard",
     ):
         create_private_directory(paths[key])
 
@@ -634,6 +726,25 @@ def _stage_restore_transaction(
 
         copy_private_tree(paths["asset_dir"], paths["asset_rollback"])
     rollback_assets = TreeFingerprint(*tree_fingerprint(paths["asset_rollback"]))
+
+    # Snapshot live optional vault databases and asset trees for atomic rollback.
+    for purpose, archive_path, *_rest in VAULT_OPTIONAL_DATABASES:
+        live_db = vault_optional_db_path(runtime_paths, purpose)
+        if live_db.exists():
+            rollback_db = paths["vault_rollback"] / archive_path
+            rollback_db.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            sqlite_backup_private(live_db, rollback_db)
+    for rel_tree, live_dir in (
+        ("assets/chat", runtime_paths.chat_resources_dir),
+        ("assets/user_avatars", vault_user_avatar_dir(runtime_paths)),
+    ):
+        if live_dir.exists() and live_dir.is_dir() and not live_dir.is_symlink():
+            from .fs_helpers import copy_private_tree
+
+            rollback_tree = paths["vault_rollback"] / rel_tree
+            rollback_tree.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            copy_private_tree(live_dir, rollback_tree)
+    rollback_vault = TreeFingerprint(*tree_fingerprint(paths["vault_rollback"]))
 
     staged_l1 = _stage_candidate_file(
         candidate,
@@ -664,6 +775,15 @@ def _stage_restore_transaction(
             if os.name != "nt":
                 destination.parent.chmod(0o700)
             _stage_candidate_file(candidate, record, destination)
+        elif record.purpose in VAULT_OPTIONAL_DATABASE_BY_PURPOSE or record.purpose in {
+            "chat_attachment",
+            "user_avatar",
+        }:
+            destination = paths["vault_stage"].joinpath(*PurePosixPath(record.path).parts)
+            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if os.name != "nt":
+                destination.parent.chmod(0o700)
+            _stage_candidate_file(candidate, record, destination)
 
     fsync_tree(paths["db_stage"])
     fsync_tree(paths["db_rollback"])
@@ -671,10 +791,13 @@ def _stage_restore_transaction(
     fsync_tree(paths["archive_rollback"])
     fsync_tree(paths["asset_stage"])
     fsync_tree(paths["asset_rollback"])
+    fsync_tree(paths["vault_stage"])
+    fsync_tree(paths["vault_rollback"])
     for parent in {
         paths["db_stage"].parent,
         paths["archive_stage"].parent,
         paths["asset_stage"].parent,
+        paths["vault_stage"].parent,
     }:
         fsync_directory(parent)
     staged_archives = TreeFingerprint(
@@ -683,6 +806,7 @@ def _stage_restore_transaction(
     staged_assets = TreeFingerprint(
         *tree_fingerprint(paths["asset_stage"], path_validator=_asset_relative_path_valid)
     )
+    staged_vault = TreeFingerprint(*tree_fingerprint(paths["vault_stage"]))
     return replace(
         journal,
         phase="prepared",
@@ -690,10 +814,12 @@ def _stage_restore_transaction(
         staged_memory=staged_memory,
         staged_archives=staged_archives,
         staged_assets=staged_assets,
+        staged_vault=staged_vault,
         rollback_l1=rollback_l1,
         rollback_memory=rollback_memory,
         rollback_archives=rollback_archives,
         rollback_assets=rollback_assets,
+        rollback_vault=rollback_vault,
     )
 
 
@@ -793,6 +919,7 @@ def _transaction_paths(
     memory_root = Path(os.path.abspath(os.fspath(runtime_paths.memory_dir)))
     asset_parent = Path(os.path.abspath(os.fspath(runtime_paths.manual_entry_assets_dir.parent)))
     archive_target = Path(os.path.abspath(os.fspath(archive_target)))
+    base_root = Path(os.path.abspath(os.fspath(runtime_paths.base_dir)))
     return {
         "l1_db": Path(os.path.abspath(os.fspath(runtime_paths.l1_memory_db_path))),
         "memory_db": Path(os.path.abspath(os.fspath(runtime_paths.memory_db_path))),
@@ -809,6 +936,9 @@ def _transaction_paths(
         "asset_stage": asset_parent / f".magi-memory-restore-{transaction_id}-assets-stage",
         "asset_rollback": asset_parent / f".magi-memory-restore-{transaction_id}-assets-rollback",
         "asset_discard": asset_parent / f".magi-memory-restore-{transaction_id}-assets-discard",
+        "vault_stage": base_root / f".magi-memory-restore-{transaction_id}-vault-stage",
+        "vault_rollback": base_root / f".magi-memory-restore-{transaction_id}-vault-rollback",
+        "vault_discard": base_root / f".magi-memory-restore-{transaction_id}-vault-discard",
     }
 
 
@@ -817,6 +947,8 @@ def _purpose_matches_path(record: RestoreCandidateFile) -> bool:
         return record.path == "databases/l1_events.db"
     if record.purpose == "memory":
         return record.path == "databases/memory.db"
+    if record.purpose in VAULT_OPTIONAL_DATABASE_BY_PURPOSE:
+        return record.path == VAULT_OPTIONAL_DATABASE_BY_PURPOSE[record.purpose][0]
     if record.purpose == "archive":
         return record.path.startswith("archives/") and _archive_relative_path_valid(
             record.path.removeprefix("archives/")
@@ -829,6 +961,16 @@ def _purpose_matches_path(record: RestoreCandidateFile) -> bool:
             match is not None
             and match.group("shard") == record.sha256[:2]
             and match.group("digest") == record.sha256
+        )
+    if record.purpose == "chat_attachment":
+        if not record.path.startswith("assets/chat/"):
+            return False
+        return _is_safe_relative_subpath(record.path.removeprefix("assets/chat/"), max_parts=6)
+    if record.purpose == "user_avatar":
+        if not record.path.startswith("assets/user_avatars/"):
+            return False
+        return _is_safe_relative_subpath(
+            record.path.removeprefix("assets/user_avatars/"), max_parts=1
         )
     return False
 
@@ -855,7 +997,7 @@ def _require_tree_fingerprint(
     path: Path,
     expected: TreeFingerprint,
     *,
-    path_validator,
+    path_validator=None,
 ) -> None:
     actual = TreeFingerprint(*tree_fingerprint(path, path_validator=path_validator))
     if actual != expected:

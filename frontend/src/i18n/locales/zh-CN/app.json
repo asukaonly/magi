@@ -2192,7 +2192,14 @@
           "l4": "流程经验",
           "archives": "归档记录",
           "manualEntries": "手动记忆",
-          "managedAssets": "受管理的记忆素材"
+          "managedAssets": "受管理的记忆素材",
+          "chatMessages": "聊天消息",
+          "chatAttachments": "聊天附件",
+          "personas": "人格档案",
+          "growthMilestones": "关系里程碑",
+          "emotionalStates": "情绪状态",
+          "personalTasks": "个人待办",
+          "userAvatars": "自定义头像"
         },
         "scope": {
           "l0": "当前关注",
@@ -2201,13 +2208,21 @@
           "l3": "摘要",
           "l4": "流程经验",
           "archives": "归档",
-          "managedAssets": "受管理的记忆素材"
+          "managedAssets": "受管理的记忆素材",
+          "chat": "聊天记录",
+          "chatAttachments": "聊天附件",
+          "personas": "人格档案",
+          "growthMemory": "关系与成长",
+          "emotionalState": "情绪状态",
+          "personalTasks": "个人待办",
+          "userAvatars": "自定义头像"
         },
         "warnings": {
           "restore_replaces_current_memory": "恢复会替换当前记忆快照。",
           "deleted_memories_may_return": "在此备份创建后删除的记忆可能会重新出现。",
           "l0_runtime_attention_not_restored": "当前运行时关注不会从备份中恢复。",
           "chat_records_and_attachments_not_included": "此备份不包含聊天记录与附件。",
+          "device_credentials_and_caches_not_included": "出于安全考虑，不包含本机配对设备、API Key 凭据、本地模型下载缓存与可重拉的原始采集缓存。",
           "source_evidence_may_be_unavailable": "恢复后，部分原始依据可能已经无法访问。",
           "raw_history_import_content_redacted": "导入历史中的原始内容仍会按要求保持脱敏。",
           "chat_evidence_unavailable": "此备份中部分关联的聊天依据不可用。",

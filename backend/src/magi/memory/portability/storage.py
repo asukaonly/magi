@@ -25,7 +25,36 @@ from ..manual_entries.asset_types import MAX_UPLOAD_BYTES
 from ..l1.storage_snapshot import EventStateTransfer
 from ..source_event_governance import source_occurrence_visible_predicate
 from .errors import MemoryPortabilityError, is_no_space_error
-from .models import SnapshotBundle, SnapshotFile
+from .models import (
+    VAULT_OPTIONAL_DATABASES,
+    VAULT_OPTIONAL_DATABASE_BY_PURPOSE,
+    SnapshotBundle,
+    SnapshotFile,
+)
+
+_MAX_CHAT_ATTACHMENT_BYTES = 50 * 1024 * 1024
+_MAX_USER_AVATAR_BYTES = 20 * 1024 * 1024
+
+
+def vault_optional_db_path(runtime_paths: RuntimePaths, purpose: str) -> Path:
+    """Resolve the live on-disk path for one optional vault SQLite database."""
+
+    mapping = {
+        "chat": runtime_paths.chat_db_path,
+        "persona_registry": runtime_paths.persona_registry_db_path,
+        "growth_memory": runtime_paths.growth_db_path,
+        "emotional_state": runtime_paths.emotional_db_path,
+        "personal_tasks": runtime_paths.personal_tasks_db_path,
+    }
+    if purpose not in mapping:
+        raise ValueError(f"Unknown vault database purpose: {purpose}")
+    return mapping[purpose]
+
+
+def vault_user_avatar_dir(runtime_paths: RuntimePaths) -> Path:
+    """Resolve the managed user-uploaded avatar directory under ``MAGI_HOME``."""
+
+    return runtime_paths.base_dir / "personalities" / "avatar"
 
 _ARCHIVE_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}\.db$")
 _ASSET_NAME = re.compile(r"^[0-9a-f]{64}\.(?:gif|jpg|png|webp)$")
@@ -174,10 +203,17 @@ def database_revision(path: Path) -> str:
 
 
 def count_snapshot_records(
-    l1_path: Path, memory_path: Path, archive_paths: list[Path]
+    l1_path: Path,
+    memory_path: Path,
+    archive_paths: list[Path],
+    *,
+    extra_db_paths: dict[str, Path] | None = None,
+    chat_attachment_count: int = 0,
+    user_avatar_count: int = 0,
 ) -> dict[str, int]:
     """Return user-facing record counts without opening runtime stores."""
 
+    extra = extra_db_paths or {}
     counts = {
         "l0_sessions": _safe_count(memory_path, "l0_sessions"),
         "l0_attention_items": _safe_count(memory_path, "l0_attention_items"),
@@ -191,7 +227,12 @@ def count_snapshot_records(
         "l3_summaries": _safe_count(memory_path, "summaries"),
         "l4_procedures": _safe_count(memory_path, "procedural_skills", "deleted_at IS NULL"),
         "archives": len(archive_paths),
+        "chat_attachments": int(chat_attachment_count),
+        "user_avatars": int(user_avatar_count),
     }
+    for purpose, _archive_path, _alembic_target, count_key, primary_table in VAULT_OPTIONAL_DATABASES:
+        db_path = extra.get(purpose)
+        counts[count_key] = _safe_count(db_path, primary_table) if db_path is not None else 0
     return counts
 
 
@@ -215,6 +256,9 @@ def snapshot_file_record_count(path: Path, purpose: str) -> int:
                 _safe_count(path, "procedural_skills", "deleted_at IS NULL"),
             )
         )
+    if purpose in VAULT_OPTIONAL_DATABASE_BY_PURPOSE:
+        primary_table = VAULT_OPTIONAL_DATABASE_BY_PURPOSE[purpose][3]
+        return _safe_count(path, primary_table)
     if purpose == "archive":
         try:
             with closing(sqlite3.connect(_read_only_sqlite_uri(path), uri=True)) as connection:
@@ -234,7 +278,7 @@ def snapshot_file_record_count(path: Path, purpose: str) -> int:
             for table in ("archived_l1_events", "archived_l3_summaries")
             if table in tables
         )
-    if purpose == "manual_entry_asset":
+    if purpose in {"manual_entry_asset", "chat_attachment", "user_avatar"}:
         return 1
     raise ValueError("Unknown backup file purpose")
 
@@ -267,6 +311,11 @@ def _snapshot_required_bytes(
 ) -> int:
     l1_bytes = _database_snapshot_bytes(event_snapshot_path or runtime_paths.l1_memory_db_path)
     memory_bytes = _database_snapshot_bytes(runtime_paths.memory_db_path)
+    optional_db_bytes = 0
+    for purpose, *_rest in VAULT_OPTIONAL_DATABASES:
+        db_path = vault_optional_db_path(runtime_paths, purpose)
+        if db_path.exists():
+            optional_db_bytes += _database_snapshot_bytes(db_path)
     archive_bytes = sum(
         _database_snapshot_bytes(path) for path in _iter_archive_databases(archive_dir)
     )
@@ -275,7 +324,26 @@ def _snapshot_required_bytes(
         runtime_paths.manual_entry_assets_dir,
     )
     asset_bytes = sum(source.stat().st_size for source, _relative_path in referenced_assets)
-    return l1_bytes + memory_bytes + archive_bytes + asset_bytes + max(l1_bytes, memory_bytes)
+    chat_attachments = _collect_vault_tree_files(
+        runtime_paths.chat_resources_dir,
+        max_depth=6,
+        max_file_bytes=_MAX_CHAT_ATTACHMENT_BYTES,
+    )
+    user_avatars = _collect_vault_tree_files(
+        vault_user_avatar_dir(runtime_paths),
+        max_depth=1,
+        max_file_bytes=_MAX_USER_AVATAR_BYTES,
+    )
+    vault_file_bytes = sum(src.stat().st_size for src, _rel in (*chat_attachments, *user_avatars))
+    return (
+        l1_bytes
+        + memory_bytes
+        + optional_db_bytes
+        + archive_bytes
+        + asset_bytes
+        + vault_file_bytes
+        + max(l1_bytes, memory_bytes)
+    )
 
 
 def _database_snapshot_bytes(path: Path) -> int:
@@ -333,6 +401,27 @@ def _create_memory_snapshot_sync(
             source_path=memory_output, archive_path="databases/memory.db", purpose="memory"
         ),
     ]
+    schema_revisions: dict[str, str] = {
+        "l1": database_revision(l1_output),
+        "memory_shared": database_revision(memory_output),
+    }
+    extra_db_outputs: dict[str, Path] = {}
+    for purpose, archive_path, alembic_target, _count_key, _primary_table in VAULT_OPTIONAL_DATABASES:
+        live_path = vault_optional_db_path(runtime_paths, purpose)
+        if not live_path.exists():
+            continue
+        dest_path = database_dir / Path(archive_path).name
+        _sqlite_online_backup(live_path, dest_path)
+        extra_db_outputs[purpose] = dest_path
+        schema_revisions[alembic_target] = database_revision(dest_path)
+        snapshot_files.append(
+            SnapshotFile(
+                source_path=dest_path,
+                archive_path=archive_path,
+                purpose=purpose,  # type: ignore[arg-type]
+            )
+        )
+
     archived_outputs: list[Path] = []
     for source in _iter_archive_databases(archive_dir):
         destination = archive_output_dir / source.name
@@ -368,15 +457,55 @@ def _create_memory_snapshot_sync(
             )
         )
 
-    counts = count_snapshot_records(l1_output, memory_output, archived_outputs)
+    chat_attachment_output_dir = root / "assets" / "chat"
+    chat_attachments = _collect_vault_tree_files(
+        runtime_paths.chat_resources_dir,
+        max_depth=6,
+        max_file_bytes=_MAX_CHAT_ATTACHMENT_BYTES,
+    )
+    for source, relative_path in chat_attachments:
+        destination = chat_attachment_output_dir / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _copy_regular_file(source, destination, max_bytes=_MAX_CHAT_ATTACHMENT_BYTES)
+        snapshot_files.append(
+            SnapshotFile(
+                source_path=destination,
+                archive_path=f"assets/chat/{relative_path.as_posix()}",
+                purpose="chat_attachment",
+            )
+        )
+
+    user_avatar_output_dir = root / "assets" / "user_avatars"
+    user_avatars = _collect_vault_tree_files(
+        vault_user_avatar_dir(runtime_paths),
+        max_depth=1,
+        max_file_bytes=_MAX_USER_AVATAR_BYTES,
+    )
+    for source, relative_path in user_avatars:
+        destination = user_avatar_output_dir / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _copy_regular_file(source, destination, max_bytes=_MAX_USER_AVATAR_BYTES)
+        snapshot_files.append(
+            SnapshotFile(
+                source_path=destination,
+                archive_path=f"assets/user_avatars/{relative_path.as_posix()}",
+                purpose="user_avatar",
+            )
+        )
+
+    counts = count_snapshot_records(
+        l1_output,
+        memory_output,
+        archived_outputs,
+        extra_db_paths=extra_db_outputs,
+        chat_attachment_count=len(chat_attachments),
+        user_avatar_count=len(user_avatars),
+    )
     counts["manual_entry_assets"] = len(referenced_assets)
     return SnapshotBundle(
         root=root,
         files=snapshot_files,
-        schema_revisions={
-            "l1": database_revision(l1_output),
-            "memory_shared": database_revision(memory_output),
-        },
+        schema_revisions=schema_revisions,
         counts=counts,
     )
 
@@ -825,6 +954,43 @@ def referenced_manual_asset_archive_paths(memory_db_path: Path) -> set[str]:
 
 def _table_has_column(connection: sqlite3.Connection, table: str, column: str) -> bool:
     return any(str(row[1]) == column for row in connection.execute(f'PRAGMA table_info("{table}")'))
+
+
+def _collect_vault_tree_files(
+    root: Path,
+    *,
+    max_depth: int,
+    max_file_bytes: int,
+) -> list[tuple[Path, PurePosixPath]]:
+    """Collect regular non-hidden files inside a managed vault asset directory."""
+
+    if not root.exists():
+        return []
+    _require_directory(root, label="vault asset directory")
+    collected: list[tuple[Path, PurePosixPath]] = []
+
+    def _walk(current: Path, rel_parts: tuple[str, ...]) -> None:
+        for entry in sorted(current.iterdir(), key=lambda item: item.name):
+            name = entry.name
+            if not name or name.startswith(".") or name.endswith(".partial") or name.endswith(".tmp"):
+                continue
+            try:
+                details = entry.lstat()
+            except OSError:
+                continue
+            if stat.S_ISLNK(details.st_mode):
+                continue
+            next_parts = (*rel_parts, name)
+            if len(next_parts) > max_depth:
+                continue
+            if stat.S_ISDIR(details.st_mode):
+                if len(next_parts) < max_depth:
+                    _walk(entry, next_parts)
+            elif stat.S_ISREG(details.st_mode) and details.st_size <= max_file_bytes:
+                collected.append((entry, PurePosixPath(*next_parts)))
+
+    _walk(root, ())
+    return collected
 
 
 def _copy_regular_file(source: Path, destination: Path, *, max_bytes: int) -> None:

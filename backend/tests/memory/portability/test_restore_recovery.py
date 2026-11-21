@@ -20,6 +20,7 @@ from magi.memory.portability.fs_helpers import fingerprint_file
 from magi.memory.portability.models import (
     BACKUP_COUNT_KEYS,
     BACKUP_LIMITATIONS,
+    VAULT_SCOPE_ITEMS,
     BackupFileRecord,
     BackupManifest,
     utc_now_iso,
@@ -269,7 +270,7 @@ def _create_scenario(tmp_path: Path) -> _RestoreScenario:
         created_at=utc_now_iso(),
         magi_version="test",
         encrypted=False,
-        scope=["l0", "l1", "l2", "l3", "l4", "archives", "manual_entry_assets"],
+        scope=list(VAULT_SCOPE_ITEMS),
         schema_revisions={
             "l1": database_revision(l1_payload),
             "memory_shared": database_revision(memory_payload),

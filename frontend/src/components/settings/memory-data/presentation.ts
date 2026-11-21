@@ -162,6 +162,13 @@ const RECORD_COUNT_KEY_ALIASES: Record<string, string> = {
   managed_assets: 'managedAssets',
   manual_entries: 'manualEntries',
   manual_entry_assets: 'managedAssets',
+  chat_messages: 'chatMessages',
+  chat_attachments: 'chatAttachments',
+  personas: 'personas',
+  growth_milestones: 'growthMilestones',
+  emotional_states: 'emotionalStates',
+  personal_tasks: 'personalTasks',
+  user_avatars: 'userAvatars',
 };
 
 const SCOPE_KEY_ALIASES: Record<string, string> = {
@@ -175,6 +182,13 @@ const SCOPE_KEY_ALIASES: Record<string, string> = {
   managed_assets: 'managedAssets',
   manual_assets: 'managedAssets',
   manual_entry_assets: 'managedAssets',
+  chat: 'chat',
+  chat_attachments: 'chatAttachments',
+  personas: 'personas',
+  growth_memory: 'growthMemory',
+  emotional_state: 'emotionalState',
+  personal_tasks: 'personalTasks',
+  user_avatars: 'userAvatars',
 };
 
 const PHASE_KEY_ALIASES: Record<string, string> = {
@@ -217,6 +231,7 @@ const KNOWN_WARNING_KEYS = new Set([
   'deleted_memories_may_return',
   'l0_runtime_attention_not_restored',
   'chat_records_and_attachments_not_included',
+  'device_credentials_and_caches_not_included',
   'source_evidence_may_be_unavailable',
   'raw_history_import_content_redacted',
 ]);

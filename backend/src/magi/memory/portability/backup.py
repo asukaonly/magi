@@ -25,6 +25,7 @@ from .models import (
     MAX_BACKUP_MANIFEST_BYTES,
     MAX_BACKUP_MEMBER_BYTES,
     MAX_BACKUP_UNCOMPRESSED_BYTES,
+    VAULT_SCOPE_ITEMS,
     BackupFileRecord,
     BackupManifest,
     SnapshotBundle,
@@ -148,7 +149,7 @@ def _write_payload_zip(
                 mode="w",
                 compression=zipfile.ZIP_DEFLATED,
                 compresslevel=6,
-                allowZip64=False,
+                allowZip64=True,
             ) as archive,
         ):
             manifest_bytes = json.dumps(
@@ -203,7 +204,7 @@ def _write_file(archive: zipfile.ZipFile, archive_path: str, source: Path) -> No
     info.file_size = source_size
     with (
         source.open("rb") as input_handle,
-        archive.open(info, "w", force_zip64=False) as output_handle,
+        archive.open(info, "w", force_zip64=source_size >= (1 << 31) - 1) as output_handle,
     ):
         shutil.copyfileobj(input_handle, output_handle, length=1024 * 1024)
 
@@ -303,11 +304,8 @@ def _build_backup_manifest(
             created_at=utc_now_iso(),
             magi_version=_magi_version(),
             encrypted=encrypted,
-            scope=["l0", "l1", "l2", "l3", "l4", "archives", "manual_entry_assets"],
-            schema_revisions={
-                "l1": snapshot.schema_revisions["l1"],
-                "memory_shared": snapshot.schema_revisions["memory_shared"],
-            },
+            scope=list(VAULT_SCOPE_ITEMS),
+            schema_revisions=dict(snapshot.schema_revisions),
             archive_schema_version=1,
             limitations=list(BACKUP_LIMITATIONS),
             files=records,

@@ -20,6 +20,12 @@ _CHUNK_BYTES = 1024 * 1024
 _ARGON2_MEMORY_KIB = 64 * 1024
 _ARGON2_ITERATIONS = 3
 _ARGON2_LANES = 4
+_MIN_ARGON2_MEMORY_KIB = 32 * 1024
+_MAX_ARGON2_MEMORY_KIB = 512 * 1024
+_MIN_ARGON2_ITERATIONS = 2
+_MAX_ARGON2_ITERATIONS = 16
+_MIN_ARGON2_LANES = 1
+_MAX_ARGON2_LANES = 16
 
 
 def is_encrypted_backup(path: Path) -> bool:
@@ -192,9 +198,9 @@ def _derive_key(
 
 def _validate_argon2_parameters(memory_kib: int, iterations: int, lanes: int) -> None:
     if (
-        memory_kib != _ARGON2_MEMORY_KIB
-        or iterations != _ARGON2_ITERATIONS
-        or lanes != _ARGON2_LANES
+        not (_MIN_ARGON2_MEMORY_KIB <= memory_kib <= _MAX_ARGON2_MEMORY_KIB)
+        or not (_MIN_ARGON2_ITERATIONS <= iterations <= _MAX_ARGON2_ITERATIONS)
+        or not (_MIN_ARGON2_LANES <= lanes <= _MAX_ARGON2_LANES)
     ):
         raise MemoryPortabilityError(
             "encryption_parameters_invalid",

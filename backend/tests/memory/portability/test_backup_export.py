@@ -379,7 +379,7 @@ async def test_backup_package_has_versioned_manifest_and_encrypted_round_trip(
             password="correct horse battery staple",
         )
         assert is_encrypted_backup(output_path) is True
-        assert manifest.format_version == 1
+        assert manifest.format_version == 2
         assert manifest.encrypted is True
         assert manifest.scope[0] == "l0"
         assert manifest.counts["l0_sessions"] == 1
@@ -405,6 +405,13 @@ async def test_backup_package_has_versioned_manifest_and_encrypted_round_trip(
                 "l4",
                 "archives",
                 "manual_entry_assets",
+                "chat",
+                "chat_attachments",
+                "personas",
+                "growth_memory",
+                "emotional_state",
+                "personal_tasks",
+                "user_avatars",
             ]
         with sqlite3.connect(packaged_l1_path) as connection:
             assert connection.execute("SELECT COUNT(*) FROM fact_events").fetchone()[0] == 1

@@ -432,6 +432,13 @@ def _assert_complete_restored_state(
         "l4_procedures": 1,
         "archives": 1,
         "manual_entry_assets": 1,
+        "chat_messages": 0,
+        "chat_attachments": 0,
+        "personas": 0,
+        "growth_milestones": 0,
+        "emotional_states": 0,
+        "personal_tasks": 0,
+        "user_avatars": 0,
     }
 
     with sqlite3.connect(paths.l1_memory_db_path) as connection:

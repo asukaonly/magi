@@ -646,7 +646,6 @@ async def test_preflight_validates_archive_schema_and_per_file_row_count(tmp_pat
     ("kind", "expected_code"),
     [
         ("path", "backup_member_invalid"),
-        ("zip64", "backup_zip64_unsupported"),
         ("multidisk", "backup_archive_unsupported"),
         ("compression", "backup_archive_unsupported"),
     ],

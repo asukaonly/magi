@@ -10,18 +10,83 @@ import uuid
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 BACKUP_FORMAT = "magi-memory-backup"
-BACKUP_FORMAT_VERSION = 1
+BACKUP_FORMAT_VERSION = 2
 EXPORT_FORMAT = "magi-memory-export"
 EXPORT_FORMAT_VERSION = 1
-MAX_BACKUP_FILE_COUNT = (1 << 16) - 2
-MAX_BACKUP_MANIFEST_BYTES = 1024 * 1024
-# Python's non-ZIP64 writer uses a conservative 2 GiB safety boundary.
-MAX_BACKUP_MEMBER_BYTES = (1 << 31) - 2
-MAX_BACKUP_UNCOMPRESSED_BYTES = (1 << 31) - 2
+MAX_BACKUP_FILE_COUNT = 250_000
+MAX_BACKUP_MANIFEST_BYTES = 16 * 1024 * 1024
+# ZIP64-enabled vault container bounds (further bounded by available free disk space).
+MAX_BACKUP_MEMBER_BYTES = 16 * 1024 * 1024 * 1024
+MAX_BACKUP_UNCOMPRESSED_BYTES = 64 * 1024 * 1024 * 1024
 BACKUP_LIMITATIONS = (
-    "chat_records_and_attachments_not_included",
+    "device_credentials_and_caches_not_included",
     "source_evidence_may_be_unavailable",
     "raw_history_import_content_redacted",
+)
+BackupPurpose = Literal[
+    "l1",
+    "memory",
+    "archive",
+    "manual_entry_asset",
+    "chat",
+    "chat_attachment",
+    "persona_registry",
+    "growth_memory",
+    "emotional_state",
+    "personal_tasks",
+    "user_avatar",
+]
+# (purpose, archive_path, alembic_target, count_key, primary_table)
+VAULT_OPTIONAL_DATABASES: tuple[tuple[str, str, str, str, str], ...] = (
+    ("chat", "databases/chat.db", "chat", "chat_messages", "chat_messages"),
+    (
+        "persona_registry",
+        "databases/persona_registry.db",
+        "persona_registry",
+        "personas",
+        "personas",
+    ),
+    (
+        "growth_memory",
+        "databases/growth_memory.db",
+        "growth_memory",
+        "growth_milestones",
+        "milestones",
+    ),
+    (
+        "emotional_state",
+        "databases/emotional_state.db",
+        "emotional",
+        "emotional_states",
+        "emotional_state",
+    ),
+    (
+        "personal_tasks",
+        "databases/personal_tasks.db",
+        "personal_tasks",
+        "personal_tasks",
+        "personal_items",
+    ),
+)
+VAULT_OPTIONAL_DATABASE_BY_PURPOSE: dict[str, tuple[str, str, str, str]] = {
+    purpose: (archive_path, alembic_target, count_key, primary_table)
+    for purpose, archive_path, alembic_target, count_key, primary_table in VAULT_OPTIONAL_DATABASES
+}
+VAULT_SCOPE_ITEMS = (
+    "l0",
+    "l1",
+    "l2",
+    "l3",
+    "l4",
+    "archives",
+    "manual_entry_assets",
+    "chat",
+    "chat_attachments",
+    "personas",
+    "growth_memory",
+    "emotional_state",
+    "personal_tasks",
+    "user_avatars",
 )
 BACKUP_COUNT_KEYS = frozenset(
     {
@@ -38,6 +103,13 @@ BACKUP_COUNT_KEYS = frozenset(
         "l4_procedures",
         "archives",
         "manual_entry_assets",
+        "chat_messages",
+        "chat_attachments",
+        "personas",
+        "growth_milestones",
+        "emotional_states",
+        "personal_tasks",
+        "user_avatars",
     }
 )
 
@@ -54,7 +126,7 @@ class BackupFileRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     path: str = Field(min_length=1, max_length=1024)
-    purpose: Literal["l1", "memory", "archive", "manual_entry_asset"]
+    purpose: BackupPurpose
     size_bytes: int = Field(ge=0, le=MAX_BACKUP_MEMBER_BYTES)
     record_count: int = Field(ge=0)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -71,12 +143,40 @@ class BackupManifest(BaseModel):
     created_at: str
     magi_version: str = Field(min_length=1, max_length=100)
     encrypted: bool
-    scope: list[Literal["l0", "l1", "l2", "l3", "l4", "archives", "manual_entry_assets"]]
-    schema_revisions: dict[Literal["l1", "memory_shared"], str]
+    scope: list[
+        Literal[
+            "l0",
+            "l1",
+            "l2",
+            "l3",
+            "l4",
+            "archives",
+            "manual_entry_assets",
+            "chat",
+            "chat_attachments",
+            "personas",
+            "growth_memory",
+            "emotional_state",
+            "personal_tasks",
+            "user_avatars",
+        ]
+    ]
+    schema_revisions: dict[
+        Literal[
+            "l1",
+            "memory_shared",
+            "chat",
+            "persona_registry",
+            "growth_memory",
+            "emotional",
+            "personal_tasks",
+        ],
+        str,
+    ]
     archive_schema_version: int = 1
     limitations: list[
         Literal[
-            "chat_records_and_attachments_not_included",
+            "device_credentials_and_caches_not_included",
             "source_evidence_may_be_unavailable",
             "raw_history_import_content_redacted",
         ]
@@ -123,18 +223,15 @@ class BackupManifest(BaseModel):
         required = {"databases/l1_events.db", "databases/memory.db"}
         if not required.issubset(paths):
             raise ValueError("Backup manifest is missing a required memory database")
-        expected_scope = {
-            "l0",
-            "l1",
-            "l2",
-            "l3",
-            "l4",
-            "archives",
-            "manual_entry_assets",
-        }
+        expected_scope = set(VAULT_SCOPE_ITEMS)
         if len(self.scope) != len(set(self.scope)) or set(self.scope) != expected_scope:
             raise ValueError("Backup manifest has an invalid restorable scope")
-        if set(self.schema_revisions) != {"l1", "memory_shared"}:
+        expected_revisions = {"l1", "memory_shared"}
+        present_purposes = {record.purpose for record in self.files}
+        for purpose, (_archive_path, alembic_target, _count_key, _table) in VAULT_OPTIONAL_DATABASE_BY_PURPOSE.items():
+            if purpose in present_purposes:
+                expected_revisions.add(alembic_target)
+        if set(self.schema_revisions) != expected_revisions:
             raise ValueError("Backup manifest has an invalid schema revision set")
         if any(not value or len(value) > 200 for value in self.schema_revisions.values()):
             raise ValueError("Backup manifest has an invalid schema revision")
@@ -156,11 +253,28 @@ class BackupManifest(BaseModel):
         return self
 
 
+def _is_safe_relative_subpath(relative: str, *, max_parts: int) -> bool:
+    if not relative or relative.startswith("/") or "\\" in relative or "\x00" in relative:
+        return False
+    parts = relative.split("/")
+    if not (1 <= len(parts) <= max_parts):
+        return False
+    for part in parts:
+        if not part or part in {".", ".."} or len(part.encode("utf-8")) > 255:
+            return False
+        if any(ord(ch) < 32 for ch in part):
+            return False
+    return True
+
+
 def _purpose_matches_path(record: BackupFileRecord) -> bool:
     if record.purpose == "l1":
         return record.path == "databases/l1_events.db"
     if record.purpose == "memory":
         return record.path == "databases/memory.db"
+    if record.purpose in VAULT_OPTIONAL_DATABASE_BY_PURPOSE:
+        expected_path = VAULT_OPTIONAL_DATABASE_BY_PURPOSE[record.purpose][0]
+        return record.path == expected_path
     if record.purpose == "archive":
         match = re.fullmatch(r"archives/(?P<date>\d{4}-\d{2}-\d{2})\.db", record.path)
         if match is None:
@@ -181,6 +295,16 @@ def _purpose_matches_path(record: BackupFileRecord) -> bool:
             and match.group("shard") == match.group("digest")[:2]
             and match.group("digest") == record.sha256
         )
+    if record.purpose == "chat_attachment":
+        if not record.path.startswith("assets/chat/"):
+            return False
+        return _is_safe_relative_subpath(record.path.removeprefix("assets/chat/"), max_parts=6)
+    if record.purpose == "user_avatar":
+        if not record.path.startswith("assets/user_avatars/"):
+            return False
+        return _is_safe_relative_subpath(
+            record.path.removeprefix("assets/user_avatars/"), max_parts=1
+        )
     return False
 
 
@@ -191,7 +315,7 @@ class SnapshotFile(BaseModel):
 
     source_path: Any
     archive_path: str
-    purpose: Literal["l1", "memory", "archive", "manual_entry_asset"]
+    purpose: BackupPurpose
 
 
 class SnapshotBundle(BaseModel):
@@ -283,12 +407,16 @@ __all__ = [
     "BACKUP_FORMAT_VERSION",
     "BACKUP_COUNT_KEYS",
     "BACKUP_LIMITATIONS",
+    "BackupPurpose",
     "EXPORT_FORMAT",
     "EXPORT_FORMAT_VERSION",
     "MAX_BACKUP_FILE_COUNT",
     "MAX_BACKUP_MANIFEST_BYTES",
     "MAX_BACKUP_MEMBER_BYTES",
     "MAX_BACKUP_UNCOMPRESSED_BYTES",
+    "VAULT_OPTIONAL_DATABASES",
+    "VAULT_OPTIONAL_DATABASE_BY_PURPOSE",
+    "VAULT_SCOPE_ITEMS",
     "BackupFileRecord",
     "BackupInspection",
     "BackupManifest",

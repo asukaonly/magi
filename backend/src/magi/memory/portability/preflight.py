@@ -44,6 +44,7 @@ from .models import (
     MAX_BACKUP_MANIFEST_BYTES,
     MAX_BACKUP_MEMBER_BYTES,
     MAX_BACKUP_UNCOMPRESSED_BYTES,
+    VAULT_OPTIONAL_DATABASE_BY_PURPOSE,
     BackupFileRecord,
     BackupInspection,
     BackupManifest,
@@ -71,6 +72,10 @@ RESTORE_CANDIDATE_TTL = timedelta(minutes=30)
 
 _ZIP_END_RECORD = struct.Struct("<4s4H2LH")
 _ZIP_END_SIGNATURE = b"PK\x05\x06"
+_ZIP64_LOCATOR_RECORD = struct.Struct("<4sLQL")
+_ZIP64_LOCATOR_SIGNATURE = b"PK\x06\x07"
+_ZIP64_END_RECORD = struct.Struct("<4sQHHLLQQQQ")
+_ZIP64_END_SIGNATURE = b"PK\x06\x06"
 _ZIP_CENTRAL_RECORD = struct.Struct("<4s6H3L5H2L")
 _ZIP_CENTRAL_SIGNATURE = b"PK\x01\x02"
 _ZIP_LOCAL_RECORD = struct.Struct("<4s5H3L2H")
@@ -80,6 +85,9 @@ _ZIP_SENTINEL_16 = (1 << 16) - 1
 _ZIP_SENTINEL_32 = (1 << 32) - 1
 _ZIP_ALLOWED_FLAGS = 0x800
 _ZIP_ALLOWED_METHODS = {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
+_ZIP_MAX_VERSION_NEEDED = 45
+_MAX_CHAT_ATTACHMENT_BYTES = 50 * 1024 * 1024
+_MAX_USER_AVATAR_BYTES = 20 * 1024 * 1024
 
 _ARCHIVE_SCHEMA_SQL = {
     "archived_l1_events": (
@@ -206,10 +214,24 @@ def inspect_memory_backup(
         archive_paths = _validate_archive_databases(extracted_root, manifest)
         asset_count = _validate_manual_assets(extracted_root, manifest)
         _validate_file_record_counts(extracted_root, manifest)
+        extra_db_paths = {
+            record.purpose: extracted_root.joinpath(*PurePosixPath(record.path).parts)
+            for record in manifest.files
+            if record.purpose in VAULT_OPTIONAL_DATABASE_BY_PURPOSE
+        }
+        chat_attachment_count = sum(
+            1 for record in manifest.files if record.purpose == "chat_attachment"
+        )
+        user_avatar_count = sum(
+            1 for record in manifest.files if record.purpose == "user_avatar"
+        )
         actual_counts = count_snapshot_records(
             extracted_root / "databases" / "l1_events.db",
             extracted_root / "databases" / "memory.db",
             archive_paths,
+            extra_db_paths=extra_db_paths,
+            chat_attachment_count=chat_attachment_count,
+            user_avatar_count=user_avatar_count,
         )
         actual_counts["manual_entry_assets"] = asset_count
         if actual_counts != manifest.counts:
@@ -510,6 +532,16 @@ def _validate_and_extract_payload(
                         "backup_asset_too_large",
                         "A managed memory asset in the backup is too large.",
                     )
+                if record.purpose == "chat_attachment" and info.file_size > _MAX_CHAT_ATTACHMENT_BYTES:
+                    raise MemoryPortabilityError(
+                        "backup_asset_too_large",
+                        "A chat attachment in the backup is too large.",
+                    )
+                if record.purpose == "user_avatar" and info.file_size > _MAX_USER_AVATAR_BYTES:
+                    raise MemoryPortabilityError(
+                        "backup_asset_too_large",
+                        "A user avatar in the backup is too large.",
+                    )
                 destination = extracted_root.joinpath(*PurePosixPath(archive_path).parts)
                 _ensure_private_directory(destination.parent)
                 actual_digest = _extract_member(archive, info, destination, record.size_bytes)
@@ -570,14 +602,85 @@ def _validate_zip_directory(archive_path: Path) -> None:
                     "backup_archive_unsupported",
                     "Multi-disk ZIP backups are not supported.",
                 )
-            if (
+            end_offset = archive_size - tail_size + end_offset_in_tail
+            expected_central_end = end_offset
+            has_zip64_sentinels = (
                 total_entries == _ZIP_SENTINEL_16
                 or central_size == _ZIP_SENTINEL_32
                 or central_offset == _ZIP_SENTINEL_32
-            ):
+            )
+            locator_offset = end_offset - _ZIP64_LOCATOR_RECORD.size
+            locator_present = False
+            if locator_offset >= 0:
+                archive.seek(locator_offset)
+                raw_locator = archive.read(_ZIP64_LOCATOR_RECORD.size)
+                if (
+                    len(raw_locator) == _ZIP64_LOCATOR_RECORD.size
+                    and raw_locator[:4] == _ZIP64_LOCATOR_SIGNATURE
+                ):
+                    locator_present = True
+                    (
+                        _loc_sig,
+                        eocd64_disk,
+                        eocd64_offset,
+                        total_disks,
+                    ) = _ZIP64_LOCATOR_RECORD.unpack(raw_locator)
+                    if eocd64_disk != 0 or total_disks != 1:
+                        raise MemoryPortabilityError(
+                            "backup_archive_unsupported",
+                            "Multi-disk ZIP backups are not supported.",
+                        )
+                    if eocd64_offset + _ZIP64_END_RECORD.size > locator_offset:
+                        raise MemoryPortabilityError(
+                            "backup_archive_invalid",
+                            "The backup ZIP64 end record has invalid bounds.",
+                        )
+                    archive.seek(eocd64_offset)
+                    raw_eocd64 = archive.read(_ZIP64_END_RECORD.size)
+                    if len(raw_eocd64) != _ZIP64_END_RECORD.size:
+                        raise MemoryPortabilityError(
+                            "backup_archive_invalid",
+                            "The backup ZIP64 end record is truncated.",
+                        )
+                    (
+                        eocd64_sig,
+                        eocd64_size,
+                        _ver_made,
+                        ver_needed,
+                        disk64,
+                        cd_disk64,
+                        entries_on_disk64,
+                        total_entries64,
+                        central_size64,
+                        central_offset64,
+                    ) = _ZIP64_END_RECORD.unpack(raw_eocd64)
+                    if (
+                        eocd64_sig != _ZIP64_END_SIGNATURE
+                        or eocd64_size < 44
+                        or ver_needed > _ZIP_MAX_VERSION_NEEDED
+                        or eocd64_offset + 12 + eocd64_size != locator_offset
+                    ):
+                        raise MemoryPortabilityError(
+                            "backup_archive_invalid",
+                            "The backup ZIP64 end record is invalid.",
+                        )
+                    if (
+                        disk64 != 0
+                        or cd_disk64 != 0
+                        or entries_on_disk64 != total_entries64
+                    ):
+                        raise MemoryPortabilityError(
+                            "backup_archive_unsupported",
+                            "Multi-disk ZIP backups are not supported.",
+                        )
+                    total_entries = total_entries64
+                    central_size = central_size64
+                    central_offset = central_offset64
+                    expected_central_end = eocd64_offset
+            if has_zip64_sentinels and not locator_present:
                 raise MemoryPortabilityError(
-                    "backup_zip64_unsupported",
-                    "ZIP64 backups are not supported by format version 1.",
+                    "backup_archive_invalid",
+                    "The backup ZIP64 end record is missing.",
                 )
             if total_entries == 0 or total_entries > MAX_BACKUP_FILE_COUNT + 1:
                 raise MemoryPortabilityError(
@@ -589,8 +692,7 @@ def _validate_zip_directory(archive_path: Path) -> None:
                     "backup_archive_invalid",
                     "The backup ZIP directory exceeds its metadata limit.",
                 )
-            end_offset = archive_size - tail_size + end_offset_in_tail
-            if central_offset + central_size != end_offset:
+            if central_offset + central_size != expected_central_end:
                 raise MemoryPortabilityError(
                     "backup_archive_invalid",
                     "The backup ZIP directory has invalid bounds.",
@@ -682,6 +784,19 @@ def _parse_zip_directory(archive, *, central_size: int) -> list[dict[str, object
         extra = archive.read(extra_size)
         archive.seek(comment_size, os.SEEK_CUR)
         remaining -= record_size
+        if version_needed > _ZIP_MAX_VERSION_NEEDED:
+            raise MemoryPortabilityError(
+                "backup_archive_unsupported",
+                "The backup ZIP uses an unsupported feature.",
+            )
+        file_size, compressed_size, local_offset, disk_start = _resolve_zip64_extra(
+            extra,
+            file_size=file_size,
+            compressed_size=compressed_size,
+            local_offset=local_offset,
+            disk_start=disk_start,
+            is_central=True,
+        )
         if disk_start != 0:
             raise MemoryPortabilityError(
                 "backup_archive_unsupported",
@@ -692,16 +807,10 @@ def _parse_zip_directory(archive, *, central_size: int) -> list[dict[str, object
                 "backup_archive_unsupported",
                 "The backup ZIP uses an unsupported feature.",
             )
-        if (
-            compressed_size == _ZIP_SENTINEL_32
-            or file_size == _ZIP_SENTINEL_32
-            or local_offset == _ZIP_SENTINEL_32
-            or _zip_extra_contains(extra, 0x0001)
-            or version_needed >= 45
-        ):
+        if file_size > MAX_BACKUP_MEMBER_BYTES or compressed_size > MAX_BACKUP_MEMBER_BYTES:
             raise MemoryPortabilityError(
-                "backup_zip64_unsupported",
-                "ZIP64 backups are not supported by format version 1.",
+                "backup_too_large",
+                "A backup ZIP member exceeds the supported size limit.",
             )
         entries.append(
             {
@@ -759,16 +868,19 @@ def _validate_zip_local_records(
         ) = values
         name = archive.read(name_size)
         extra = archive.read(extra_size)
-        if (
-            version_needed >= 45
-            or compressed_size == _ZIP_SENTINEL_32
-            or file_size == _ZIP_SENTINEL_32
-            or _zip_extra_contains(extra, 0x0001)
-        ):
+        if version_needed > _ZIP_MAX_VERSION_NEEDED:
             raise MemoryPortabilityError(
-                "backup_zip64_unsupported",
-                "ZIP64 backups are not supported by format version 1.",
+                "backup_archive_unsupported",
+                "The backup ZIP uses an unsupported feature.",
             )
+        file_size, compressed_size, _unused_offset, _unused_disk = _resolve_zip64_extra(
+            extra,
+            file_size=file_size,
+            compressed_size=compressed_size,
+            local_offset=0,
+            disk_start=0,
+            is_central=False,
+        )
         if (
             flags != entry["flags"]
             or method != entry["method"]
@@ -810,8 +922,9 @@ def _validate_zip_local_records(
         )
 
 
-def _zip_extra_contains(extra: bytes, target_id: int) -> bool:
+def _extract_zip_extra_payload(extra: bytes, target_id: int) -> bytes | None:
     offset = 0
+    found: bytes | None = None
     while offset < len(extra):
         if offset + 4 > len(extra):
             raise MemoryPortabilityError(
@@ -826,9 +939,78 @@ def _zip_extra_contains(extra: bytes, target_id: int) -> bool:
                 "A backup ZIP extra field exceeds its bounds.",
             )
         if field_id == target_id:
-            return True
+            if found is not None:
+                raise MemoryPortabilityError(
+                    "backup_archive_invalid",
+                    "A backup ZIP header contains duplicate ZIP64 extra fields.",
+                )
+            found = extra[offset : offset + field_size]
         offset += field_size
-    return False
+    return found
+
+
+def _resolve_zip64_extra(
+    extra: bytes,
+    *,
+    file_size: int,
+    compressed_size: int,
+    local_offset: int,
+    disk_start: int,
+    is_central: bool,
+) -> tuple[int, int, int, int]:
+    payload = _extract_zip_extra_payload(extra, 0x0001)
+    needs_file_size = file_size == _ZIP_SENTINEL_32
+    needs_compressed = compressed_size == _ZIP_SENTINEL_32
+    needs_offset = is_central and local_offset == _ZIP_SENTINEL_32
+    needs_disk = is_central and disk_start == _ZIP_SENTINEL_16
+    if payload is None:
+        if needs_file_size or needs_compressed or needs_offset or needs_disk:
+            raise MemoryPortabilityError(
+                "backup_archive_invalid",
+                "A backup ZIP64 header is missing its extended size metadata.",
+            )
+        return file_size, compressed_size, local_offset, disk_start
+
+    cursor = 0
+    # In local headers, APPNOTE requires both 64-bit sizes when ZIP64 extra is present.
+    if needs_file_size or (not is_central and len(payload) >= 16 and not needs_compressed):
+        if cursor + 8 > len(payload):
+            raise MemoryPortabilityError(
+                "backup_archive_invalid",
+                "A backup ZIP64 extra field is truncated.",
+            )
+        file_size = struct.unpack_from("<Q", payload, cursor)[0]
+        cursor += 8
+    if needs_compressed or (not is_central and cursor == 8 and len(payload) >= 16):
+        if cursor + 8 > len(payload):
+            raise MemoryPortabilityError(
+                "backup_archive_invalid",
+                "A backup ZIP64 extra field is truncated.",
+            )
+        compressed_size = struct.unpack_from("<Q", payload, cursor)[0]
+        cursor += 8
+    if needs_offset:
+        if cursor + 8 > len(payload):
+            raise MemoryPortabilityError(
+                "backup_archive_invalid",
+                "A backup ZIP64 extra field is truncated.",
+            )
+        local_offset = struct.unpack_from("<Q", payload, cursor)[0]
+        cursor += 8
+    if needs_disk:
+        if cursor + 4 > len(payload):
+            raise MemoryPortabilityError(
+                "backup_archive_invalid",
+                "A backup ZIP64 extra field is truncated.",
+            )
+        disk_start = struct.unpack_from("<L", payload, cursor)[0]
+        cursor += 4
+    if cursor != len(payload):
+        raise MemoryPortabilityError(
+            "backup_archive_invalid",
+            "A backup ZIP64 extra field has unexpected trailing bytes.",
+        )
+    return file_size, compressed_size, local_offset, disk_start
 
 
 def _validate_member_names(infos: list[zipfile.ZipInfo]) -> dict[str, zipfile.ZipInfo]:
@@ -960,11 +1142,19 @@ def _validate_and_prepare_databases(
     manifest: BackupManifest,
 ) -> str:
     needs_upgrade = False
-    database_paths = {
+    core_database_paths = {
         "l1": extracted_root / "databases" / "l1_events.db",
         "memory_shared": extracted_root / "databases" / "memory.db",
     }
-    for target_name, database_path in database_paths.items():
+    all_database_paths: dict[str, Path] = dict(core_database_paths)
+    for record in manifest.files:
+        if record.purpose in VAULT_OPTIONAL_DATABASE_BY_PURPOSE:
+            alembic_target = VAULT_OPTIONAL_DATABASE_BY_PURPOSE[record.purpose][1]
+            all_database_paths[alembic_target] = extracted_root.joinpath(
+                *PurePosixPath(record.path).parts
+            )
+
+    for target_name, database_path in all_database_paths.items():
         _validate_database_integrity(database_path)
         try:
             stamped_revision = database_revision(database_path)
@@ -1024,10 +1214,10 @@ def _validate_and_prepare_databases(
             revision=head,
         )
 
-    _validate_excluded_memory_rows(database_paths)
-    _invalidate_embedding_indexes(database_paths)
-    _rebuild_full_text_indexes(database_paths)
-    for target_name, database_path in database_paths.items():
+    _validate_excluded_memory_rows(core_database_paths)
+    _invalidate_embedding_indexes(core_database_paths)
+    _rebuild_full_text_indexes(core_database_paths)
+    for target_name, database_path in core_database_paths.items():
         _validate_database_integrity(database_path)
         _validate_schema_against_revision(
             database_path,
@@ -1116,7 +1306,7 @@ def _validate_dynamic_vector_schema(
             "SELECT type, name, tbl_name, sql FROM sqlite_master"
         ).fetchall()
     }
-    for registry, entity_column, vec_prefix, partitioned in _VECTOR_SPECS[target_name]:
+    for registry, entity_column, vec_prefix, partitioned in _VECTOR_SPECS.get(target_name, ()):
         registry_key = ("table", registry)
         index_name = f"idx_{registry}_model"
         root_pattern = re.compile(rf"{re.escape(vec_prefix)}_[0-9a-f]{{12}}")

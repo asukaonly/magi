@@ -32,10 +32,13 @@ from .fs_helpers import (
     tree_fingerprint,
 )
 
+from .models import VAULT_OPTIONAL_DATABASES
+from .storage import vault_optional_db_path, vault_user_avatar_dir
+
 logger = get_logger(__name__)
 
 RESTORE_JOURNAL_FORMAT = "magi-memory-restore-journal"
-RESTORE_JOURNAL_VERSION = 2
+RESTORE_JOURNAL_VERSION = 3
 RESTORE_JOURNAL_NAME = "memory-restore.pending.json"
 MAX_RESTORE_JOURNAL_BYTES = 1024 * 1024
 
@@ -47,6 +50,7 @@ _PHASES = frozenset(
         "cutting_memory",
         "cutting_archives",
         "cutting_assets",
+        "cutting_vault",
         "cutover_complete",
         "rolling_back",
         "rolled_back",
@@ -65,7 +69,7 @@ _TEMP_JOURNAL = re.compile(
 )
 _ORPHAN_DIR = re.compile(
     r"^\.magi-memory-restore-[0-9a-f]{32}-"
-    r"(?:db|archive|assets)-(?:stage|rollback|discard|restore)$"
+    r"(?:db|archive|assets|vault)-(?:stage|rollback|discard|restore)$"
 )
 _SNAPSHOT_DIR = re.compile(r"^snapshot-[a-z0-9_]{8}$")
 _SAFETY_BACKUP = re.compile(r"^pre-restore-[0-9a-f]{32}-\d{8}T\d{6}Z-[0-9a-f]{32}\.magibackup$")
@@ -87,6 +91,9 @@ _PATH_KEYS = frozenset(
         "asset_stage",
         "asset_rollback",
         "asset_discard",
+        "vault_stage",
+        "vault_rollback",
+        "vault_discard",
     }
 )
 _FILE_FINGERPRINT_KEYS = frozenset({"size_bytes", "sha256"})
@@ -109,10 +116,12 @@ _JOURNAL_KEYS = frozenset(
         "staged_memory",
         "staged_archives",
         "staged_assets",
+        "staged_vault",
         "rollback_l1",
         "rollback_memory",
         "rollback_archives",
         "rollback_assets",
+        "rollback_vault",
     }
 )
 
@@ -198,10 +207,12 @@ class RestoreJournal:
     staged_memory: FileFingerprint | None = None
     staged_archives: TreeFingerprint | None = None
     staged_assets: TreeFingerprint | None = None
+    staged_vault: TreeFingerprint | None = None
     rollback_l1: FileFingerprint | None = None
     rollback_memory: FileFingerprint | None = None
     rollback_archives: TreeFingerprint | None = None
     rollback_assets: TreeFingerprint | None = None
+    rollback_vault: TreeFingerprint | None = None
 
     @classmethod
     def from_mapping(cls, raw: object) -> "RestoreJournal":
@@ -288,10 +299,12 @@ class RestoreJournal:
             staged_memory=optional_file("staged_memory"),
             staged_archives=optional_tree("staged_archives"),
             staged_assets=optional_tree("staged_assets"),
+            staged_vault=optional_tree("staged_vault"),
             rollback_l1=optional_file("rollback_l1"),
             rollback_memory=optional_file("rollback_memory"),
             rollback_archives=optional_tree("rollback_archives"),
             rollback_assets=optional_tree("rollback_assets"),
+            rollback_vault=optional_tree("rollback_vault"),
         )
         if journal.phase != "preparing":
             journal.require_complete()
@@ -304,10 +317,12 @@ class RestoreJournal:
             self.staged_memory,
             self.staged_archives,
             self.staged_assets,
+            self.staged_vault,
             self.rollback_l1,
             self.rollback_memory,
             self.rollback_archives,
             self.rollback_assets,
+            self.rollback_vault,
         )
         if any(value is None for value in fields):
             raise ValueError("restore journal is incomplete")
@@ -338,10 +353,12 @@ class RestoreJournal:
             "staged_memory": file_value(self.staged_memory),
             "staged_archives": tree_value(self.staged_archives),
             "staged_assets": tree_value(self.staged_assets),
+            "staged_vault": tree_value(self.staged_vault),
             "rollback_l1": file_value(self.rollback_l1),
             "rollback_memory": file_value(self.rollback_memory),
             "rollback_archives": tree_value(self.rollback_archives),
             "rollback_assets": tree_value(self.rollback_assets),
+            "rollback_vault": tree_value(self.rollback_vault),
         }
 
 
@@ -841,6 +858,15 @@ def _validate_journal_paths(journal: RestoreJournal, runtime_paths: RuntimePaths
             runtime_paths.manual_entry_assets_dir.parent
             / f".magi-memory-restore-{tx}-assets-discard"
         ),
+        "vault_stage": absolute(
+            runtime_paths.base_dir / f".magi-memory-restore-{tx}-vault-stage"
+        ),
+        "vault_rollback": absolute(
+            runtime_paths.base_dir / f".magi-memory-restore-{tx}-vault-rollback"
+        ),
+        "vault_discard": absolute(
+            runtime_paths.base_dir / f".magi-memory-restore-{tx}-vault-discard"
+        ),
     }
     for key, expected in expected_exact.items():
         if absolute(paths[key]) != expected:
@@ -884,6 +910,7 @@ def _rollback_journal(journal: RestoreJournal, runtime_paths: RuntimePaths) -> N
     assert journal.rollback_memory is not None
     assert journal.rollback_archives is not None
     assert journal.rollback_assets is not None
+    assert journal.rollback_vault is not None
     _require_file_fingerprint(paths["db_rollback"] / "l1_events.db", journal.rollback_l1)
     _require_file_fingerprint(paths["db_rollback"] / "memory.db", journal.rollback_memory)
     _require_tree_fingerprint(
@@ -892,12 +919,14 @@ def _rollback_journal(journal: RestoreJournal, runtime_paths: RuntimePaths) -> N
         path_validator=_archive_path_is_valid,
     )
     _require_tree_fingerprint(paths["asset_rollback"], journal.rollback_assets)
+    _require_tree_fingerprint(paths["vault_rollback"], journal.rollback_vault)
 
     if journal.external_events is not None:
         replace_external_events(
             runtime_paths, journal.external_events, paths["db_rollback"] / "l1_events.db",
         )
 
+    _restore_vault_tree(runtime_paths, paths)
     _restore_asset_tree(journal, paths)
     _restore_archive_set(journal, paths)
     _restore_database(
@@ -957,6 +986,33 @@ def _restore_archive_set(journal: RestoreJournal, paths: dict[str, Path]) -> Non
     fsync_directory(archive_dir)
 
 
+def _restore_vault_tree(runtime_paths: RuntimePaths, paths: dict[str, Path]) -> None:
+    vault_rollback = paths["vault_rollback"]
+    for purpose, archive_path, *_rest in VAULT_OPTIONAL_DATABASES:
+        live_path = vault_optional_db_path(runtime_paths, purpose)
+        remove_sqlite_family(live_path)
+        rollback_db = vault_rollback / archive_path
+        if rollback_db.exists():
+            live_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            copy_private_file(rollback_db, live_path)
+            if os.name != "nt":
+                live_path.chmod(0o600)
+            fsync_directory(live_path.parent)
+
+    for rel_tree, live_dir in (
+        ("assets/chat", runtime_paths.chat_resources_dir),
+        ("assets/user_avatars", vault_user_avatar_dir(runtime_paths)),
+    ):
+        remove_owned_path(live_dir)
+        rollback_dir = vault_rollback / rel_tree
+        if rollback_dir.exists():
+            live_dir.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            copy_private_tree(rollback_dir, live_dir)
+            if os.name != "nt":
+                live_dir.chmod(0o700)
+            fsync_directory(live_dir.parent)
+
+
 def _restore_asset_tree(journal: RestoreJournal, paths: dict[str, Path]) -> None:
     live = paths["asset_dir"]
     remove_owned_path(live)
@@ -981,12 +1037,19 @@ def _cleanup_transaction_artifacts(journal: RestoreJournal) -> None:
         "asset_stage",
         "asset_rollback",
         "asset_discard",
+        "vault_stage",
+        "vault_rollback",
+        "vault_discard",
     ):
         remove_owned_path(Path(journal.paths[key]))
 
 
 def _cleanup_default_orphans(runtime_paths: RuntimePaths) -> None:
-    for root in (runtime_paths.memory_dir, runtime_paths.manual_entry_assets_dir.parent):
+    for root in (
+        runtime_paths.memory_dir,
+        runtime_paths.manual_entry_assets_dir.parent,
+        runtime_paths.base_dir,
+    ):
         try:
             entries = list(root.iterdir())
         except FileNotFoundError:
