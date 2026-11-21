@@ -31,6 +31,32 @@ describe('source sync recovery', () => {
     await waitFor(() => expect(openExternalUrl).toHaveBeenCalledExactlyOnceWith('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders'));
     expect(screen.getByText('denied')).toBeInTheDocument();
   });
+  it('routes browser, calendar, and photo sources to their specific macOS privacy panes', async () => {
+    const cases: Array<[string, string, string]> = [
+      ['chrome_history', 'Privacy_AllFiles', 'sourceRecovery.macFullDiskAccess'],
+      ['screen_time', 'Privacy_AllFiles', 'sourceRecovery.macFullDiskAccess'],
+      ['calendar', 'Privacy_Calendars', 'sourceRecovery.macCalendars'],
+      ['photo_library', 'Privacy_Photos', 'sourceRecovery.macPhotos'],
+    ];
+    for (const [sourceName, pane, copyKey] of cases) {
+      vi.clearAllMocks();
+      const view = render(
+        <SourceSyncIssue
+          message="denied"
+          sourceName={sourceName}
+          failure={{ code: 'file_access_denied', platform: 'darwin' }}
+        />,
+      );
+      expect(screen.getByText(copyKey)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'sourceRecovery.openSettings' }));
+      await waitFor(() =>
+        expect(openExternalUrl).toHaveBeenCalledExactlyOnceWith(
+          `x-apple.systempreferences:com.apple.preference.security?${pane}`,
+        ),
+      );
+      view.unmount();
+    }
+  });
   it('directs remote permissions to the center device and never opens client settings', () => {
     env.mode = 'remote';
     render(<SourceSyncIssue message="denied" failure={{ code: 'file_access_denied', platform: 'darwin' }} />);

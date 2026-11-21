@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import type { ExtensionFieldSpec, PluginInstallPlan } from '@/api/modules/plugins';
+import { sourcesApi } from '@/api/modules/sources';
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import {
@@ -398,7 +399,26 @@ export function PluginInstallPanel(): JSX.Element | null {
           ) : null}
           {flow.phase === 'error' && flow.error ? (
             flow.syncFailure
-              ? <SourceSyncIssue key={flow.connectionId} message={flow.error} failure={flow.syncFailure.failure} />
+              ? <SourceSyncIssue
+                  key={flow.connectionId}
+                  message={flow.error}
+                  failure={flow.syncFailure.failure}
+                  sourceName={flow.sourceName}
+                  onAuthorize={
+                    flow.sourceName && flow.connectionId
+                      ? async () => {
+                          const sourceName = flow.sourceName;
+                          const connectionId = flow.connectionId;
+                          if (!sourceName || !connectionId) return;
+                          const result = await sourcesApi.requestAuthorization(sourceName, connectionId, values);
+                          if (!result.authorized) {
+                            throw new Error(result.message || t('app:sourceRecovery.permissionTitle'));
+                          }
+                          flow.retry();
+                        }
+                      : undefined
+                  }
+                />
               : <p role="alert" className="mt-3 wrap-break-word text-xs text-destructive">{flow.error}</p>
           ) : null}
         </div>

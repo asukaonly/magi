@@ -6390,7 +6390,10 @@
   "sourceRecovery": {
     "failed": "Sync failed",
     "permissionTitle": "Access required",
-    "macFiles": "In System Settings → Privacy & Security → Files & Folders, allow Magi to access the app’s data. During development, this permission may appear under the terminal that launched Magi. Then return and retry.",
+    "macFiles": "In System Settings → Privacy & Security → Files & Folders, allow Magi to access the app’s data, then return and retry.",
+    "macFullDiskAccess": "In System Settings → Privacy & Security → Full Disk Access, allow Magi to read this app’s local database, then return and retry.",
+    "macCalendars": "In System Settings → Privacy & Security → Calendars, allow Magi to access your calendars, then return and retry.",
+    "macPhotos": "In System Settings → Privacy & Security → Photos, allow Magi to access your photo library, then return and retry.",
     "permissionHelp": "Check this source’s authorization and file access permissions, then retry.",
     "remote": "Grant access on the device running the Magi service, then return and retry.",
     "details": "View error details",

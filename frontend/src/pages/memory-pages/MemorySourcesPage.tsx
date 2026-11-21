@@ -2070,6 +2070,7 @@ export const MemorySourceDetailPage = () => {
             key={`${selectedSource.connection_id}:${selectedSource.last_error}`}
             message={selectedSource.sync_activity?.error || selectedSource.last_error}
             failure={selectedSource.sync_activity?.failure}
+            sourceName={selectedSource.source_name}
             onAuthorize={selectedSource.activation_flow?.authorize_on_confirm ? async () => {
               const generation = actionGenerationRef.current;
               const result = await sourcesApi.requestAuthorization(selectedSource.source_name, selectedSource.connection_id, selectedSource.current_settings);

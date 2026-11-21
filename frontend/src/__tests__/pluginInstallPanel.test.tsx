@@ -725,4 +725,68 @@ describe('PluginInstallPanel', () => {
       expect(screen.getByText('pluginInstallPanel.unsupported')).toBeInTheDocument(),
     );
   });
+
+  it('wires Request access to sourcesApi.requestAuthorization on permission_required sync failure', async () => {
+    let syncing = false;
+    vi.spyOn(sourcesApi, 'getStatus').mockImplementation(async () => ({
+      sources: [
+        {
+          source_name: 'calendar',
+          plugin_id: 'calendar',
+          connection_id: 'calendar-connection',
+          description: 'Calendar desc',
+          activation_flow: {
+            enabled_key: 'sources.calendar.enabled',
+            configured_key: 'sources.calendar.configured',
+            fields: [],
+            authorize_on_confirm: false,
+          },
+          last_success: null,
+          last_error: syncing ? 'Calendar access denied' : null,
+          last_result_count: 0,
+          sync_activity: syncing
+            ? {
+                job_id: 'job-1',
+                mode: 'latest',
+                status: 'failed',
+                error: 'Calendar access denied',
+                failure: { code: 'permission_required', platform: 'darwin' },
+              }
+            : null,
+        },
+      ],
+    }) as any);
+    vi.spyOn(sourcesApi, 'requestSync').mockImplementation(async () => {
+      syncing = true;
+      return {
+        queued: true,
+        connection_id: 'calendar-connection',
+        source_name: 'calendar',
+      } as any;
+    });
+    const authorizeSpy = vi.spyOn(sourcesApi, 'requestAuthorization').mockResolvedValue({
+      source_name: 'calendar',
+      authorized: true,
+      message: 'ok',
+    } as any);
+
+    render(<PluginInstallPanel />);
+    act(() => {
+      usePluginInstallPanelStore.getState().openPanel('calendar', { context: 'first_context' });
+    });
+
+    const connectButton = await screen.findByRole('button', { name: 'pluginInstallPanel.connect' });
+    fireEvent.click(connectButton);
+
+    const authorizeButton = await screen.findByRole(
+      'button',
+      { name: 'sourceRecovery.authorize' },
+      { timeout: 6000 },
+    );
+    fireEvent.click(authorizeButton);
+
+    await waitFor(() =>
+      expect(authorizeSpy).toHaveBeenCalledWith('calendar', 'calendar-connection', {}),
+    );
+  }, 10000);
 });
