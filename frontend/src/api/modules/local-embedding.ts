@@ -50,18 +50,30 @@ const modelSchema = z.object({
   default_variant: z.string().nullable(), dimension: z.number(), quantized: z.boolean(),
 });
 
+export const RECOMMENDED_LOCAL_EMBEDDING_MODEL_ID = 'bge-small-zh-v1.5';
+
 export const localEmbeddingApi = {
   async listModels(): Promise<LocalEmbeddingModelInfo[]> {
     const res = await apiClient.get<unknown>('/local-embedding/models');
     return z.array(modelSchema).parse(res.data);
   },
 
-  async downloadModel(modelId: string, variant?: string | null): Promise<ModelDownloadStatus> {
-    const params = variant ? { variant } : undefined;
+  async downloadModel(
+    modelId: string,
+    variant?: string | null,
+    options?: { autoEnable?: boolean },
+  ): Promise<ModelDownloadStatus> {
+    const params: Record<string, string | boolean> = {};
+    if (variant) {
+      params.variant = variant;
+    }
+    if (options?.autoEnable) {
+      params.auto_enable = true;
+    }
     const response = await apiClient.post<unknown>(
       `/local-embedding/models/${encodeURIComponent(modelId)}/download`,
       undefined,
-      params ? { params } : undefined,
+      Object.keys(params).length > 0 ? { params } : undefined,
     );
     return readModelDownloadStatus(response.data);
   },

@@ -69,6 +69,13 @@ class LocalEmbeddingModelRegistry:
         """Return all preset model IDs."""
         return [m.id for m in self.models]
 
+    def recommended_default_id(self) -> Optional[str]:
+        """Return the ID of the primary recommended lightweight preset model."""
+        for model in self.models:
+            if model.recommended:
+                return model.id
+        return self.models[0].id if self.models else None
+
 
 def load_local_embedding_registry(config_path: Path) -> LocalEmbeddingModelRegistry:
     """Load the local embedding model registry from YAML."""

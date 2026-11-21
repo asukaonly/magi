@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, ArrowLeft, ChevronDown, ChevronRight, Eye, EyeOff, Info, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, Download, Eye, EyeOff, Info, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
@@ -16,6 +16,10 @@ import {
   type TestLLMProviderConnectionResponse,
   resolveProviderModels,
 } from '@/api/modules/config';
+import {
+  localEmbeddingApi,
+  RECOMMENDED_LOCAL_EMBEDDING_MODEL_ID,
+} from '@/api/modules/local-embedding';
 import { SelectField } from '@/components/config-forms/fields';
 import { LLMProviderTestStatus } from '@/components/config-forms/LLMProviderTestStatus';
 import { ProviderIcon } from '@/components/config-forms/provider-icons';
@@ -359,6 +363,9 @@ export function LLMSetupStep({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [catalogResolutionPending, setCatalogResolutionPending] = useState(false);
   const [catalogResolutionError, setCatalogResolutionError] = useState(false);
+  const [localEmbeddingState, setLocalEmbeddingState] = useState<'idle' | 'downloading' | 'ready' | 'failed'>('idle');
+  const [localEmbeddingPercent, setLocalEmbeddingPercent] = useState<number | null>(null);
+  const localEmbeddingMountedRef = useRef(true);
   const catalogResolutionRequestIdRef = useRef(0);
   const initialProvidersRef = useRef(value.providers);
   const activeProviderId = getActiveProviderId(value);
@@ -386,11 +393,73 @@ export function LLMSetupStep({
       .map((model) => ({ label: model.id, value: model.id }));
   }, [activeProvider, activeProviderId, registry]);
   useEffect(() => {
+    localEmbeddingMountedRef.current = true;
     return () => {
+      localEmbeddingMountedRef.current = false;
       catalogResolutionRequestIdRef.current += 1;
       onConnectionConfigPendingChange?.(false);
     };
   }, [onConnectionConfigPendingChange]);
+
+  useEffect(() => {
+    if (localEmbeddingState !== 'downloading') {
+      return undefined;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const status = await localEmbeddingApi.getDownloadStatus(RECOMMENDED_LOCAL_EMBEDDING_MODEL_ID);
+        if (cancelled || !localEmbeddingMountedRef.current) {
+          return;
+        }
+        const total = status.download?.total_bytes ?? 0;
+        const done = status.download?.downloaded_bytes ?? 0;
+        if (total > 0) {
+          setLocalEmbeddingPercent(Math.min(100, Math.round((done / total) * 100)));
+        }
+        if (status.status === 'completed') {
+          setLocalEmbeddingState('ready');
+          setLocalEmbeddingPercent(100);
+        } else if (status.status === 'failed' || status.status === 'cancelled') {
+          setLocalEmbeddingState('failed');
+        }
+      } catch {
+        // Keep polling transiently until download finishes or user retries.
+      }
+    };
+    const interval = window.setInterval(() => {
+      void poll();
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [localEmbeddingState]);
+
+  const handleEnableLocalEmbedding = useCallback(async () => {
+    setLocalEmbeddingState('downloading');
+    setLocalEmbeddingPercent(null);
+    try {
+      const status = await localEmbeddingApi.downloadModel(
+        RECOMMENDED_LOCAL_EMBEDDING_MODEL_ID,
+        undefined,
+        { autoEnable: true },
+      );
+      if (!localEmbeddingMountedRef.current) {
+        return;
+      }
+      if (status.status === 'completed') {
+        setLocalEmbeddingState('ready');
+        setLocalEmbeddingPercent(100);
+      } else if (status.status === 'failed' || status.status === 'cancelled') {
+        setLocalEmbeddingState('failed');
+      }
+    } catch {
+      if (localEmbeddingMountedRef.current) {
+        setLocalEmbeddingState('failed');
+      }
+    }
+  }, []);
 
   useEffect(() => {
     onValid?.(isValidConfig(value) && !catalogResolutionPending);
@@ -852,15 +921,64 @@ export function LLMSetupStep({
                 <div
                   data-testid="llm-setup-embedding-row"
                   role="status"
-                  className="flex items-start gap-2.5 rounded-lg bg-secondary/55 px-3 py-2.5 text-secondary-foreground"
+                  className="flex flex-col gap-2.5 rounded-lg bg-secondary/55 px-3 py-2.5 text-secondary-foreground"
                 >
-                  <Info className="mt-0.5 h-4 w-4 shrink-0 opacity-80" aria-hidden="true" />
-                  <span className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
-                    <span className="shrink-0 text-sm font-medium">{t(memoryModelMissingTitleKey)}</span>
-                    <span className="text-xs leading-5 text-secondary-foreground/70">
-                      {t(memoryModelMissingBodyKey)}
+                  <div className="flex items-start gap-2.5">
+                    {localEmbeddingState === 'ready' ? (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                    ) : (
+                      <Info className="mt-0.5 h-4 w-4 shrink-0 opacity-80" aria-hidden="true" />
+                    )}
+                    <span className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
+                      <span className="shrink-0 text-sm font-medium">{t(memoryModelMissingTitleKey)}</span>
+                      <span className="text-xs leading-5 text-secondary-foreground/70">
+                        {t(memoryModelMissingBodyKey)}
+                      </span>
                     </span>
-                  </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pl-6">
+                    {localEmbeddingState === 'ready' ? (
+                      <span
+                        data-testid="llm-setup-local-embedding-ready"
+                        className="text-xs font-medium text-emerald-700 dark:text-emerald-300"
+                      >
+                        {t('llmSetup.localEmbedding.ready')}
+                      </span>
+                    ) : localEmbeddingState === 'downloading' ? (
+                      <span
+                        data-testid="llm-setup-local-embedding-downloading"
+                        className="inline-flex items-center gap-1.5 text-xs text-secondary-foreground/80"
+                      >
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        {localEmbeddingPercent !== null
+                          ? t('llmSetup.localEmbedding.downloadingPercent', { percent: localEmbeddingPercent })
+                          : t('llmSetup.localEmbedding.downloading')}
+                      </span>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          data-testid="llm-setup-enable-local-embedding"
+                          disabled={disabled}
+                          onClick={() => void handleEnableLocalEmbedding()}
+                          className="inline-flex h-7 items-center gap-1.5 rounded-md bg-background/80 px-2.5 text-xs font-medium text-foreground shadow-xs ring-1 ring-border/60 transition hover:bg-background disabled:opacity-60"
+                        >
+                          <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                          {localEmbeddingState === 'failed'
+                            ? t('llmSetup.localEmbedding.retry')
+                            : t('llmSetup.localEmbedding.enableCta')}
+                        </button>
+                        {localEmbeddingState === 'failed' ? (
+                          <span
+                            data-testid="llm-setup-local-embedding-failed"
+                            className="text-xs text-destructive"
+                          >
+                            {t('llmSetup.localEmbedding.failed')}
+                          </span>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
                 </div>
               ) : null}
 

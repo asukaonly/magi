@@ -94,22 +94,20 @@ class MemoryEmbeddingService:
             fingerprint = compute_local_embedding_model_fingerprint(
                 config.agent.memory.embedding.local
             )
-            model_name = (
-                fingerprint.model_name if fingerprint is not None else manager.model_name
-            ) or "local"
-            dimension = fingerprint.dimension if fingerprint is not None else manager.dimension
+            if fingerprint is None:
+                return None
+            model_name = fingerprint.model_name or manager.model_name or "local"
+            dimension = fingerprint.dimension if fingerprint.dimension is not None else manager.dimension
             return EmbeddingProfile.build(
                 provider_name="local",
                 model_name=model_name,
                 dimension=dimension,
                 text_builder_version=text_builder_version,
                 identity_kind="local",
-                identity_key=fingerprint.identity_key if fingerprint is not None else model_name,
+                identity_key=fingerprint.identity_key,
                 provenance={
                     "model_source": str(config.agent.memory.embedding.local.model_source),
-                    "model_dir_path": (
-                        str(fingerprint.model_dir) if fingerprint is not None else None
-                    ),
+                    "model_dir_path": str(fingerprint.model_dir),
                 },
             )
 

@@ -4,6 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { configApi, DEFAULT_SYSTEM_CONFIG, type LLMConfig } from '@/api/modules/config';
 import {
+  localEmbeddingApi,
+  RECOMMENDED_LOCAL_EMBEDDING_MODEL_ID,
+} from '@/api/modules/local-embedding';
+import {
   LLMSetupStep,
   type LLMConnectionTestState,
 } from '@/components/onboarding/LLMSetupStep';
@@ -632,5 +636,36 @@ describe('LLMSetupStep', () => {
       expect(latest.providers.glm.provider_plan).toBe('codeplan');
       expect(latest.providers.glm.base_url).toBe('https://api.z.ai/api/coding/paas/v4');
     });
+  });
+
+  it('enables the recommended local ONNX embedding model with one click and allows retry on failure', async () => {
+    const user = userEvent.setup();
+    const downloadSpy = vi
+      .spyOn(localEmbeddingApi, 'downloadModel')
+      .mockRejectedValueOnce(new Error('network error'))
+      .mockResolvedValueOnce({
+        model_id: RECOMMENDED_LOCAL_EMBEDDING_MODEL_ID,
+        status: 'completed',
+        download: null,
+        error: null,
+      });
+
+    render(<Harness />);
+    await user.click(await screen.findByTestId('llm-setup-provider-anthropic'));
+
+    const cta = screen.getByTestId('llm-setup-enable-local-embedding');
+    await user.click(cta);
+
+    expect(await screen.findByTestId('llm-setup-local-embedding-failed')).toBeInTheDocument();
+    expect(downloadSpy).toHaveBeenNthCalledWith(
+      1,
+      RECOMMENDED_LOCAL_EMBEDDING_MODEL_ID,
+      undefined,
+      { autoEnable: true },
+    );
+
+    await user.click(screen.getByTestId('llm-setup-enable-local-embedding'));
+    expect(await screen.findByTestId('llm-setup-local-embedding-ready')).toBeInTheDocument();
+    downloadSpy.mockRestore();
   });
 });

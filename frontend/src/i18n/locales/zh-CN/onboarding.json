@@ -202,6 +202,14 @@
     "memoryModelMissingBody": "聊天可以正常使用。之后可在设置中添加；配置前，记忆将暂时使用关键词检索。",
     "memoryModelPlanMissingTitle": "这个套餐仅用于聊天",
     "memoryModelPlanMissingBody": "记忆整理、时间线、向量和生图仍需普通 API 服务商；配置前，记忆将使用关键词检索。",
+    "localEmbedding": {
+      "enableCta": "一键启用本地语义检索（约 24 MB）",
+      "downloading": "正在后台下载本地语义模型…",
+      "downloadingPercent": "正在后台下载本地语义模型… {{percent}}%",
+      "ready": "本地语义检索已启用",
+      "failed": "下载失败，将继续使用关键词检索",
+      "retry": "重试"
+    },
     "providerTitle": "选择模型服务商",
     "providerDesc": "先接通一个可用模型。高级模型分配之后也可以在设置里继续调整。",
     "customRelayTitle": "自定义服务商",

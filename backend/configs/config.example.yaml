@@ -19,10 +19,10 @@ agent:
     retention_days: 90
     history_behavior: "archive" # "archive" (default, preserves history) or "delete"
     embedding:
-      mode: "remote" # "remote" or "local"
+      mode: "off" # "off", "local", or "remote"
       local:
         model_source: "managed" # "managed" or "external"
-        managed_model_id: null
+        managed_model_id: null # recommended preset: "bge-small-zh-v1.5"
         model_dir_path: null
         idle_timeout_seconds: 1800
     reranker:

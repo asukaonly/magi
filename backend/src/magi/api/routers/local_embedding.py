@@ -20,9 +20,15 @@ from ...memory.onnx_variants import (
     resolve_variant_name,
 )
 from ...utils.runtime import RuntimePaths
-from ...config import get_config
+from ...config import get_config, save_config
+from ...config.memory_models import EmbeddingMode
+from ...memory.embedding.vector_admin import (
+    EmbeddingRebuildPausedError,
+    get_embedding_rebuild_manager,
+)
 from ...utils.model_download import DownloadProgress, DownloadTracker, ModelDownloadStatus, remove_directory, safe_path
 from ...utils.hub_model_download import download_hub_model
+from .memory import dependencies as memory_dependencies
 
 logger = logging.getLogger(__name__)
 local_embedding_router = APIRouter()
@@ -32,6 +38,7 @@ _download_tasks: dict[str, asyncio.Task[None]] = {}
 _download_progress: dict[str, DownloadTracker] = {}
 _download_errors: dict[str, str] = {}
 _download_locks: dict[str, asyncio.Lock] = {}
+_download_auto_enable: set[str] = set()
 
 
 # ── Response models ─────────────────────────────────────────────────────
@@ -141,12 +148,15 @@ async def list_models() -> list[LocalEmbeddingModelInfo]:
 async def download_model(
     model_id: str,
     variant: Optional[str] = None,
+    auto_enable: bool = False,
 ) -> DownloadStatusResponse:
     """Trigger download of a preset model.
 
     Optional ``variant`` query parameter selects a specific ONNX quantization
     variant (e.g. ``fp32``, ``fp16``, ``quantized``). When omitted, the
-    platform-preferred default from the registry is used.
+    platform-preferred default from the registry is used. When ``auto_enable``
+    is true, the model is automatically activated as the managed local
+    embedding model once ready and triggers background vector backfill.
     """
     async with _download_locks.setdefault(model_id, asyncio.Lock()):
         registry = get_local_embedding_registry()
@@ -161,6 +171,9 @@ async def download_model(
                 ),
             )
 
+        if auto_enable:
+            _download_auto_enable.add(model_id)
+
         # Check if already downloading
         existing_task = _download_tasks.get(model_id)
         if existing_task is not None and not existing_task.done():
@@ -174,6 +187,7 @@ async def download_model(
         # Check if already downloaded
         paths = RuntimePaths()
         model_dir = Path(paths.managed_embedding_model_dir(model_id))
+        already_downloaded = False
         # Check if the *specific* variant requested is already downloaded.
         # Falls back to the model-level check for legacy YAML (no variants block).
         if meta.variants:
@@ -183,11 +197,17 @@ async def download_model(
                 candidate = model_dir / variant_file
                 bare = model_dir / Path(variant_file).name
                 if candidate.exists() or bare.exists():
-                    return DownloadStatusResponse(model_id=model_id, status="completed")
+                    already_downloaded = True
             # else: emergency-chain returned no variant; let the task try anyway
         else:
             if _is_model_downloaded(model_dir):
-                return DownloadStatusResponse(model_id=model_id, status="completed")
+                already_downloaded = True
+
+        if already_downloaded:
+            if auto_enable:
+                _download_auto_enable.discard(model_id)
+                await _finalize_local_embedding_activation(model_id, auto_enable=True)
+            return DownloadStatusResponse(model_id=model_id, status="completed")
 
         # Start download task
         _download_progress[model_id] = DownloadTracker()
@@ -241,6 +261,7 @@ async def cancel_download(model_id: str) -> DownloadStatusResponse:
 
 
 async def _cancel_download(model_id: str) -> DownloadStatusResponse:
+    _download_auto_enable.discard(model_id)
     task = _download_tasks.get(model_id)
     if task and not task.done():
         task.cancel()
@@ -384,6 +405,51 @@ def _variant_allow_patterns(
     ]
 
 
+async def _finalize_local_embedding_activation(
+    model_id: str,
+    *,
+    auto_enable: bool = False,
+) -> None:
+    """Optionally activate a downloaded managed model and backfill existing vectors."""
+    if auto_enable:
+        try:
+            save_config(
+                {
+                    "agent.memory.embedding.mode": EmbeddingMode.LOCAL.value,
+                    "agent.memory.embedding.local.model_source": "managed",
+                    "agent.memory.embedding.local.managed_model_id": model_id,
+                }
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to auto-enable local embedding model %s: %s",
+                model_id,
+                exc,
+            )
+            return
+
+    try:
+        cfg = get_config().agent.memory.embedding
+    except Exception:
+        return
+    is_active_local = (
+        cfg.mode == EmbeddingMode.LOCAL
+        and str(cfg.local.managed_model_id or "").strip() == model_id
+    )
+    if not (auto_enable or is_active_local):
+        return
+
+    unified_memory = memory_dependencies._resolve_unified_memory()
+    if unified_memory is None:
+        return
+    try:
+        await get_embedding_rebuild_manager().start_rebuild(unified_memory=unified_memory)
+    except EmbeddingRebuildPausedError:
+        logger.debug("Skipped automatic embedding backfill because rebuilds are paused")
+    except Exception as exc:
+        logger.warning("Automatic embedding backfill failed to start: %s", exc)
+
+
 async def _download_model_task(
     meta: LocalEmbeddingModelMeta, model_dir: Path, *, variant_override: str | None = None,
 ) -> None:
@@ -395,9 +461,16 @@ async def _download_model_task(
             raise ValueError("model_variant_unavailable")
         await download_hub_model(meta.onnx_repo or meta.repo, patterns, model_dir, tracker, get_config().network.proxy_url())
     except asyncio.CancelledError:
+        _download_auto_enable.discard(meta.id)
         tracker.phase = "cancelled"
         raise
     except Exception:
+        _download_auto_enable.discard(meta.id)
         tracker.phase = "failed"
         _download_errors[meta.id] = "model_download_failed"
         logger.exception("Model download failed", extra={"model_id": meta.id})
+        return
+
+    should_enable = meta.id in _download_auto_enable
+    _download_auto_enable.discard(meta.id)
+    await _finalize_local_embedding_activation(meta.id, auto_enable=should_enable)

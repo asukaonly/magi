@@ -202,6 +202,14 @@
     "memoryModelMissingBody": "Chat will still work. You can add one later in Settings; until then, memory will use keyword search.",
     "memoryModelPlanMissingTitle": "This plan is for chat only",
     "memoryModelPlanMissingBody": "Memory organization, Timeline, embeddings, and image generation still need a standard API provider. Until then, memory will use keyword search.",
+    "localEmbedding": {
+      "enableCta": "Enable local semantic search (~24 MB)",
+      "downloading": "Downloading local model in background…",
+      "downloadingPercent": "Downloading local model… {{percent}}%",
+      "ready": "Local semantic search enabled",
+      "failed": "Download failed — keyword search stays active",
+      "retry": "Retry"
+    },
     "providerTitle": "Choose a model provider",
     "providerDesc": "Connect one usable model first. You can still tune advanced model routing later in Settings.",
     "customRelayTitle": "Custom Provider",

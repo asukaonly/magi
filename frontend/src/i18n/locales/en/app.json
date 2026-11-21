@@ -3464,6 +3464,16 @@
       "title": "Overview",
       "subtitle": "See what Magi remembers, where it came from, and what needs your judgment.",
       "summaryLabel": "Memory summary",
+      "semanticSearch": {
+        "readyLocal": "Semantic search ready (local)",
+        "readyRemote": "Semantic search ready (remote)",
+        "indexing": "Indexing semantic memory… {{percent}}%",
+        "keywordOnly": "Keyword search only — enable a lightweight local model for semantic recall",
+        "enableLocal": "Enable local semantic search",
+        "downloading": "Downloading local model in background…",
+        "failed": "Local model download failed — keyword search remains active",
+        "retry": "Retry"
+      },
       "metrics": {
         "sourceRecords": "Source records",
         "profileCandidates": "Extracted statements (including pending)",

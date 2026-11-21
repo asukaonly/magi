@@ -9,6 +9,7 @@ import { MemoryOverviewPage } from '@/pages/memory-pages';
 import { buildSourceRows } from '@/pages/memory-pages/overview/overviewModel';
 import type { SourceStatusItem } from '@/api/modules/sources';
 import { memoryApi } from '@/api/modules/memory';
+import { localEmbeddingApi, RECOMMENDED_LOCAL_EMBEDDING_MODEL_ID } from '@/api/modules/local-embedding';
 import { sourcesApi } from '@/api/modules/sources';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
 import { APP_EVENTS } from '@/constants/events';
@@ -115,6 +116,12 @@ vi.mock('@/api/modules/memory', async () => {
       resolvePendingReview: vi.fn(),
       submitAssertionFeedback: vi.fn(),
       applyCorrection: vi.fn(),
+      getEmbeddingVectorStatus: vi.fn().mockResolvedValue({
+        ready_counts: { l1: 0, l2_entities: 0, l2_edges: 0, l3: 0, l4: 0 },
+        ready_total: 0,
+        active_identities: { l1: null, l2_entities: null, l2_edges: null, l3: null, l4: null },
+        latest_job: null,
+      }),
     },
   };
 });
@@ -808,6 +815,66 @@ describe('MemoryOverviewPage', () => {
       }));
     });
     expect(vi.mocked(memoryApi.applyCorrection).mock.calls[0][0]).not.toHaveProperty('replacement');
+  });
+
+  it('displays semantic search status and enables recommended local ONNX model in one click', async () => {
+    const user = userEvent.setup();
+    const downloadSpy = vi.spyOn(localEmbeddingApi, 'downloadModel').mockResolvedValue({
+      model_id: RECOMMENDED_LOCAL_EMBEDDING_MODEL_ID,
+      status: 'completed',
+      download: null,
+      error: null,
+    });
+    vi.mocked(memoryApi.getEmbeddingVectorStatus)
+      .mockResolvedValueOnce({
+        ready_counts: { l1: 0, l2_entities: 0, l2_edges: 0, l3: 0, l4: 0 },
+        ready_total: 0,
+        active_identities: { l1: null, l2_entities: null, l2_edges: null, l3: null, l4: null },
+        latest_job: null,
+      })
+      .mockResolvedValueOnce({
+        ready_counts: { l1: 12, l2_entities: 0, l2_edges: 0, l3: 0, l4: 0 },
+        ready_total: 12,
+        active_identities: {
+          l1: {
+            layer: 'l1',
+            mode: 'local',
+            text_builder_version: 'l1_v1',
+            hard_key: 'local:test',
+            label: RECOMMENDED_LOCAL_EMBEDDING_MODEL_ID,
+            dimension: 512,
+            identity_known: true,
+            provenance: {},
+          },
+          l2_entities: null,
+          l2_edges: null,
+          l3: null,
+          l4: null,
+        },
+        latest_job: null,
+      });
+
+    render(
+      <MemoryRouter>
+        <MemoryOverviewPage />
+      </MemoryRouter>,
+    );
+
+    const statusBar = await screen.findByTestId('memory-overview-semantic-status');
+    expect(statusBar).toHaveTextContent('memory.overview.semanticSearch.keywordOnly');
+
+    await user.click(screen.getByTestId('memory-overview-enable-local-embedding'));
+    expect(downloadSpy).toHaveBeenCalledWith(
+      RECOMMENDED_LOCAL_EMBEDDING_MODEL_ID,
+      undefined,
+      { autoEnable: true },
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('memory-overview-semantic-status')).toHaveTextContent(
+        'memory.overview.semanticSearch.readyLocal',
+      );
+    });
+    downloadSpy.mockRestore();
   });
 });
 

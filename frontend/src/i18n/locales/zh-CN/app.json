@@ -3463,6 +3463,16 @@
       "title": "总览",
       "subtitle": "看看 Magi 现在记住了什么、从哪里来，以及哪些内容需要你判断。",
       "summaryLabel": "记忆概况",
+      "semanticSearch": {
+        "readyLocal": "语义检索已就绪（本地）",
+        "readyRemote": "语义检索已就绪（云端）",
+        "indexing": "正在后台补齐语义索引… {{percent}}%",
+        "keywordOnly": "当前仅使用关键词检索，启用轻量本地模型即可开启语义理解",
+        "enableLocal": "一键启用本地语义检索",
+        "downloading": "正在后台下载本地语义模型…",
+        "failed": "本地模型下载失败，关键词检索不受影响",
+        "retry": "重试"
+      },
       "metrics": {
         "sourceRecords": "原始记录",
         "profileCandidates": "提取的信息（含待确认）",
