@@ -628,7 +628,7 @@ class NetworkProxySettings(BaseModel):
 class DiagnosticsSettings(BaseModel):
     """Local diagnostic logging policy."""
 
-    full_content_logging_enabled: bool = Field(default=True)
+    full_content_logging_enabled: bool = Field(default=False)
 
 
 # =============================================================================

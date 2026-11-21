@@ -64,7 +64,7 @@
         "name": "magi-agent"
       },
       "diagnostics": {
-        "full_content_logging_enabled": true
+        "full_content_logging_enabled": false
       },
       "llm": {
         "model_runtime_overrides": {},
@@ -495,7 +495,7 @@
           "name": "magi-agent"
         },
         "diagnostics": {
-          "full_content_logging_enabled": true
+          "full_content_logging_enabled": false
         },
         "llm": {
           "model_runtime_overrides": {},

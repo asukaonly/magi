@@ -107,7 +107,7 @@ return errors === 0;
 }
 validate55.evaluated = {"props":{"description":true,"name":true},"dynamicProps":false,"dynamicItems":false};
 
-const schema23 = {"properties":{"full_content_logging_enabled":{"default":true,"title":"Full Content Logging Enabled","type":"boolean"}},"required":["full_content_logging_enabled"],"title":"DiagnosticsConfigModel","type":"object"};
+const schema23 = {"properties":{"full_content_logging_enabled":{"default":false,"title":"Full Content Logging Enabled","type":"boolean"}},"required":["full_content_logging_enabled"],"title":"DiagnosticsConfigModel","type":"object"};
 
 function validate57(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;

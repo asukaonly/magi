@@ -689,9 +689,10 @@ Current product expectations:
   samples or device identifiers. No silent capture fallback is attempted.
 - desktop system notifications for new messages should default to enabled, with notification previews also enabled by default
 - local diagnostic logs expose a `full_content_logging_enabled` preference under
-  the `diagnostics` configuration section; it defaults to enabled during the
-  current development phase and takes effect immediately after a successful
-  Settings save
+  the `diagnostics` configuration section; it defaults to disabled (`false`) to
+  avoid storing sensitive conversation or memory payloads in local logs, and
+  takes effect immediately after a successful Settings save when enabled for
+  troubleshooting
 - full-content logging may retain textual prompts, replies, tool content,
   retrieval context, and source text needed for debugging, but inline
   image/file bytes are always omitted

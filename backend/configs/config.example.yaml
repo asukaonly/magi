@@ -240,7 +240,7 @@ preferences:
   manual_entry_weather_enrichment_enabled: false
 
 diagnostics:
-  full_content_logging_enabled: true
+  full_content_logging_enabled: false
 
 debug: false
 log_level: "INFO"

@@ -275,7 +275,7 @@ def test_public_configuration_defaults_preserve_policy_and_ownership(tmp_path, m
     assert config.preferences.allow_media_grounding_for_conversation is True
     assert config.preferences.default_chat_workspace_path == str(tmp_path / "chat-workspace")
     assert config.preferences.product_tour_completed is False
-    assert config.diagnostics.full_content_logging_enabled is True
+    assert config.diagnostics.full_content_logging_enabled is False
     assert not {"enabled", "expert_mode_edge_override"}.intersection(payload["timeline"])
     assert not {"browser_history", "chat", "manual_journal"}.intersection(
         payload["timeline"]["sources"]
@@ -1907,7 +1907,7 @@ def test_update_config_round_trips_changed_settings_through_disk(monkeypatch, ex
     )
 
     payload.preferences.default_chat_workspace_path = "/tmp/nondefault-workspace"
-    payload.diagnostics.full_content_logging_enabled = False
+    payload.diagnostics.full_content_logging_enabled = True
 
     response = client.put("/config/", json=payload.model_dump(mode="json"))
     assert response.status_code == 200
@@ -1930,8 +1930,8 @@ def test_update_config_round_trips_changed_settings_through_disk(monkeypatch, ex
 
     assert receipt["preferences"]["default_chat_workspace_path"] == "/tmp/nondefault-workspace"
     assert reloaded["preferences"]["default_chat_workspace_path"] == "/tmp/nondefault-workspace"
-    assert receipt["diagnostics"]["full_content_logging_enabled"] is False
-    assert reloaded["diagnostics"]["full_content_logging_enabled"] is False
+    assert receipt["diagnostics"]["full_content_logging_enabled"] is True
+    assert reloaded["diagnostics"]["full_content_logging_enabled"] is True
 
     assert receipt["preferences"]["first_conversation_completed"] is True
     assert reloaded["preferences"]["first_conversation_completed"] is True

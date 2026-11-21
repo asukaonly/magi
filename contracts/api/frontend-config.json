@@ -396,7 +396,7 @@
       "DiagnosticsConfigModel": {
         "properties": {
           "full_content_logging_enabled": {
-            "default": true,
+            "default": false,
             "title": "Full Content Logging Enabled",
             "type": "boolean"
           }

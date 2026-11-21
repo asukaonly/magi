@@ -1151,7 +1151,7 @@ describe('settings page draft saving', () => {
     expect(requestDesktopNotificationPermissionMock).not.toHaveBeenCalled();
   });
 
-  it('keeps full conversation diagnostics enabled by default and saves changes', async () => {
+  it('keeps full conversation diagnostics disabled by default and saves changes', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
@@ -1159,10 +1159,10 @@ describe('settings page draft saving', () => {
     const diagnosticsSwitch = await screen.findByRole('switch', {
       name: 'settings.diagnostics.fullContentLoggingLabel',
     });
-    expect(diagnosticsSwitch).toHaveAttribute('data-state', 'checked');
+    expect(diagnosticsSwitch).toHaveAttribute('data-state', 'unchecked');
 
     await user.click(diagnosticsSwitch);
-    expect(diagnosticsSwitch).toHaveAttribute('data-state', 'unchecked');
+    expect(diagnosticsSwitch).toHaveAttribute('data-state', 'checked');
     expect(configApi.update).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
@@ -1171,7 +1171,7 @@ describe('settings page draft saving', () => {
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           diagnostics: {
-            full_content_logging_enabled: false,
+            full_content_logging_enabled: true,
           },
         })
       )
@@ -1185,7 +1185,7 @@ describe('settings page draft saving', () => {
       data: {
         ...structuredClone(DEFAULT_SYSTEM_CONFIG),
         diagnostics: {
-          full_content_logging_enabled: false,
+          full_content_logging_enabled: true,
         },
       },
     } as any);
@@ -1196,7 +1196,7 @@ describe('settings page draft saving', () => {
     const diagnosticsSwitch = await screen.findByRole('switch', {
       name: 'settings.diagnostics.fullContentLoggingLabel',
     });
-    expect(diagnosticsSwitch).toHaveAttribute('data-state', 'unchecked');
+    expect(diagnosticsSwitch).toHaveAttribute('data-state', 'checked');
   });
 
   it('saves proxy credentials from network proxy settings', async () => {

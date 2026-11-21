@@ -54,7 +54,7 @@ def test_tool_logs_omit_arguments_and_errors_when_content_logging_is_off(
                 result,
             )
     finally:
-        set_full_content_logging_enabled(True)
+        set_full_content_logging_enabled(False)
 
     rendered = caplog.text
     assert secret_argument not in rendered

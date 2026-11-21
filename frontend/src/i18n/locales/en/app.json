@@ -1623,7 +1623,7 @@
       "title": "Diagnostic logs",
       "description": "Control how much troubleshooting detail local logs keep.",
       "fullContentLoggingLabel": "Keep full conversation logs",
-      "fullContentLoggingDesc": "When enabled, diagnostic logs keep complete prompts, replies, and internal context for troubleshooting. Keys and passwords stay hidden, and image or attachment contents are never logged."
+      "fullContentLoggingDesc": "Off by default for privacy. When enabled for troubleshooting, local diagnostic logs keep complete prompts, replies, and internal context. Keys and passwords stay hidden, and image or attachment contents are never logged."
     },
     "proxyOff": "Direct (proxy off)",
     "fakeIpCompatibility": "Support TUN proxy fake IPs",

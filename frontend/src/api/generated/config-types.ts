@@ -206,7 +206,7 @@ export interface components {
         DiagnosticsConfigModel: {
             /**
              * Full Content Logging Enabled
-             * @default true
+             * @default false
              */
             full_content_logging_enabled: boolean;
         };

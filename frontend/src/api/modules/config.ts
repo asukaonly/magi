@@ -750,7 +750,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     password: '',
   },
   diagnostics: {
-    full_content_logging_enabled: true,
+    full_content_logging_enabled: false,
   },
   personality: DEFAULT_PERSONALITY_CONFIG,
   personalitySettings: DEFAULT_PERSONALITY_SETTINGS_CONFIG,

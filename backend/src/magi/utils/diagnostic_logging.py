@@ -5,7 +5,7 @@ from __future__ import annotations
 from threading import RLock
 
 _POLICY_LOCK = RLock()
-_FULL_CONTENT_LOGGING_ENABLED = True
+_FULL_CONTENT_LOGGING_ENABLED = False
 
 
 def set_full_content_logging_enabled(enabled: bool) -> None:

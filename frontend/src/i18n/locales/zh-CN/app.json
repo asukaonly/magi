@@ -1622,7 +1622,7 @@
       "title": "诊断日志",
       "description": "控制本地日志保留多少排查信息。",
       "fullContentLoggingLabel": "保留完整对话日志",
-      "fullContentLoggingDesc": "开启后，诊断日志会保留完整的提问、回复和内部上下文，方便排查问题。密钥和密码始终隐藏，图片和附件内容始终不写入日志。"
+      "fullContentLoggingDesc": "出于隐私保护默认关闭。仅在排查问题需要开启时，本地诊断日志才会保留完整的提问、回复和内部上下文。密钥和密码始终隐藏，图片和附件内容始终不写入日志。"
     },
     "proxyOff": "直连（关闭代理）",
     "fakeIpCompatibility": "兼容 TUN 代理的 Fake-IP",

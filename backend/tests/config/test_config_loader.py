@@ -78,23 +78,25 @@ def test_loader_refreshes_diagnostic_policy_and_known_secrets_immediately(
 ) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
     loader = ConfigLoader()
-    loader.load()
+    loaded = loader.load()
+    assert loaded.diagnostics.full_content_logging_enabled is False
+    assert full_content_logging_enabled() is False
 
     saved = loader.save(
         {
-            "diagnostics.full_content_logging_enabled": False,
+            "diagnostics.full_content_logging_enabled": True,
             "network.password": "loader-secret-password",
         }
     )
 
     assert saved is True
-    assert loader.load().diagnostics.full_content_logging_enabled is False
-    assert full_content_logging_enabled() is False
+    assert loader.load().diagnostics.full_content_logging_enabled is True
+    assert full_content_logging_enabled() is True
     assert (
         redact_log_text("failed with loader-secret-password")
         == f"failed with {MASKED_LOG_VALUE}"
     )
-    set_full_content_logging_enabled(True)
+    set_full_content_logging_enabled(False)
 
 
 def test_loader_save_rejects_invalid_config_without_writing(tmp_path: Path, monkeypatch) -> None:
