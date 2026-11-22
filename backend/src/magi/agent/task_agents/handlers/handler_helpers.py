@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 
+from collections.abc import Sequence
+
+from ....config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from ..common import PreparedAgentRunRequest
 
 
@@ -42,6 +45,61 @@ MEMORY_UNAVAILABLE_GUIDANCE_BLOCK = "\n".join(
         "State the limitation instead of inventing or denying prior facts.",
     ]
 )
+
+PERSONAL_COMMITMENTS_GUIDANCE_BLOCK = "\n".join(
+    [
+        "# Personal Commitments",
+        "For an explicit request to watch for a future condition, use attention_watch_query/update. "
+        "Only authorized saved sources can be watched; never promise live website monitoring. "
+        "Query attention_watch_query before claiming a watch's current status or last check. "
+        "No notification is not evidence that an event did not happen: it only means no confirmed match was delivered. "
+        "Never imply continuous coverage; checks depend on saved-source freshness, service availability and budgets. "
+        "Use personal_task_query for current personal to-dos and projects across conversations. "
+        "Capture the current user's clear first-person commitments and explicit requests with personal_task_update, "
+        "then briefly acknowledge what was recorded. Query first to avoid duplicate commitments. "
+        "Do not capture every request you are already answering as a new personal task. "
+        "Never turn assistant suggestions, quoted text, hypothetical wishes, imported history or third-party "
+        "observations into active user commitments. Imported/source suggestions require user acceptance. "
+        "When the user reports progress, waiting, completion or cancellation, update the existing item. "
+        "Progress writes must include the resulting fields.status; waiting for a person means waiting. "
+        "Keep state and dates in structured fields instead of duplicating them as Markdown status sections. "
+        "Resolve relative dates with current_time and the user's timezone. "
+        "When the user specifies a day without a clock time, store due/defer_until as YYYY-MM-DD; "
+        "do not invent midnight or 23:59 timestamps. "
+        "Use the item's Markdown context to help with the next step using ordinary tools; save useful progress "
+        "and output references. Completing an AI run does not complete the user's real-world work. "
+        "Do not guess deadlines or claim a reminder was scheduled before the tool confirms its registration. "
+        "During a review, suggest a few concrete decisions; do not silently reorganize commitments.",
+    ]
+)
+
+PICTURE_STICKERS_GUIDANCE_BLOCK = "\n".join(
+    [
+        "## Picture stickers",
+        "Use chat_stickers to list the library, or save/remove pictures only at the user's request. "
+        "To reply with a saved picture alone, output exactly [[STICKER:sticker_id]], using an ID "
+        "from the catalog or a successful chat_stickers result. Do not invent IDs or mix the marker "
+        "with prose. Prefer ordinary text when a question, task result, failure or emotional disclosure "
+        "needs a substantive answer. Choose stickers sparingly when their named mood fits the conversation.",
+    ]
+)
+
+
+def append_static_blocks_before_cache_boundary(
+    system_prompt: str,
+    blocks: Sequence[str],
+) -> str:
+    """Insert deterministic static blocks immediately before SYSTEM_PROMPT_CACHE_BOUNDARY."""
+    cleaned = [str(block).strip() for block in blocks if str(block or "").strip()]
+    if not cleaned:
+        return system_prompt
+    if SYSTEM_PROMPT_CACHE_BOUNDARY in system_prompt:
+        head, _, tail = system_prompt.partition(SYSTEM_PROMPT_CACHE_BOUNDARY)
+        parts = [part for part in (head.rstrip(), *cleaned, SYSTEM_PROMPT_CACHE_BOUNDARY) if part]
+        assembled = "\n\n".join(parts)
+        return f"{assembled}{tail}" if tail else assembled
+    parts = [part for part in (system_prompt.rstrip(), *cleaned) if part]
+    return "\n\n".join(parts)
 
 
 def build_scope_guidance_block(task_hint: dict | None) -> str:

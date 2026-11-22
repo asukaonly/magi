@@ -28,6 +28,7 @@ class FallbackHostProtocol(Protocol):
         messages: list[dict[str, Any]],
         *,
         force_plain_text: bool = False,
+        system_prompt: str | None = None,
     ) -> list[dict[str, Any]]: ...
 
     async def _call_llm_without_tools(
@@ -259,6 +260,7 @@ async def _force_plain_text_retry_if_needed(
         messages=host._build_final_response_messages(
             state.messages,
             force_plain_text=True,
+            system_prompt=state.effective_system_prompt,
         ),
         thinking_depth=ThinkingDepth.NONE,
     )
@@ -275,7 +277,10 @@ async def _request_initial_fallback_response(
         state,
         context,
         system_prompt=final_system_prompt,
-        messages=host._build_final_response_messages(state.messages),
+        messages=host._build_final_response_messages(
+            state.messages,
+            system_prompt=final_system_prompt,
+        ),
         thinking_depth=context.thinking_depth,
     )
     return final_system_prompt, final_response

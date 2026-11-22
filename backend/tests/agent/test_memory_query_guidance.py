@@ -115,16 +115,17 @@ async def test_selected_capabilities_control_guidance_in_prepared_working_contex
     from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
     expected_count = 1 if "memory_query" in selected_tools else 0
-    assert request.working_context.count(MEMORY_QUERY_GUIDANCE_BLOCK) == expected_count
+    assert request.system_prompt.count(MEMORY_QUERY_GUIDANCE_BLOCK) == expected_count
     assert request.working_context.startswith("working")
-    assert MEMORY_QUERY_GUIDANCE_BLOCK not in request.system_prompt
+    assert MEMORY_QUERY_GUIDANCE_BLOCK not in request.working_context
     assert MEMORY_QUERY_GUIDANCE_BLOCK not in request.runtime_world_state
     assert request.selected_tools == selected_tools
     watch_guidance = "No notification is not evidence that an event did not happen"
-    assert (watch_guidance in request.working_context) == ("personal_task_query" in selected_tools)
+    assert (watch_guidance in request.system_prompt) == ("personal_task_query" in selected_tools)
+    assert watch_guidance not in request.working_context
     if "personal_task_query" in selected_tools:
-        assert "Query attention_watch_query before claiming" in request.working_context
-        assert "Never imply continuous coverage" in request.working_context
+        assert "Query attention_watch_query before claiming" in request.system_prompt
+        assert "Never imply continuous coverage" in request.system_prompt
     assert handler._deps.context_service.calls[0]["tools"] == selected_tools
     schema = MemoryQueryTool().to_claude_format()["input_schema"]
     for parameter in ("query", "query_mode"):
@@ -132,5 +133,5 @@ async def test_selected_capabilities_control_guidance_in_prepared_working_contex
         assert description not in request.working_context
         assert description not in request.system_prompt
     if expected_count:
-        assert "source of truth" in request.working_context
-        assert "not proof" in request.working_context
+        assert "source of truth" in request.system_prompt
+        assert "not proof" in request.system_prompt

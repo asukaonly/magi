@@ -81,10 +81,10 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             persona_id=None,
             allow_implicit_memory=True,
         )
-        self.assertEqual(request.system_prompt, "owned-by-context-layer")
+        self.assertTrue(request.system_prompt.startswith("owned-by-context-layer"))
+        self.assertIn("## Picture stickers\n", request.system_prompt)
         self.assertEqual(request.runtime_world_state, "world-state")
-        self.assertEqual(request.working_context.split("\n\n", 1)[0], "working-context")
-        self.assertIn("\n\n## Picture stickers\n", request.working_context)
+        self.assertEqual(request.working_context, "working-context")
 
     async def test_chat_handlers_add_memory_query_guidance_when_capability_is_selected(self):
         agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
@@ -127,14 +127,14 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
         request = await agent.build_execution_request(context, admission, capabilities)
 
         self.assertIn("memory_query", request.selected_tools)
-        self.assertIn("source of truth", request.working_context.lower())
+        self.assertIn("source of truth", request.system_prompt.lower())
 
         from magi.agent.task_agents.handlers.handler_helpers import MEMORY_QUERY_GUIDANCE_BLOCK
 
         self.assertEqual(request.selected_tools, ["weather", "memory_query"])
-        self.assertEqual(request.working_context.count(MEMORY_QUERY_GUIDANCE_BLOCK), 1)
+        self.assertEqual(request.system_prompt.count(MEMORY_QUERY_GUIDANCE_BLOCK), 1)
         self.assertTrue(request.working_context.startswith("working-context"))
-        self.assertNotIn(MEMORY_QUERY_GUIDANCE_BLOCK, request.system_prompt)
+        self.assertNotIn(MEMORY_QUERY_GUIDANCE_BLOCK, request.working_context)
         self.assertEqual(
             agent._context_service.build_prompt_package.await_args.kwargs["tools"],
             ["weather", "memory_query"],

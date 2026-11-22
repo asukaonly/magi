@@ -52,6 +52,7 @@ class FunctionCallingResponseMixin:
         messages: list[dict[str, Any]],
         *,
         force_plain_text: bool = False,
+        system_prompt: str | None = None,
     ) -> str:
         """Build run-local finalization rules without mutating the system prompt."""
 
@@ -73,7 +74,7 @@ class FunctionCallingResponseMixin:
                     "- If evidence is incomplete, clearly state the limitation and still answer with the strongest grounded explanation you can.",
                 ]
             )
-        if self._messages_include_memory_query_guidance(messages):
+        if self._messages_include_memory_query_guidance(messages, system_prompt=system_prompt):
             rules.extend(
                 [
                     "- Treat memory_query results as the source of truth for historical recall in this turn.",
@@ -99,6 +100,7 @@ class FunctionCallingResponseMixin:
         messages: list[dict[str, Any]],
         *,
         force_plain_text: bool = False,
+        system_prompt: str | None = None,
     ) -> list[dict[str, Any]]:
         """Clone messages and append typed run-local finalization guidance."""
 
@@ -107,6 +109,7 @@ class FunctionCallingResponseMixin:
             self._build_final_response_guidance(
                 messages,
                 force_plain_text=force_plain_text,
+                system_prompt=system_prompt,
             )
         )
         if finalization_message is not None:
@@ -116,7 +119,11 @@ class FunctionCallingResponseMixin:
     @staticmethod
     def _messages_include_memory_query_guidance(
         messages: list[dict[str, Any]],
+        *,
+        system_prompt: str | None = None,
     ) -> bool:
+        if system_prompt and "# Memory Query Guidance" in str(system_prompt):
+            return True
         for message in messages:
             content = message.get("content")
             if "# Memory Query Guidance" in str(content or ""):

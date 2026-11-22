@@ -71,28 +71,33 @@ class PromptContextRenderer:
             "Otherwise reply normally. Do not mention these internal controls to the user.",
             "",
         ])
+        if include_tool_catalog:
+            system_lines.extend(self._render_tool_catalog(context.tool_catalog))
         system_lines.append(SYSTEM_PROMPT_CACHE_BOUNDARY)
 
         working_lines: List[str] = []
         working_lines.extend(
             self._render_persona_turn_steer(context.self_memory.persona_turn_plan)
         )
-        if include_tool_catalog:
-            # Tool definitions live in the provider tools parameter. Prompt text
-            # carries only turn-level strategy, and emotional / crisis registers
-            # get no task-execution framing at all.
+        if include_tool_catalog and [
+            tool for tool in context.tool_catalog.selected_tools or [] if str(tool).strip()
+        ]:
+            # Keep # Tool Use Guidance byte-stable in the cached system head;
+            # emotional / crisis registers suppress task imperatives with a compact
+            # per-turn steer note below the cache boundary.
             register = (
                 getattr(context.self_memory.persona_turn_plan, "register", None)
                 if context.self_memory.persona_turn_plan
                 else None
             )
-            suppress_tool_imperatives = register in {"emotional", "crisis"}
-            working_lines.extend(
-                self._render_tool_catalog(
-                    context.tool_catalog,
-                    suppress_imperatives=suppress_tool_imperatives,
+            if register in {"emotional", "crisis"}:
+                working_lines.extend(
+                    [
+                        "## Turn Tool Guidance Override",
+                        "* This turn is in an emotional or crisis register: prioritize direct presence and safety over tool imperatives unless a tool is strictly necessary.",
+                        "",
+                    ]
                 )
-            )
         working_lines.extend(
             self._render_persona_journal(context.self_memory.persona_journal_entries)
         )

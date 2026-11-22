@@ -71,18 +71,18 @@ def test_static_and_dynamic_blocks_render_in_separate_layers() -> None:
         "# Persona Runtime Plan"
     )
     assert layers.system_prompt.endswith(SYSTEM_PROMPT_CACHE_BOUNDARY)
-    assert "# Tool Use Guidance" not in layers.system_prompt
-    assert "# Memory Library" not in layers.system_prompt
-    assert "# Runtime World State" not in layers.system_prompt
-    assert layers.working_context.index("# Tool Use Guidance") < layers.working_context.index(
-        "# Memory Library"
-    )
-    assert "# Runtime World State" in layers.runtime_world_state
-    assert "* (empty)" not in layers.working_context
-
     assert layers.system_prompt.index("# Persona Runtime Plan") < layers.system_prompt.index(
+        "# Tool Use Guidance"
+    )
+    assert layers.system_prompt.index("# Tool Use Guidance") < layers.system_prompt.index(
         SYSTEM_PROMPT_CACHE_BOUNDARY
     )
+    assert "# Tool Use Guidance" not in layers.working_context
+    assert "# Memory Library" not in layers.system_prompt
+    assert "# Runtime World State" not in layers.system_prompt
+    assert "# Memory Library" in layers.working_context
+    assert "# Runtime World State" in layers.runtime_world_state
+    assert "* (empty)" not in layers.working_context
 
 
 def test_selected_tool_changes_do_not_change_cacheable_head() -> None:
@@ -231,9 +231,13 @@ def test_build_tools_parameter_order_is_name_stable() -> None:
 
 def test_tool_progress_guidance_keeps_final_answer_self_contained() -> None:
     layers = PromptContextRenderer().render_prompt_layers(_assembly_context(["web-search"]))
-    assert "brief user-facing progress note" in layers.working_context
-    assert "Continue the work after the note" in layers.working_context
-    assert "do not expose internal reasoning" in layers.working_context
-    assert "do not rely on the user having read a progress note" in layers.working_context
+    assert "brief user-facing progress note" in layers.system_prompt
+    assert "Continue the work after the note" in layers.system_prompt
+    assert "do not expose internal reasoning" in layers.system_prompt
+    assert "do not rely on the user having read a progress note" in layers.system_prompt
+    assert layers.system_prompt.index("brief user-facing progress note") < layers.system_prompt.index(
+        SYSTEM_PROMPT_CACHE_BOUNDARY
+    )
     without_tools = PromptContextRenderer().render_prompt_layers(_assembly_context([]))
+    assert "brief user-facing progress note" not in without_tools.system_prompt
     assert "brief user-facing progress note" not in without_tools.working_context

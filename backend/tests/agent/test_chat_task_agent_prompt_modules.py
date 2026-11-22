@@ -143,8 +143,9 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(request.prompt_context)
         system_prompt = request.system_prompt
         self.assertIn("# System Definition", system_prompt)
-        self.assertNotIn("# Tool Use Guidance", system_prompt)
-        self.assertIn("# Tool Use Guidance", request.working_context)
+        self.assertIn("# Tool Use Guidance", system_prompt)
+        self.assertNotIn("# Tool Use Guidance", request.working_context)
+        self.assertIn("## Picture stickers", system_prompt)
         self.assertNotIn("weather", request.working_context)
         self.assertIn("st_0123456789abcdef01234567", request.working_context)
         self.assertIn("开心猫", request.working_context)

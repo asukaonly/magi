@@ -82,13 +82,13 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
 
         i_definition = layers.system_prompt.find("# System Definition")
         i_persona = layers.system_prompt.find("# Persona Runtime Plan")
-        i_tools = layers.working_context.find("# Tool Use Guidance")
+        i_tools = layers.system_prompt.find("# Tool Use Guidance")
         i_profile = layers.working_context.find("# Profile Memory")
 
         self.assertTrue(i_definition >= 0)
         self.assertTrue(i_persona > i_definition)
-        self.assertTrue(i_tools >= 0)
-        self.assertTrue(i_profile > i_tools)
+        self.assertTrue(i_tools > i_persona)
+        self.assertTrue(i_profile >= 0)
         self.assertIn("# Runtime World State", layers.runtime_world_state)
         self.assertNotIn("weather", layers.working_context)
         self.assertIn("* User Name: 哈基米", layers.working_context)
