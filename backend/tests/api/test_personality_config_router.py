@@ -1205,6 +1205,11 @@ async def test_generation_stage_repairs_invalid_json_once(monkeypatch) -> None:
         "warning",
         lambda event, **fields: warnings.append((event, fields)),
     )
+    monkeypatch.setattr(
+        generation_model_stages,
+        "full_content_logging_enabled",
+        lambda: True,
+    )
     adapter = _SequentialLLMAdapter(
         [
             '{"name": "明日香" "description": "少了逗号"}',
@@ -1279,6 +1284,11 @@ async def test_generation_stage_logs_repair_output_when_repair_is_still_invalid(
         warning_calls.append({"event": event, "args": args, **kwargs})
 
     monkeypatch.setattr(generation_model_stages.logger, "warning", _capture_warning)
+    monkeypatch.setattr(
+        generation_model_stages,
+        "full_content_logging_enabled",
+        lambda: True,
+    )
 
     adapter = _SequentialLLMAdapter([
         '{\n  "name": "明日香"\n  "description": "少了逗号"\n}',

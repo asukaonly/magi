@@ -60,7 +60,16 @@ def test_archive_search_reachable_through_public_router_and_typed_response(monke
     monkeypatch.setattr(archive_routes.dependencies, "_resolve_unified_memory", lambda: _memory_stub(tmp_path))
 
     async def search(_reader, **kwargs):
-        assert kwargs == {"query": "京都", "limit": 2, "offset": 1, "event_ids": None}
+        assert kwargs == {
+            "query": "京都",
+            "limit": 2,
+            "offset": 1,
+            "event_ids": None,
+            "start_time": None,
+            "end_time": None,
+            "layer": None,
+            "source_filters": None,
+        }
         return ArchiveSearchResult(items=[], total=0, limit=2, offset=1)
 
     monkeypatch.setattr(ArchiveReader, "search", search)

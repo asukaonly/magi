@@ -22,6 +22,13 @@ async def test_memory_coordinator_uses_injected_owners(tmp_path):
     result = await memory.archives.search(query="retained", event_ids=("event",))
     assert result == {"test": "archive-result"}
     archives.search.assert_awaited_once_with(
-        query="retained", limit=20, offset=0, event_ids=("event",),
+        query="retained",
+        limit=20,
+        offset=0,
+        event_ids=("event",),
+        start_time=None,
+        end_time=None,
+        layer=None,
+        source_filters=None,
     )
     assert not list(tmp_path.rglob("*.db"))

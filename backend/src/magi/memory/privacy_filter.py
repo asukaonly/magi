@@ -11,7 +11,7 @@ import re
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from ..config import get_config
+from ..config import get_config, get_loader
 from ..config.memory_models import PrivacyFilterSettings
 from ..utils.log_redaction import MASKED_LOG_VALUE, redact_log_text
 
@@ -105,11 +105,12 @@ class PrivacyDecision:
 def resolve_privacy_filter_settings(
     settings: PrivacyFilterSettings | None = None,
 ) -> PrivacyFilterSettings:
-    """Resolve active PrivacyFilterSettings from explicit override or runtime config."""
+    """Resolve active PrivacyFilterSettings without triggering blocking config disk I/O."""
     if settings is not None:
         return settings
     try:
-        cfg = get_config()
+        loader = get_loader()
+        cfg = getattr(loader, "_config", None) if loader is not None else None
         resolved = getattr(getattr(getattr(cfg, "agent", None), "memory", None), "privacy_filter", None)
         if isinstance(resolved, PrivacyFilterSettings):
             return resolved

@@ -122,6 +122,7 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(
                     enabled=True,
                     vectors_enabled=True,
                     llm_summary_enabled=True,
+                    hour_llm_summary_enabled=False,
                     temporal_llm_timeout_seconds=30,
                     temporal_llm_min_event_count=5,
                 ),
@@ -141,6 +142,7 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(
     context.message_bus.message_bus = _FakeMessageBus()
     context.plugins.plugin_projection_service = SimpleNamespace(
         build_temporal_summary_features=lambda *args, **kwargs: {},
+        build_temporal_summary_features_async=AsyncMock(return_value={}),
         iter_extraction_profiles=lambda: [],
     )
 
@@ -246,6 +248,7 @@ async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdo
                     enabled=True,
                     vectors_enabled=False,
                     llm_summary_enabled=False,
+                    hour_llm_summary_enabled=False,
                     temporal_llm_timeout_seconds=30,
                     temporal_llm_min_event_count=5,
                 ),
@@ -261,6 +264,7 @@ async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdo
     context.llm.scenario_llm_pool = _FakeScenarioPool()
     context.plugins.plugin_projection_service = SimpleNamespace(
         build_temporal_summary_features=lambda *args, **kwargs: {},
+        build_temporal_summary_features_async=AsyncMock(return_value={}),
         iter_extraction_profiles=lambda: [],
     )
     context.message_bus.message_bus = bus

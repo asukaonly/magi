@@ -80,11 +80,14 @@ def test_tool_save_survives_later_general_settings_save(client: TestClient) -> N
     assert tools["weather"]["current_values"]["default_provider"] == "qweather"
     assert tools["web-fetch"]["current_values"] == tool_changes["web-fetch"]["updates"]
 
-    stored = yaml.safe_load(config_loader.get_config_file_path().read_text())
+    raw_config_text = config_loader.get_config_file_path().read_text()
+    stored = yaml.safe_load(raw_config_text)
     assert "builtIn" not in stored["tools"]
     assert stored["tools"]["skills"] == ["selected-skill"]
     assert stored["tools"]["web_search"]["enabled"] is False
-    assert stored["tools"]["web_search"]["providers"]["tavily"]["api_key"] == "test-search-key"
+    assert stored["tools"]["web_search"]["providers"]["tavily"]["api_key"].startswith("secret_ref:agent:")
+    assert "test-search-key" not in raw_config_text
+    assert config_loader.get_config().tools.web_search.providers["tavily"].api_key == "test-search-key"
     assert stored["tools"]["web_fetch"]["allow_rfc2544_benchmark_range"] is False
 
 
@@ -200,8 +203,11 @@ def test_provider_secret_is_persisted_but_absent_from_every_public_snapshot(clie
     for payload in [response, reread, listing]:
         assert secret not in payload.text
     assert path not in reread.json()["current_values"]
-    stored = yaml.safe_load(config_loader.get_config_file_path().read_text())
-    assert stored["tools"]["web_search"]["providers"][provider]["api_key"] == secret
+    raw_config_text = config_loader.get_config_file_path().read_text()
+    stored = yaml.safe_load(raw_config_text)
+    assert stored["tools"]["web_search"]["providers"][provider]["api_key"].startswith("secret_ref:agent:")
+    assert secret not in raw_config_text
+    assert config_loader.get_config().tools.web_search.providers[provider].api_key == secret
 
 
 def test_empty_tool_update_returns_identical_snapshot_without_writing_or_reloading(
