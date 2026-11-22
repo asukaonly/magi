@@ -18,6 +18,7 @@ from ...llm import (
     ProviderResponse,
     ScenarioLLMPool,
 )
+from ...llm.background_budget import get_background_llm_budget_guard
 from ...llm.error_classifier import ClassifiedError, classify_exception, is_rate_limit_exception
 
 logger = get_logger("magi.memory.l2.llm_service")
@@ -37,6 +38,12 @@ class L2LLMJsonError(RuntimeError):
 
 class L2LLMUnavailableError(L2LLMJsonError):
     """Raised when an L2 model call has no configured adapter."""
+
+
+class L2LLMBudgetExceededError(L2LLMJsonError):
+    """Raised when a background L2 model call is deferred by the daily token budget."""
+
+    retryable = True
 
 
 class L2LLMCallError(L2LLMJsonError):
@@ -127,6 +134,12 @@ class L2LLMJsonClientMixin:
                 else LLMRequestPriority.LOW
             ),
         )
+        budget = await get_background_llm_budget_guard().check(call.request_kind)
+        if not budget.allowed:
+            raise L2LLMBudgetExceededError(
+                f"Background LLM daily token budget exceeded for {call.request_kind} "
+                f"(used={budget.used_tokens}, budget={budget.budget_tokens})"
+            )
         target = self._get_json_target(call)
         if target is None:
             raise L2LLMUnavailableError(

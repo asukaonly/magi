@@ -154,7 +154,8 @@ class MemoryL3ConfigModel(BaseModel):
     retention_days: int = Field(default=365, ge=1)
     vectors_enabled: bool = Field(default=True)
     llm_summary_enabled: bool = Field(default=True)
-    temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
+    hour_llm_summary_enabled: bool = Field(default=False)
+    temporal_llm_timeout_seconds: Optional[float] = Field(default=None, ge=0.1)
     temporal_llm_min_event_count: int = Field(default=2, ge=1)
 
 
@@ -206,6 +207,7 @@ class MemoryConfigModel(BaseModel):
     retention_days: int = Field(default=90, ge=1)
     history_behavior: str = Field(default="archive")
     archive_path: Optional[str] = Field(default_factory=lambda: str(get_magi_home() / "data/memory/archive"))
+    background_llm_daily_token_budget: int = Field(default=0, ge=0)
     embedding: EmbeddingConfigModel = Field(default_factory=EmbeddingConfigModel)
     reranker: MemoryRerankerConfigModel = Field(default_factory=MemoryRerankerConfigModel)
     query_expansion: QueryExpansionConfigModel = Field(default_factory=QueryExpansionConfigModel)

@@ -34,11 +34,13 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
         self,
         *,
         enabled: bool = True,
-        llm_timeout_seconds: float = 3.0,
+        llm_timeout_seconds: float | None = None,
         scenario_llm_pool: ScenarioLLMPool | None = None,
     ) -> None:
         self._enabled = bool(enabled)
-        self._llm_timeout_seconds = float(llm_timeout_seconds)
+        self._llm_timeout_seconds = (
+            float(llm_timeout_seconds) if llm_timeout_seconds is not None else 180.0
+        )
         self._scenario_llm_pool = scenario_llm_pool
 
     async def generate_topic_candidate(

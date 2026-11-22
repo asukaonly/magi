@@ -430,6 +430,7 @@ export interface MemoryConfig {
   retention_days: number;
   history_behavior: 'delete' | 'archive';
   archive_path?: string | null;
+  background_llm_daily_token_budget?: number;
   embedding: EmbeddingConfig;
   reranker: MemoryRerankerConfig;
   query_expansion: QueryExpansionConfig;
@@ -684,6 +685,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     },
     retention_days: 90,
     history_behavior: 'archive',
+    background_llm_daily_token_budget: 0,
     l0: {
       enabled: true,
       checkpoint_interval_seconds: 30,
@@ -709,7 +711,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       retention_days: 365,
       vectors_enabled: true,
       llm_summary_enabled: true,
-      temporal_llm_timeout_seconds: 3.0,
+      hour_llm_summary_enabled: false,
+      temporal_llm_timeout_seconds: null,
       temporal_llm_min_event_count: 2,
     },
     l4: {

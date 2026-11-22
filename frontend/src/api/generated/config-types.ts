@@ -984,6 +984,11 @@ export interface components {
         MemoryConfigModel: {
             /** Archive Path */
             archive_path: string | null;
+            /**
+             * Background Llm Daily Token Budget
+             * @default 0
+             */
+            background_llm_daily_token_budget: number;
             /** Db Path */
             db_path: string | null;
             embedding: components["schemas"]["EmbeddingConfigModel"];
@@ -1094,6 +1099,11 @@ export interface components {
              */
             enabled: boolean;
             /**
+             * Hour Llm Summary Enabled
+             * @default false
+             */
+            hour_llm_summary_enabled: boolean;
+            /**
              * Llm Summary Enabled
              * @default true
              */
@@ -1110,9 +1120,9 @@ export interface components {
             temporal_llm_min_event_count: number;
             /**
              * Temporal Llm Timeout Seconds
-             * @default 3
+             * @default null
              */
-            temporal_llm_timeout_seconds: number;
+            temporal_llm_timeout_seconds: number | null;
             /**
              * Vectors Enabled
              * @default true

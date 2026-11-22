@@ -49,6 +49,7 @@ def build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfi
             memory_cfg.history_behavior, "value", str(memory_cfg.history_behavior)
         ),
         archive_path=memory_cfg.archive_path,
+        background_llm_daily_token_budget=memory_cfg.background_llm_daily_token_budget,
         embedding=_build_memory_embedding_config(memory_cfg),
         reranker=_build_memory_reranker_config(memory_cfg),
         query_expansion=_build_query_expansion_config(memory_cfg),
@@ -135,6 +136,7 @@ def _build_memory_l3_config(memory_cfg: Any) -> MemoryL3ConfigModel:
         retention_days=memory_cfg.l3.retention_days,
         vectors_enabled=memory_cfg.l3.vectors_enabled,
         llm_summary_enabled=memory_cfg.l3.llm_summary_enabled,
+        hour_llm_summary_enabled=memory_cfg.l3.hour_llm_summary_enabled,
         temporal_llm_timeout_seconds=memory_cfg.l3.temporal_llm_timeout_seconds,
         temporal_llm_min_event_count=memory_cfg.l3.temporal_llm_min_event_count,
     )

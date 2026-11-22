@@ -63,10 +63,11 @@ class MemoryStoreTuning:
     enable_l3_vectors: bool = True
     enable_l4_vectors: bool = True
     enable_l3_llm_summary: bool = True
+    enable_l3_hour_llm_summary: bool = False
     async_embeddings: bool = True
     l0_checkpoint_interval_seconds: int = 30
     session_timeout_seconds: int = 3600
-    temporal_l3_llm_timeout_seconds: float = 3.0
+    temporal_l3_llm_timeout_seconds: float | None = None
     temporal_l3_llm_min_event_count: int = 2
 
 
@@ -406,6 +407,7 @@ class UnifiedMemoryStore(
             vector_enabled=context.tuning.enable_l3_vectors,
             async_embeddings=context.tuning.async_embeddings,
             enable_temporal_llm_summary=context.tuning.enable_l3_llm_summary,
+            enable_hour_llm_summary=context.tuning.enable_l3_hour_llm_summary,
             temporal_llm_timeout_seconds=context.tuning.temporal_l3_llm_timeout_seconds,
             temporal_llm_min_event_count=context.tuning.temporal_l3_llm_min_event_count,
             scenario_llm_pool=context.scenario_llm_pool,

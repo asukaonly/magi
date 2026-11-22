@@ -2368,6 +2368,12 @@
             ],
             "title": "Archive Path"
           },
+          "background_llm_daily_token_budget": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Background Llm Daily Token Budget",
+            "type": "integer"
+          },
           "db_path": {
             "anyOf": [
               {
@@ -2426,6 +2432,7 @@
           "retention_days",
           "history_behavior",
           "archive_path",
+          "background_llm_daily_token_budget",
           "embedding",
           "reranker",
           "query_expansion",
@@ -2566,6 +2573,11 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "hour_llm_summary_enabled": {
+            "default": false,
+            "title": "Hour Llm Summary Enabled",
+            "type": "boolean"
+          },
           "llm_summary_enabled": {
             "default": true,
             "title": "Llm Summary Enabled",
@@ -2584,10 +2596,17 @@
             "type": "integer"
           },
           "temporal_llm_timeout_seconds": {
-            "default": 3.0,
-            "minimum": 0.1,
-            "title": "Temporal Llm Timeout Seconds",
-            "type": "number"
+            "anyOf": [
+              {
+                "minimum": 0.1,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Temporal Llm Timeout Seconds"
           },
           "vectors_enabled": {
             "default": true,
@@ -2600,6 +2619,7 @@
           "retention_days",
           "vectors_enabled",
           "llm_summary_enabled",
+          "hour_llm_summary_enabled",
           "temporal_llm_timeout_seconds",
           "temporal_llm_min_event_count"
         ],

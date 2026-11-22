@@ -437,6 +437,10 @@ class MemoryL2Settings(BaseModel):
     batch_flush_interval_seconds: int = Field(default=60, ge=30)
     llm_extraction_enabled: bool = Field(default=True)
     auto_extract_relations: bool = Field(default=True)
+    strict_core_self_report_review: bool = Field(
+        default=False,
+        description="Use CORE reasoning model with thinking enabled for L2 self-report review; default uses AUXILIARY.",
+    )
     maintenance_enabled: bool = Field(
         default=True,
         description="Register periodic L2 entity/graph maintenance with the runtime scheduler.",
@@ -525,7 +529,15 @@ class MemoryL3Settings(BaseModel):
     )
     vectors_enabled: bool = Field(default=True)
     llm_summary_enabled: bool = Field(default=True)
-    temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
+    hour_llm_summary_enabled: bool = Field(
+        default=False,
+        description="Enable LLM prose generation for hourly L3 summaries; default uses zero-LLM deterministic aggregation.",
+    )
+    temporal_llm_timeout_seconds: Optional[float] = Field(
+        default=None,
+        ge=0.1,
+        description="Optional explicit override timeout for L3 temporal LLM calls; None uses period-specific policy defaults.",
+    )
     temporal_llm_min_event_count: int = Field(default=2, ge=1)
     maintenance_enabled: bool = Field(
         default=True,
@@ -641,6 +653,11 @@ class MemorySettings(BaseModel):
     retention_days: int = Field(default=90, ge=1)
     history_behavior: MemoryHistoryBehavior = Field(default=MemoryHistoryBehavior.ARCHIVE)
     archive_path: str = Field(default_factory=lambda: str(get_magi_home() / "data/memory/archive"))
+    background_llm_daily_token_budget: int = Field(
+        default=0,
+        ge=0,
+        description="Optional daily token budget cap for background LLM jobs (0 disables the cap).",
+    )
     async_embeddings: bool = Field(default=True)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     vector_storage: VectorStorageSettings = Field(default_factory=VectorStorageSettings)

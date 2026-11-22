@@ -150,10 +150,12 @@ class GroundingFilter:
         llm_bridge: Any | None,
         timeout_seconds: float = 3.0,
         enabled: bool = True,
+        min_candidates: int = MIN_CANDIDATES_TO_FILTER,
     ) -> None:
         self._bridge = llm_bridge
         self._timeout = float(timeout_seconds)
         self._enabled = bool(enabled) and llm_bridge is not None
+        self._min_candidates = max(MIN_CANDIDATES_TO_FILTER, int(min_candidates))
 
     async def apply(
         self,
@@ -218,8 +220,8 @@ class GroundingFilter:
         )
 
     def _skip_reason(self, window: _GroundingCandidateWindow) -> str | None:
-        if window.total < MIN_CANDIDATES_TO_FILTER:
-            return "trivial_count"
+        if window.total < self._min_candidates:
+            return "trivial_count" if window.total < MIN_CANDIDATES_TO_FILTER else "below_candidate_threshold"
         if not window.query:
             return "empty_query"
         return None

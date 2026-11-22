@@ -388,7 +388,8 @@ class L3SummaryStore(
         vector_enabled: bool = True,
         async_embeddings: bool = True,
         enable_temporal_llm_summary: bool = True,
-        temporal_llm_timeout_seconds: float = 3.0,
+        enable_hour_llm_summary: bool = False,
+        temporal_llm_timeout_seconds: float | None = None,
         temporal_llm_min_event_count: int = 2,
         scenario_llm_pool: ScenarioLLMPool | None = None,
         temporal_summary_features_builder: Callable[..., dict[str, Any]] | None = None,
@@ -406,6 +407,7 @@ class L3SummaryStore(
         self._default_async_embeddings = bool(async_embeddings)
         self._temporal_llm_service = TemporalSummaryLLMService(
             enabled=enable_temporal_llm_summary,
+            hour_llm_enabled=enable_hour_llm_summary,
             llm_timeout_seconds=temporal_llm_timeout_seconds,
             min_event_count_for_llm=temporal_llm_min_event_count,
             scenario_llm_pool=scenario_llm_pool,

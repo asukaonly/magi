@@ -82,6 +82,10 @@ not also output duplicate top-level ``entities``, ``subject_hint``, or
 - ``content_query``: the answer-oriented retrieval phrase. Must match the user's
   query language. Do not hallucinate, do not expand with invented details, do not
   replace quoted titles with broad topics. Keep it tight.
+- ``expanded_queries`` (optional): 0 to 2 concise alternative retrieval phrases in
+  the user's query language (synonyms, alternate phrasing, or focused keyword
+  variants) to broaden recall without a separate expansion call. Omit or return []
+  when ``content_query`` is already unambiguous. Never invent details or drop quoted titles.
 - ``relation_intent`` (optional, L2): a short ENGLISH, relation-oriented phrase
   describing the main relation needed for the first hop. Always output in English
   even when the query is in another language because it is matched against an
@@ -201,6 +205,7 @@ Return JSON only:
   "recall_shape": {"domain_hint": "unknown", "operation": "search"},
   "query_temporal": {"kind": "none"} | {"kind": "calendar", "mode": "during", "raw_expression": "exact span", "expression": { ... }} | {"kind": "rolling_window", "raw_expression": "exact span", "unit": "day", "count": 7} | null,
   "content_query": "string",
+  "expanded_queries": ["string"],
   "relation_intent": "string | null",
   "hop2_target_type": "string | null",
   "evidence_focus": "declared" | "observed" | "both" | null,
@@ -225,6 +230,7 @@ class LLMRefinement:
     recall_shape: RecallShape = field(default_factory=RecallShape)
     query_temporal: QueryTemporalJudgment | None = None
     content_query: str = ""
+    expanded_queries: list[str] = field(default_factory=list)
     entities: Optional[list[str]] = None
     subject_hint: Optional[str] = None
     predicate_family: Optional[str] = None
@@ -248,6 +254,7 @@ class _ParsedLLMIntentFields:
     recall_shape: RecallShape
     query_temporal: QueryTemporalJudgment | None
     content_query: str
+    expanded_queries: list[str]
     entities: Optional[list[str]]
     subject_hint: Optional[str]
     predicate_family: Optional[str]
@@ -285,11 +292,16 @@ def _parse_llm_intent_fields(
     if predicate_family is None and semantic_frame is not None:
         predicate_family = predicate_family_from_query_family(semantic_frame.query_family)
 
+    content_query = str(data.get("content_query") or "").strip()
     return _ParsedLLMIntentFields(
         query_mode=_parse_valid_string(data.get("query_mode"), VALID_MODES),
         recall_shape=parse_recall_shape(data.get("recall_shape")),
         query_temporal=QueryTemporalJudgment.from_dict(data.get("query_temporal")),
-        content_query=str(data.get("content_query") or "").strip(),
+        content_query=content_query,
+        expanded_queries=_parse_expanded_queries(
+            data.get("expanded_queries"),
+            content_query=content_query,
+        ),
         entities=entities,
         subject_hint=subject_hint,
         predicate_family=predicate_family,
@@ -299,6 +311,32 @@ def _parse_llm_intent_fields(
         semantic_frame=semantic_frame,
         reasoning=str(data.get("reasoning") or ""),
     )
+
+
+def _parse_expanded_queries(
+    value: Any,
+    *,
+    content_query: str,
+    max_expansions: int = 2,
+) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    seen = {content_query.strip().lower()} if content_query.strip() else set()
+    expanded: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        cleaned = item.strip()
+        if not cleaned or len(cleaned) > 160:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        expanded.append(cleaned)
+        if len(expanded) >= max_expansions:
+            break
+    return expanded
 
 
 def _parse_entities(value: Any) -> Optional[list[str]]:
@@ -420,7 +458,7 @@ class LLMIntentDecider:
         fields = _parse_llm_intent_fields(data, semantic_frame)
 
         if not any((
-            fields.content_query, fields.entities, fields.semantic_frame,
+            fields.content_query, fields.expanded_queries, fields.entities, fields.semantic_frame,
             fields.query_mode, fields.recall_shape != RecallShape(),
             fields.query_temporal, fields.subject_hint, fields.predicate_family,
             fields.relation_intent, fields.hop2_target_type, fields.evidence_focus,
@@ -432,6 +470,7 @@ class LLMIntentDecider:
             recall_shape=fields.recall_shape,
             query_temporal=fields.query_temporal,
             content_query=fields.content_query,
+            expanded_queries=fields.expanded_queries,
             entities=fields.entities,
             subject_hint=fields.subject_hint,
             predicate_family=fields.predicate_family,
@@ -463,6 +502,7 @@ class LLMIntentDecider:
                 self._apply_content_query_refinement(refined_query, conditions)
 
         rule_decision.recall_shape = refinement.recall_shape
+        rule_decision.expanded_queries = list(refinement.expanded_queries)
         rule_decision.reasoning = _merge_reasoning(rule_decision.reasoning, refinement.reasoning)
         rule_decision.source = "llm"
         return rule_decision

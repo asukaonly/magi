@@ -3,6 +3,7 @@
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -132,8 +133,8 @@ async def test_review_preserves_other_subjects_and_only_sees_cited_context():
     result = L2Phase1Result.from_dict(payload)
 
     async def review(**kwargs):
-        assert kwargs["disable_thinking"] is False
-        assert kwargs["scenario"] is LLMScenario.CORE
+        assert kwargs["disable_thinking"] is True
+        assert kwargs["scenario"] is LLMScenario.AUXILIARY
         data = json.loads(kwargs["prompt"])
         assert [c["claim_index"] for c in data["candidates"]] == [1]
         assert all("temporal_cue" not in c and "confidence" not in c for c in data["candidates"])
@@ -150,6 +151,35 @@ async def test_review_preserves_other_subjects_and_only_sees_cited_context():
         ],
     )
     assert [claim.subject_ref for claim in result.fact_claims] == ["person:other"]
+
+
+@pytest.mark.asyncio
+async def test_strict_core_self_report_review_opt_in_routes_to_core_thinking(monkeypatch):
+    from magi.memory.l2 import self_report_review as mod
+
+    fake_cfg = SimpleNamespace(
+        agent=SimpleNamespace(
+            memory=SimpleNamespace(
+                l2=SimpleNamespace(strict_core_self_report_review=True)
+            )
+        )
+    )
+    monkeypatch.setattr(mod, "get_config", lambda: fake_cfg)
+    payload = json.loads(json.dumps(_FAILURES[0]["response"]))
+    result = L2Phase1Result.from_dict(payload)
+    seen: list[tuple[LLMScenario, bool]] = []
+
+    async def review(**kwargs):
+        seen.append((kwargs["scenario"], kwargs["disable_thinking"]))
+        return {"reviews": [{"claim_index": i, "verdict": "direct_self_report"} for i in range(len(result.fact_claims))]}
+
+    await review_self_report_claims(
+        generate_json=review,
+        result=result,
+        event_window=L2EventWindow(),
+        context_messages=[],
+    )
+    assert seen == [(LLMScenario.CORE, False)]
 
 
 @pytest.mark.asyncio

@@ -456,7 +456,7 @@ async def test_call_temporal_model_parses_json_from_llm_target(monkeypatch: pyte
     "category,default_timeout,disable_thinking",
     [
         ("hour", 180.0, True),
-        ("day", 300.0, False),
+        ("day", 300.0, True),
         ("week", 600.0, False),
         ("month", 600.0, False),
         ("quarter", 600.0, False),
@@ -470,7 +470,8 @@ async def test_period_and_timeout_override_reach_both_model_requests(
     from magi.llm import LLMRequestPriority
 
     service = TemporalSummaryLLMService(
-        **({} if override is None else {"llm_timeout_seconds": override})
+        hour_llm_enabled=(category == "hour"),
+        **({} if override is None else {"llm_timeout_seconds": override}),
     )
     request = _capture_generation_bridge(monkeypatch, service)
     result = await service.generate_temporal_candidate(

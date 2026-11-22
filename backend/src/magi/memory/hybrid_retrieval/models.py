@@ -270,9 +270,10 @@ class IntentDecision:
     plans: List[LayerQueryPlan] = field(default_factory=list)
     time_range: Optional[TimeRange] = None  # host-resolved caller or semantic calendar restriction
     reasoning: Optional[str] = None
-    source: str = "llm"  # "llm" | "rule_fallback"
+    source: str = "llm"  # "llm" | "rule_fallback" | "rule_fast_path"
     query_mode: str | None = None
     recall_shape: RecallShape = field(default_factory=RecallShape)
+    expanded_queries: List[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -290,11 +291,12 @@ class RetrievalConfig:
     intent_shadow_eval_enabled: bool = True
 
     # Post-retrieval grounding filter (LLM-as-listwise-relevance-filter).
-    # Trims raw candidate set so the answer LLM doesn't waste tokens /
-    # attention on noise. Only skipped for trivial 0/1-candidate sets
-    # (see MIN_CANDIDATES_TO_FILTER in grounding_filter.py).
+    # Trims noisy candidate sets when candidate count exceeds the configured
+    # threshold (default > 15 candidates, i.e., min_candidates=16) so typical
+    # small retrieval results avoid an extra online LLM round-trip.
     grounding_filter_enabled: bool = True
     grounding_filter_timeout_seconds: float = 3.0
+    grounding_filter_min_candidates: int = 16
 
     # RRF
     rrf_k: int = 60

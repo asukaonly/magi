@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-LEGACY_FLAT_TIMEOUT_SECONDS = 3.0
-
 _PERIOD_TIMEOUT_SECONDS = {
     "hour": 180.0,
     "day": 300.0,
@@ -14,7 +12,7 @@ _PERIOD_TIMEOUT_SECONDS = {
 }
 _PERIOD_DISABLE_THINKING = {
     "hour": True,
-    "day": False,
+    "day": True,
     "week": False,
     "month": False,
     "quarter": False,
@@ -80,6 +78,5 @@ class TemporalSummaryPolicy:
 
 
 __all__ = [
-    "LEGACY_FLAT_TIMEOUT_SECONDS",
     "TemporalSummaryPolicy",
 ]

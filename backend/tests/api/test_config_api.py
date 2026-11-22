@@ -251,7 +251,9 @@ def test_public_configuration_defaults_preserve_policy_and_ownership(tmp_path, m
     assert config.memory.l2.shadow_conflict_notification_enabled is True
     assert config.memory.l2.portrait_projection_refresh_delay_seconds == 120
     assert config.memory.l1.retention_days == 90
-    assert config.memory.l3.temporal_llm_timeout_seconds == 3.0
+    assert config.memory.background_llm_daily_token_budget == 0
+    assert config.memory.l3.hour_llm_summary_enabled is False
+    assert config.memory.l3.temporal_llm_timeout_seconds is None
     assert config.memory.l3.temporal_llm_min_event_count == 2
     assert config.memory.l3.retention_days == 365
     assert config.memory.l4.inactive_skill_retention_days == 30

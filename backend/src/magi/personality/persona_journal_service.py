@@ -18,6 +18,7 @@ except ImportError:  # pragma: no cover - optional fallback
 
 from ..config import get_config
 from ..config.models import LLMScenario
+from ..llm.background_budget import get_background_llm_budget_guard
 from ..llm.provider import get_scenario_llm_pool
 from ..llm.provider_bridge import LLMProviderBridge
 from ..memory.reflection_evidence import ReflectionEvidenceReader, evidence_digest
@@ -314,6 +315,9 @@ class PersonaJournalService:
         settings = get_config().agent.personality
         if not settings.enable_background_reflection or not settings.enable_state_memory:
             return "disabled"
+        budget = await get_background_llm_budget_guard().check("personality:journal_reflection")
+        if not budget.allowed:
+            return "budget_exceeded"
         if self._lock.locked():
             return "busy"
         async with self._lock:

@@ -174,6 +174,7 @@ class HybridRetrievalService(
             llm_bridge=llm_provider_bridge,
             timeout_seconds=getattr(self._config, "grounding_filter_timeout_seconds", 3.0),
             enabled=getattr(self._config, "grounding_filter_enabled", True),
+            min_candidates=getattr(self._config, "grounding_filter_min_candidates", 16),
         )
 
     @property

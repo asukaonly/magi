@@ -11,6 +11,7 @@ from typing import Any, Optional
 from magi.utils.calendar_timezone import local_calendar_timezone_id
 
 from .query_temporal import resolve_query_temporal
+from .answerability import extract_query_tokens
 from .intent_evaluation import EvaluationRecord, compute_diff
 from .llm_intent import LLMIntentDecider, LLMRefinement
 from .models import IntentDeciderInput, IntentDecision
@@ -19,9 +20,114 @@ from .rule_intent_decider import RuleBasedIntentDecider
 
 logger = logging.getLogger(__name__)
 
+_FAST_PATH_ALLOWED_MODES = frozenset({"event_stream", "exact_fact"})
+_FAST_PATH_EN_COMPLEXITY_TOKENS = frozenset({
+    "who",
+    "why",
+    "how",
+    "what",
+    "when",
+    "where",
+    "which",
+    "compare",
+    "comparison",
+    "summary",
+    "summarize",
+    "recap",
+    "change",
+    "changed",
+    "prefer",
+    "preference",
+    "preferences",
+    "like",
+    "likes",
+    "dislike",
+    "dislikes",
+    "both",
+    "common",
+    "share",
+    "shared",
+    "all",
+    "every",
+    "count",
+    "many",
+    "not",
+    "without",
+    "never",
+    "except",
+    "boss",
+    "colleague",
+    "friend",
+})
+_FAST_PATH_ZH_COMPLEXITY_MARKERS = (
+    "多少",
+    "几个",
+    "哪些",
+    "什么",
+    "为什么",
+    "怎么",
+    "是否",
+    "有没有",
+    "喜欢",
+    "偏好",
+    "讨厌",
+    "总结",
+    "概括",
+    "对比",
+    "比较",
+    "变化",
+    "还是",
+    "共同",
+    "所有",
+    "全部",
+    "不要",
+    "并非",
+    "没有",
+    "同事",
+    "老板",
+    "朋友",
+    "的",
+)
+_FAST_PATH_DISALLOWED_CHARS = ('?', '？', '"', "'", '《', '》', '「', '」')
+
+
+def _is_simple_direct_lookup(
+    inp: IntentDeciderInput,
+    rule_decision: IntentDecision,
+) -> bool:
+    """Return True when a query has an explicit caller time window and concise keywords.
+
+    Simple explicit-range keyword lookups bypass the auxiliary intent LLM call
+    and go straight to FTS + vector retrieval. Point-in-time ``as_of`` queries,
+    multi-hop / preference / aggregation / negated prose questions, and
+    unbounded natural-language questions continue through the LLM decider.
+    """
+    if inp.query_mode_hint is not None and inp.query_mode_hint not in _FAST_PATH_ALLOWED_MODES:
+        return False
+    time_range = rule_decision.time_range
+    if (
+        time_range is None
+        or time_range.as_of is not None
+        or (time_range.start is None and time_range.end is None)
+    ):
+        return False
+    query = str(inp.query or "").strip()
+    if not query or len(query) > 64:
+        return False
+    if any(ch in query for ch in _FAST_PATH_DISALLOWED_CHARS):
+        return False
+    if any(marker in query for marker in _FAST_PATH_ZH_COMPLEXITY_MARKERS):
+        return False
+    tokens = extract_query_tokens(query)
+    if not tokens or len(tokens) > 6:
+        return False
+    if any(token in _FAST_PATH_EN_COMPLEXITY_TOKENS for token in tokens):
+        return False
+    return True
+
 
 class IntentDecider:
-    """Combined intent decider: LLM primary + rule shadow + evaluation logging."""
+    """Combined intent decider: rule fast-path + LLM primary + rule shadow."""
 
     def __init__(
         self,
@@ -30,12 +136,14 @@ class IntentDecider:
         llm_decider: Optional[LLMIntentDecider] = None,
         llm_enabled: bool = True,
         shadow_eval_enabled: bool = True,
+        fast_path_enabled: bool = True,
         eval_callback: Optional[Any] = None,
     ):
         self._rule_engine = rule_engine
         self._llm_decider = llm_decider
         self._llm_enabled = llm_enabled and llm_decider is not None
         self._shadow_eval_enabled = shadow_eval_enabled
+        self._fast_path_enabled = bool(fast_path_enabled)
         self._eval_callback = eval_callback
         self._background_tasks: set[asyncio.Task[None]] = set()
 
@@ -44,6 +152,15 @@ class IntentDecider:
         query_anchor = time.time()
         query_timezone = local_calendar_timezone_id()
         rule_decision = self._rule_engine.evaluate(inp)
+
+        if self._fast_path_enabled and _is_simple_direct_lookup(inp, rule_decision):
+            rule_decision.source = "rule_fast_path"
+            rule_decision.reasoning = (
+                f"{rule_decision.reasoning}; fast_path=explicit_time_keyword"
+                if rule_decision.reasoning
+                else "fast_path=explicit_time_keyword"
+            )
+            return rule_decision
 
         llm_refinement: Optional[LLMRefinement] = None
         llm_latency_ms: Optional[float] = None

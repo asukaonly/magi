@@ -313,6 +313,37 @@ class LLMUsageStore:
                     ),
                 )
                 await db.commit()
+        try:
+            from .background_budget import get_background_llm_budget_guard
+
+            get_background_llm_budget_guard().invalidate()
+        except Exception:
+            pass
+
+    async def get_tokens_since(
+        self,
+        *,
+        since_ts: float,
+        until_ts: float | None = None,
+        request_kind_prefixes: tuple[str, ...] | list[str] = (),
+    ) -> int:
+        """Return total tokens recorded within ``[since_ts, until_ts)`` matching optional prefixes."""
+        await self.initialize()
+        clauses = ["created_at >= ?"]
+        params: list[Any] = [float(since_ts)]
+        if until_ts is not None:
+            clauses.append("created_at < ?")
+            params.append(float(until_ts))
+        prefixes = [str(p).strip().lower() for p in request_kind_prefixes if str(p).strip()]
+        if prefixes:
+            like_clauses = " OR ".join("LOWER(request_kind) LIKE ?" for _ in prefixes)
+            clauses.append(f"({like_clauses})")
+            params.extend(f"{prefix}%" for prefix in prefixes)
+        sql = f"SELECT COALESCE(SUM(total_tokens), 0) FROM llm_usage WHERE {' AND '.join(clauses)}"
+        async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
+            async with db.execute(sql, tuple(params)) as cursor:
+                row = await cursor.fetchone()
+        return int(row[0] or 0) if row else 0
 
     async def record_cache_observation(self, payload: dict[str, Any]) -> None:
         """Persist lightweight prompt-cache diagnostics for one LLM call."""

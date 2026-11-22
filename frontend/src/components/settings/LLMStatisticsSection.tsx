@@ -260,6 +260,18 @@ const LLMStatisticsSectionInner: FC = () => {
         )}
         mainCanvas={(
           <section className="space-y-3">
+            {summary?.background_budget?.exceeded ? (
+              <div
+                role="status"
+                data-testid="background-budget-paused-notice"
+                className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground"
+              >
+                {t('settings.usage.backgroundBudgetPaused', {
+                  used: formatInteger(summary.background_budget.used_tokens),
+                  budget: formatInteger(summary.background_budget.budget_tokens),
+                })}
+              </div>
+            ) : null}
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="text-base font-semibold">{t('settings.statistics.llm.dailyTrend')}</h3>
               <div className="flex gap-2">

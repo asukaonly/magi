@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from ...llm import LLMProviderBridge, LLMScenario, ScenarioLLMPool
+from ...llm.background_budget import get_background_llm_budget_guard
 from .models import (
     L3Candidate,
     TemporalEvidencePack,
@@ -19,7 +20,7 @@ from .temporal_language import TemporalLanguageGuard
 from .temporal_language import render_temporal_summary_system_prompt
 from .temporal_model_client import TemporalSummaryModelClient
 from .temporal_output import TemporalOutputParsingMixin
-from .temporal_policy import LEGACY_FLAT_TIMEOUT_SECONDS, TemporalSummaryPolicy
+from .temporal_policy import TemporalSummaryPolicy
 from .temporal_prompt_renderer import TemporalPromptRenderer
 from .temporal_prompts import TEMPORAL_SUMMARY_OUTPUT_SCHEMA, TEMPORAL_SUMMARY_SYSTEM_PROMPT
 from .temporal_review import TemporalStructureReview, parse_prose_issues
@@ -38,14 +39,15 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         self,
         *,
         enabled: bool = True,
-        llm_timeout_seconds: float = 3.0,
+        hour_llm_enabled: bool = False,
+        llm_timeout_seconds: float | None = None,
         min_event_count_for_llm: int = 2,
         scenario_llm_pool: ScenarioLLMPool | None = None,
     ) -> None:
         self._enabled = bool(enabled)
-        normalized_timeout = float(llm_timeout_seconds)
+        self._hour_llm_enabled = bool(hour_llm_enabled)
         self._llm_timeout_seconds = (
-            None if normalized_timeout == LEGACY_FLAT_TIMEOUT_SECONDS else normalized_timeout
+            float(llm_timeout_seconds) if llm_timeout_seconds is not None else None
         )
         self._min_event_count_for_llm = max(1, int(min_event_count_for_llm))
         self._scenario_llm_pool = scenario_llm_pool
@@ -68,6 +70,12 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
         """Generate prose, review evidence claims, and extract optional metadata."""
         fallback = self._build_fallback_result(pack, fallback_summary)
         if not self._should_use_temporal_llm(pack):
+            return fallback
+
+        budget = await get_background_llm_budget_guard().check(
+            f"memory:l3_temporal_{pack.summary_category}"
+        )
+        if not budget.allowed:
             return fallback
 
         timeout_seconds = self._timeout_seconds_for_pack(pack)
@@ -146,7 +154,11 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
             return None
 
     def _should_use_temporal_llm(self, pack: TemporalEvidencePack) -> bool:
-        return self._enabled and pack.source_event_count >= self._min_event_count_for_llm
+        if not self._enabled or pack.source_event_count < self._min_event_count_for_llm:
+            return False
+        if str(pack.summary_category or "").strip().lower() == "hour" and not self._hour_llm_enabled:
+            return False
+        return True
 
     async def _generate_temporal_prose(
         self,

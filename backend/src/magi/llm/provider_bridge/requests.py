@@ -16,6 +16,10 @@ from .logging import (
     truncate_provider_response as _truncate_provider_response,
 )
 from .models import ProviderResponse
+from ..background_budget import (
+    BackgroundBudgetExceededError,
+    get_background_llm_budget_guard,
+)
 from ...config.models import ThinkingDepth
 from ...core.logger import get_logger
 
@@ -177,6 +181,16 @@ class ProviderBridgeRequestMixin:
         cache_system: bool = False,
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
+        request_kind = (
+            event_context.get("request_kind")
+            if isinstance(event_context, dict)
+            else None
+        )
+        budget_decision = await get_background_llm_budget_guard().check(
+            str(request_kind) if request_kind is not None else None
+        )
+        if not budget_decision.allowed:
+            raise BackgroundBudgetExceededError(budget_decision)
         if getattr(host.llm, "is_plugin_provider", False) is True:
             return await cast(_PluginResponseProviderProtocol, host.llm).invoke_response(
                 system_prompt=system_prompt,
@@ -354,6 +368,16 @@ class ProviderBridgeRequestMixin:
         event_context: Optional[Dict[str, Any]] = None,
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
+        request_kind = (
+            event_context.get("request_kind")
+            if isinstance(event_context, dict)
+            else None
+        )
+        budget_decision = await get_background_llm_budget_guard().check(
+            str(request_kind) if request_kind is not None else None
+        )
+        if not budget_decision.allowed:
+            raise BackgroundBudgetExceededError(budget_decision)
         if getattr(host.llm, "is_plugin_provider", False) is True:
             return await cast(_PluginResponseProviderProtocol, host.llm).invoke_response(
                 system_prompt=system_prompt,

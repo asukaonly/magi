@@ -430,6 +430,23 @@ export function MemoryGeneralSettingsSection({
           ) : null}
         </div>
       </MemoryGroup>
+
+      <MemoryGroup>
+        <div className="max-w-md py-3">
+          <NumberField
+            label={t('settings.memory.fields.background_llm_daily_token_budget.label')}
+            value={draftConfig.memory.background_llm_daily_token_budget ?? 0}
+            min={0}
+            step={10000}
+            onChange={(value) => patchDraftConfig((draft) => {
+              draft.memory.background_llm_daily_token_budget = Math.max(0, Math.floor(value));
+            })}
+          />
+          <p className="mt-2 text-xs leading-6 text-muted-foreground">
+            {t('settings.memory.fields.background_llm_daily_token_budget.description')}
+          </p>
+        </div>
+      </MemoryGroup>
     </MemorySectionShell>
   );
 }
@@ -772,6 +789,15 @@ export function MemoryReflectionSettingsSection({
           disabled={!draftConfig.memory.l3.enabled}
           onCheckedChange={(checked) => patchDraftConfig((draft) => {
             draft.memory.l3.llm_summary_enabled = checked;
+          })}
+        />
+        <MemorySwitchRow
+          label={t('settings.memory.fields.enable_l3_hour_llm_summary.label')}
+          description={t('settings.memory.fields.enable_l3_hour_llm_summary.description')}
+          checked={draftConfig.memory.l3.hour_llm_summary_enabled ?? false}
+          disabled={!draftConfig.memory.l3.enabled || !(draftConfig.memory.l3.llm_summary_enabled ?? false)}
+          onCheckedChange={(checked) => patchDraftConfig((draft) => {
+            draft.memory.l3.hour_llm_summary_enabled = checked;
           })}
         />
         <MemorySwitchRow

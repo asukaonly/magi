@@ -152,7 +152,32 @@ class HybridRetrievalExecutionMixin(
         *,
         l1: L1Handler | None,
     ) -> None:
-        if host._config.query_expansion_enabled and host._llm_provider_bridge:
+        if not host._config.query_expansion_enabled:
+            return
+        if getattr(decision, "source", None) == "rule_fast_path":
+            payload.trace["query_expansion_skipped"] = "rule_fast_path"
+            return
+
+        precomputed = list(getattr(decision, "expanded_queries", None) or [])
+        if precomputed:
+            max_expansions = max(1, int(host._config.query_expansion_max_expansions))
+            await self._run_query_expansion(
+                original_query=request.query,
+                request=request,
+                payload=payload,
+                time_range=decision.time_range,
+                l1=l1,
+                precomputed_queries=precomputed[:max_expansions],
+            )
+            return
+
+        if getattr(decision, "source", None) == "llm" and (
+            len(payload.l1_events) >= 3 or len(payload.l2_relationships) >= 3
+        ):
+            payload.trace["query_expansion_skipped"] = "merged_intent_sufficient"
+            return
+
+        if host._llm_provider_bridge:
             await self._run_query_expansion(
                 original_query=request.query,
                 request=request,

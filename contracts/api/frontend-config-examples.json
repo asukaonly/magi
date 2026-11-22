@@ -291,6 +291,7 @@
       },
       "memory": {
         "archive_path": "/fixture/magi/data/memory/archive",
+        "background_llm_daily_token_budget": 0,
         "db_path": "/fixture/magi/data/memory",
         "embedding": {
           "local": {
@@ -331,10 +332,11 @@
         },
         "l3": {
           "enabled": true,
+          "hour_llm_summary_enabled": false,
           "llm_summary_enabled": true,
           "retention_days": 365,
           "temporal_llm_min_event_count": 2,
-          "temporal_llm_timeout_seconds": 3.0,
+          "temporal_llm_timeout_seconds": null,
           "vectors_enabled": true
         },
         "l4": {
@@ -722,6 +724,7 @@
         },
         "memory": {
           "archive_path": "/fixture/magi/data/memory/archive",
+          "background_llm_daily_token_budget": 0,
           "db_path": "/fixture/magi/data/memory",
           "embedding": {
             "local": {
@@ -762,10 +765,11 @@
           },
           "l3": {
             "enabled": true,
+            "hour_llm_summary_enabled": false,
             "llm_summary_enabled": true,
             "retention_days": 365,
             "temporal_llm_min_event_count": 2,
-            "temporal_llm_timeout_seconds": 3.0,
+            "temporal_llm_timeout_seconds": null,
             "vectors_enabled": true
           },
           "l4": {

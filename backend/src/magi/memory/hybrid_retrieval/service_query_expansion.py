@@ -24,19 +24,25 @@ class HybridRetrievalQueryExpansionMixin:
         payload: RetrievalPayload,
         time_range: Optional[TimeRange] = None,
         l1: Optional[L1Handler] = None,
+        precomputed_queries: Optional[list[str]] = None,
     ) -> None:
         """Generate expanded query variants and run additional L1 plans."""
-        from .query_expander import QueryExpander
-
         host = cast(Any, self)
         effective_l1 = l1 if l1 is not None else host._l1
 
-        expander = QueryExpander(
-            host._llm_provider_bridge,
-            timeout_seconds=host._config.query_expansion_timeout_seconds,
-            max_expansions=host._config.query_expansion_max_expansions,
-        )
-        expanded_queries = await expander.expand(original_query)
+        if precomputed_queries is not None:
+            expanded_queries = [q.strip() for q in precomputed_queries if isinstance(q, str) and q.strip()]
+            payload.trace["query_expansion_source"] = "merged_intent"
+        else:
+            from .query_expander import QueryExpander
+
+            expander = QueryExpander(
+                host._llm_provider_bridge,
+                timeout_seconds=host._config.query_expansion_timeout_seconds,
+                max_expansions=host._config.query_expansion_max_expansions,
+            )
+            expanded_queries = await expander.expand(original_query)
+            payload.trace["query_expansion_source"] = "standalone_expander"
         if not expanded_queries:
             return
 

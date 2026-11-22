@@ -24,12 +24,20 @@ const totals = z.object({
   cache_hit_rate: amount, avg_latency_ms: amount, avg_ttft_ms: amount.nullish(),
 }).refine((row) => row.unpriced_calls <= row.total_calls &&
   row.unpriced_failed_without_usage + row.unpriced_success_without_usage <= row.unpriced_calls);
+const backgroundBudget = z.object({
+  enabled: z.boolean(),
+  budget_tokens: count,
+  used_tokens: count,
+  exceeded: z.boolean(),
+  reset_at: amount,
+});
 const usageSummary = z.object({
   window_days: count, totals,
   providers: z.array(breakdown.extend({ provider: z.string() })),
   models: z.array(breakdown.extend({ provider: z.string(), model: z.string() })),
   request_kinds: z.array(breakdown.extend({ request_kind: z.string() })),
   daily_display_costs: z.record(z.iso.date(), displayCosts),
+  background_budget: backgroundBudget.optional(),
 });
 
 export type LLMUsageTotals = z.infer<typeof totals>;

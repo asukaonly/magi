@@ -2495,6 +2495,14 @@
           "label": "Enable AI summaries",
           "description": "Use AI to condense conversation records into periodic summaries and reviews."
         },
+        "enable_l3_hour_llm_summary": {
+          "label": "Use AI for hourly summaries",
+          "description": "Hourly timeline summaries use local structured aggregation by default to reduce background token cost. Enable this to also generate hourly summaries with AI."
+        },
+        "background_llm_daily_token_budget": {
+          "label": "Daily background AI token budget",
+          "description": "Optional daily token cap for background memory extraction, summaries, and reflections (0 = unlimited). Excess background jobs resume tomorrow and never block your foreground chat."
+        },
         "enable_l3_vectorization": {
           "label": "Enable semantic search",
           "description": "Convert summaries and reviews into vectors for semantic similarity search.",
@@ -2611,6 +2619,7 @@
       "loadFailed": "Failed to load usage metrics: {{message}}",
       "emptyTitle": "No LLM usage metrics yet",
       "emptyDesc": "Once the app makes a few model calls, this section will show token usage and trends.",
+      "backgroundBudgetPaused": "Today's background AI budget has been reached ({{used}} / {{budget}} tokens). Background memory tasks will resume tomorrow; foreground chat continues normally.",
       "trendTitle": "Token Trend",
       "trendDesc": "Track total token consumption by day.",
       "splitTitle": "Prompt / Completion Split",

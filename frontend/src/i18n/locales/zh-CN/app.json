@@ -2494,6 +2494,14 @@
           "label": "启用 AI 总结",
           "description": "使用 AI 模型将对话记录浓缩成阶段性摘要和回顾。"
         },
+        "enable_l3_hour_llm_summary": {
+          "label": "小时级摘要使用 AI 生成",
+          "description": "默认使用本地确定性聚合生成小时时间线摘要以节省后台 Token；开启后每小时也会调用 AI 生成文字摘要。"
+        },
+        "background_llm_daily_token_budget": {
+          "label": "后台 AI 每日 Token 预算上限",
+          "description": "可选限制后台记忆提炼、周期摘要与反思任务每日消耗的 Token 总量（0 表示不限制）。超额后后台任务会延后到次日继续，永不阻断前台正常对话。"
+        },
         "enable_l3_vectorization": {
           "label": "启用语义搜索",
           "description": "将总结回顾转为向量，支持按语义相似度搜索。",
@@ -2610,6 +2618,7 @@
       "loadFailed": "加载统计失败: {{message}}",
       "emptyTitle": "还没有可用的 LLM 调用统计",
       "emptyDesc": "等产生几次模型调用后，这里会展示 token 使用量和调用趋势。",
+      "backgroundBudgetPaused": "今日后台 AI Token 预算已达上限（{{used}} / {{budget}} tokens），后台记忆任务已平滑延后至明日继续，前台对话不受影响。",
       "trendTitle": "Token 趋势",
       "trendDesc": "按天查看总 token 消耗变化。",
       "splitTitle": "输入 / 输出拆分",

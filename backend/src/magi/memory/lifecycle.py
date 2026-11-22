@@ -165,6 +165,7 @@ class MemoryStoreModule(LifecycleModule):
             enable_l3_vectors=memory_config.l3.vectors_enabled and vectors_enabled,
             enable_l4_vectors=memory_config.l4.vectors_enabled and vectors_enabled,
             enable_l3_llm_summary=memory_config.l3.llm_summary_enabled,
+            enable_l3_hour_llm_summary=memory_config.l3.hour_llm_summary_enabled,
             l0_checkpoint_interval_seconds=memory_config.l0.checkpoint_interval_seconds,
             temporal_l3_llm_timeout_seconds=memory_config.l3.temporal_llm_timeout_seconds,
             temporal_l3_llm_min_event_count=memory_config.l3.temporal_llm_min_event_count,
