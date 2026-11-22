@@ -21,9 +21,18 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -1281,21 +1290,27 @@ function SourceDetailHeader({
   syncing,
   backfilling,
   togglingEnabled,
+  clearingRecords = false,
+  canClearRecords = false,
   actionsAvailable = true,
   onSync,
   onBackfill,
   onOpenSettings,
   onToggleEnabled,
+  onRequestClearRecords,
 }: {
   row: SourceLedgerRow;
   syncing: boolean;
   backfilling: boolean;
   togglingEnabled: boolean;
+  clearingRecords?: boolean;
+  canClearRecords?: boolean;
   actionsAvailable?: boolean;
   onSync: () => void;
   onBackfill: () => void;
   onOpenSettings: () => void;
   onToggleEnabled: () => void;
+  onRequestClearRecords?: () => void;
 }) {
   const { t, i18n } = useTranslation('app');
   const status = sourceStatusPresentation(row, t);
@@ -1410,6 +1425,20 @@ function SourceDetailHeader({
                 <Settings className="h-4 w-4 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
                 {t('memory.sourcesPage.actions.settings')}
               </DropdownMenuItem>
+              {canClearRecords && onRequestClearRecords ? (
+                <>
+                  <DropdownMenuSeparator className="bg-[hsl(var(--memory-divider)/0.72)]" />
+                  <DropdownMenuItem
+                    destructive
+                    className="h-9 rounded-sm px-2.5"
+                    onSelect={onRequestClearRecords}
+                    disabled={clearingRecords}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    {t('memory.sourcesPage.actions.clearRecords')}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
               {canPause ? (
                 <>
                   <DropdownMenuSeparator className="bg-[hsl(var(--memory-divider)/0.72)]" />
@@ -1524,6 +1553,7 @@ function SourceRecentEvents({
   onQueryDraftChange,
   onSearch,
   onLoadMore,
+  onRequestForgetEvent,
 }: {
   events: L1Event[];
   total: number;
@@ -1539,6 +1569,7 @@ function SourceRecentEvents({
   onQueryDraftChange: (value: string) => void;
   onSearch: () => void;
   onLoadMore: () => void;
+  onRequestForgetEvent?: (event: L1Event) => void;
 }) {
   const { t, i18n } = useTranslation('app');
   const [timePickerOpen, setTimePickerOpen] = useState(false);
@@ -1705,7 +1736,7 @@ function SourceRecentEvents({
             return (
               <article
                 key={event.event_id}
-                className="grid gap-1.5 py-4 transition-colors duration-200 md:grid-cols-[132px_minmax(0,1fr)] md:gap-5 md:px-2 md:hover:bg-[hsl(var(--memory-panel-subtle)/0.28)]"
+                className="group grid gap-1.5 py-4 transition-colors duration-200 md:grid-cols-[132px_minmax(0,1fr)_auto] md:items-start md:gap-5 md:px-2 md:hover:bg-[hsl(var(--memory-panel-subtle)/0.28)]"
               >
                 <time className="text-xs leading-6 text-[hsl(var(--memory-muted))]">
                   {formatOverviewTimestamp(event.timestamp, i18n.language) || t('memory.sourcesPage.unknownTime')}
@@ -1726,6 +1757,17 @@ function SourceRecentEvents({
                     </div>
                   ) : null}
                 </div>
+                {onRequestForgetEvent ? (
+                  <button
+                    type="button"
+                    onClick={() => onRequestForgetEvent(event)}
+                    aria-label={t('memory.sourcesPage.detail.forgetEventAria', { title: presentation.title })}
+                    className="inline-flex h-8 items-center gap-1 self-start rounded-md px-2 text-xs text-[hsl(var(--memory-muted))] opacity-0 transition-opacity duration-150 hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-destructive/30 group-hover:opacity-100"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>{t('memory.sourcesPage.detail.forgetEvent')}</span>
+                  </button>
+                ) : null}
               </article>
             );
           })
@@ -1770,6 +1812,10 @@ export const MemorySourceDetailPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [backfillDialogOpen, setBackfillDialogOpen] = useState(false);
   const [togglingEnabled, setTogglingEnabled] = useState(false);
+  const [eventToForget, setEventToForget] = useState<L1Event | null>(null);
+  const [forgettingEvent, setForgettingEvent] = useState(false);
+  const [clearRecordsDialogOpen, setClearRecordsDialogOpen] = useState(false);
+  const [clearingRecords, setClearingRecords] = useState(false);
   const [timeRange, setTimeRange] = useState<SourceDetailTimeRange>('all');
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
   const [queryDraft, setQueryDraft] = useState('');
@@ -1781,6 +1827,10 @@ export const MemorySourceDetailPage = () => {
     actionGenerationRef.current += 1;
     setTogglingEnabled(false);
     setBackfillDialogOpen(false);
+    setEventToForget(null);
+    setForgettingEvent(false);
+    setClearRecordsDialogOpen(false);
+    setClearingRecords(false);
     return () => { actionGenerationRef.current += 1; };
   }, [sourceName, selectedConnectionId]);
 
@@ -2028,6 +2078,66 @@ export const MemorySourceDetailPage = () => {
     void loadEvents({ offset: events.length, append: true });
   };
 
+  const handleConfirmForgetEvent = async () => {
+    if (!eventToForget) return;
+    const targetId = eventToForget.event_id;
+    const generation = actionGenerationRef.current;
+    const isCurrent = () => actionGenerationRef.current === generation;
+    setForgettingEvent(true);
+    try {
+      await memoryApi.deleteL1Event(targetId);
+      if (!isCurrent()) return;
+      setEvents((current) => current.filter((item) => item.event_id !== targetId));
+      setEventsTotal((current) => Math.max(0, current - 1));
+      loadedEventCount.current = Math.max(0, loadedEventCount.current - 1);
+      setEventToForget(null);
+      toast.success(t('memory.sourcesPage.feedback.forgetEventSuccess'));
+      await loadMetadata(undefined, true, isCurrent);
+    } catch (err) {
+      if (!isCurrent()) return;
+      toast.error(t('memory.sourcesPage.feedback.forgetEventFailed', {
+        message: err instanceof Error ? err.message : String(err),
+      }));
+    } finally {
+      if (isCurrent()) setForgettingEvent(false);
+    }
+  };
+
+  const handleConfirmClearRecords = async () => {
+    const generation = actionGenerationRef.current;
+    const isCurrent = () => actionGenerationRef.current === generation;
+    setClearingRecords(true);
+    try {
+      const result = await memoryApi.forgetSource(
+        sourceName,
+        selectedSource?.connection_id ?? selectedConnectionId ?? null,
+      );
+      if (!isCurrent()) return;
+      const totalDeleted = result.l1_events_deleted + result.archived_events_deleted;
+      setEvents([]);
+      setEventsTotal(0);
+      loadedEventCount.current = 0;
+      setClearRecordsDialogOpen(false);
+      toast.success(t('memory.sourcesPage.feedback.clearRecordsSuccess', {
+        source: row.label,
+        count: totalDeleted,
+      }));
+      await Promise.all([
+        loadMetadata(undefined, true, isCurrent),
+        loadEvents({ silent: true, isCurrent }),
+      ]);
+    } catch (err) {
+      if (!isCurrent()) return;
+      toast.error(t('memory.sourcesPage.feedback.clearRecordsFailed', {
+        message: err instanceof Error ? err.message : String(err),
+      }));
+    } finally {
+      if (isCurrent()) setClearingRecords(false);
+    }
+  };
+
+  const storedRecordCount = Math.max(runtimeRow.eventCount ?? 0, eventsTotal);
+
   return (
     <MemoryPageFrame title={row.label} description={t('memory.sourcesPage.subtitle')} hideHeader>
       {loading && !dashboard ? (
@@ -2060,10 +2170,13 @@ export const MemorySourceDetailPage = () => {
             syncing={syncing}
             backfilling={backfilling || activeBackfill}
             togglingEnabled={togglingEnabled}
+            clearingRecords={clearingRecords}
+            canClearRecords={storedRecordCount > 0}
             onSync={asEventHandler(handleSync)}
             onBackfill={() => setBackfillDialogOpen(true)}
             onOpenSettings={handleOpenSettings}
             onToggleEnabled={asEventHandler(handleToggleEnabled)}
+            onRequestClearRecords={() => setClearRecordsDialogOpen(true)}
           />
           <SourceDetailStats row={runtimeRow} todayCount={todayCount} includeRuntime={Boolean(selectedSource)} />
           {selectedSource?.last_error ? <SourceSyncIssue
@@ -2094,6 +2207,7 @@ export const MemorySourceDetailPage = () => {
             onQueryDraftChange={setQueryDraft}
             onSearch={handleSearch}
             onLoadMore={handleLoadMore}
+            onRequestForgetEvent={setEventToForget}
           />
           {selectedSource ? <SourceSyncHistory
             key={`${selectedSource.connection_id}:${selectedSource.source_name}`}
@@ -2108,6 +2222,82 @@ export const MemorySourceDetailPage = () => {
             onOpenChange={setBackfillDialogOpen}
             onConfirm={handleBackfill}
           />
+          <Dialog
+            open={eventToForget !== null}
+            onOpenChange={(open) => {
+              if (!open && !forgettingEvent) setEventToForget(null);
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{t('memory.sourcesPage.detail.forgetEventConfirmTitle')}</DialogTitle>
+                <DialogDescription>
+                  {t('memory.sourcesPage.detail.forgetEventConfirmDescription')}
+                </DialogDescription>
+              </DialogHeader>
+              {eventToForget ? (
+                <p className="rounded-md bg-muted/40 px-3 py-2 text-sm text-foreground">
+                  {sourceEventPresentation(eventToForget).title}
+                </p>
+              ) : null}
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEventToForget(null)}
+                  disabled={forgettingEvent}
+                >
+                  {t('memory.sourcesPage.detail.forgetCancel')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={asEventHandler(handleConfirmForgetEvent)}
+                  disabled={forgettingEvent}
+                >
+                  {t('memory.sourcesPage.detail.forgetEventConfirmAction')}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Dialog
+            open={clearRecordsDialogOpen}
+            onOpenChange={(open) => {
+              if (!open && !clearingRecords) setClearRecordsDialogOpen(false);
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>
+                  {t('memory.sourcesPage.detail.clearRecordsConfirmTitle', { source: row.label })}
+                </DialogTitle>
+                <DialogDescription>
+                  {t('memory.sourcesPage.detail.clearRecordsConfirmDescription', {
+                    source: row.label,
+                    count: storedRecordCount,
+                  })}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setClearRecordsDialogOpen(false)}
+                  disabled={clearingRecords}
+                >
+                  {t('memory.sourcesPage.detail.forgetCancel')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={asEventHandler(handleConfirmClearRecords)}
+                  disabled={clearingRecords}
+                >
+                  {t('memory.sourcesPage.detail.clearRecordsConfirmAction')}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
     </MemoryPageFrame>

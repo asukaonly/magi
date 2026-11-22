@@ -427,6 +427,15 @@ class ForgetEpisodeRequest(BaseModel):
     delete_events: bool = Field(default=False, description="Also soft-delete member L1 events")
 
 
+class ForgetSourceRequest(BaseModel):
+    source_name: str = Field(..., min_length=1, max_length=200)
+    connection_id: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description="Optional plugin connection scope; omit to clear all records from this source",
+    )
+
+
 class DeleteL1EventResponse(BaseModel):
     """Confirmed source-event deletion and its product scope."""
 
@@ -448,3 +457,12 @@ class ForgetEpisodeResponse(BaseModel):
     episode_id: str
     event_ids: list[str]
     l1_events_deleted: int = Field(ge=0)
+
+
+class ForgetSourceResponse(BaseModel):
+    """Confirmed cascade deletion counts for all records from one source."""
+
+    source_name: str
+    connection_id: Optional[str] = None
+    l1_events_deleted: int = Field(ge=0)
+    archived_events_deleted: int = Field(default=0, ge=0)

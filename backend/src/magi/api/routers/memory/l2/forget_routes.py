@@ -7,8 +7,15 @@ from fastapi import HTTPException, status
 from .. import dependencies
 from ..helpers import memory_t
 from ..router import memory_router
-from ..schemas import (ForgetEntityRequest, ForgetEpisodeRequest, ForgetTimeRangeRequest,
-                       ForgetEntityResponse, ForgetEpisodeResponse)
+from ..schemas import (
+    ForgetEntityRequest,
+    ForgetEntityResponse,
+    ForgetEpisodeRequest,
+    ForgetEpisodeResponse,
+    ForgetSourceRequest,
+    ForgetSourceResponse,
+    ForgetTimeRangeRequest,
+)
 
 
 @memory_router.post("/forget/entity", response_model=ForgetEntityResponse)
@@ -88,3 +95,25 @@ async def forget_episode(body: ForgetEpisodeRequest):
         )
 
     return result
+
+
+@memory_router.post("/forget/source", response_model=ForgetSourceResponse)
+async def forget_source(body: ForgetSourceRequest):
+    """Cascade forget all stored active and archived records from one data source."""
+    unified_memory = dependencies._resolve_unified_memory()
+    if not unified_memory or unified_memory.l1 is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l1_store_uninitialized", "L1 store not initialized"),
+        )
+    source_name = str(body.source_name or "").strip()
+    if not source_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=memory_t("memory.errors.source_name_required", "source_name must not be empty"),
+        )
+    connection_id = str(body.connection_id or "").strip() or None
+    return await unified_memory.forget_source_memory(
+        source_name=source_name,
+        connection_id=connection_id,
+    )

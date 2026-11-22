@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, History } from 'lucide-react';
 import { PortraitEvidenceLabel, portraitItemText } from './PortraitEvidenceLabel';
 import { Button } from '@/components/ui/button';
 import type { PortraitDisplayItem, PortraitWorldGroup } from './portraitGrouping';
@@ -8,10 +8,11 @@ interface PortraitWorldMapProps {
   groups: PortraitWorldGroup[];
   totalCount: number;
   onCorrect: (item: PortraitDisplayItem) => void;
+  onViewHistory?: (item: PortraitDisplayItem) => void;
   onChanged?: () => void;
 }
 
-export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onChanged }: PortraitWorldMapProps) => {
+export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onViewHistory, onChanged }: PortraitWorldMapProps) => {
   const { t } = useTranslation('app');
   const visibleGroups = groups.filter((group) => group.summary || group.items.length > 0);
 
@@ -53,16 +54,31 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onChanged }: P
                       <div key={item.id} className="group flex items-start justify-between gap-3">
                         <p className="min-w-0 flex-1 text-[0.95rem] leading-7 text-[hsl(var(--memory-title))]">{portraitItemText(item, t)}<PortraitEvidenceLabel item={item} onChanged={onChanged} /></p>
                         {item.assertionId && item.correctionValue != null ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="min-h-9 shrink-0 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] opacity-0 transition-opacity hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))] focus-visible:opacity-100 group-hover:opacity-100"
-                            onClick={() => onCorrect(item)}
-                            aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
-                          >
-                            {t('memory.portrait.world.correct', { defaultValue: '修正' })}
-                          </Button>
+                          <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                            {onViewHistory ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="min-h-9 shrink-0 rounded-mem-sm px-2 text-[hsl(var(--memory-muted))] hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))]"
+                                onClick={() => onViewHistory(item)}
+                                aria-label={t('memory.portrait.world.historyItem', { defaultValue: '查看 {{value}} 的修正记录', value: item.text })}
+                              >
+                                <History className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                                {t('memory.portrait.world.history', { defaultValue: '记录' })}
+                              </Button>
+                            ) : null}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="min-h-9 shrink-0 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))]"
+                              onClick={() => onCorrect(item)}
+                              aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
+                            >
+                              {t('memory.portrait.world.correct', { defaultValue: '修正' })}
+                            </Button>
+                          </div>
                         ) : null}
                       </div>
                     ))
@@ -81,16 +97,31 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onChanged }: P
                           <div key={item.id} className="group flex items-start justify-between gap-3 rounded-mem-sm bg-[hsl(var(--memory-panel-subtle)/0.32)] px-3 py-2.5">
                             <p className="min-w-0 flex-1 text-sm leading-6 text-[hsl(var(--memory-title))]">{portraitItemText(item, t)}<PortraitEvidenceLabel item={item} onChanged={onChanged} /></p>
                             {item.assertionId && item.correctionValue != null ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="min-h-9 shrink-0 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] opacity-0 transition-opacity hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))] focus-visible:opacity-100 group-hover:opacity-100"
-                                onClick={() => onCorrect(item)}
-                                aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
-                              >
-                                {t('memory.portrait.world.correct', { defaultValue: '修正' })}
-                              </Button>
+                              <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                                {onViewHistory ? (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="min-h-9 shrink-0 rounded-mem-sm px-2 text-[hsl(var(--memory-muted))] hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))]"
+                                    onClick={() => onViewHistory(item)}
+                                    aria-label={t('memory.portrait.world.historyItem', { defaultValue: '查看 {{value}} 的修正记录', value: item.text })}
+                                  >
+                                    <History className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                                    {t('memory.portrait.world.history', { defaultValue: '记录' })}
+                                  </Button>
+                                ) : null}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="min-h-9 shrink-0 rounded-mem-sm px-2.5 text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] hover:text-[hsl(var(--memory-title))]"
+                                  onClick={() => onCorrect(item)}
+                                  aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
+                                >
+                                  {t('memory.portrait.world.correct', { defaultValue: '修正' })}
+                                </Button>
+                              </div>
                             ) : null}
                           </div>
                         ))}

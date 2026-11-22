@@ -1,5 +1,5 @@
 import { validateAssertionDisplay, validateCorrectionCommandDisplay, validateCorrectionHistoryDisplay, validateMemorySearchDisplay, validateReviewDisplay } from '../memory-fact-contract';
-import { type LifecycleWire, parseDeletedEvent, parseForgottenEntity, parseForgottenEpisode } from '../lifecycle-contract';
+import { type LifecycleWire, parseDeletedEvent, parseForgottenEntity, parseForgottenEpisode, parseForgottenSource } from '../lifecycle-contract';
 import { api, unwrapGatewayPayload } from '../client';
 import { z } from 'zod';
 import type { GatewayResponse } from '../client';
@@ -745,6 +745,8 @@ export type DeleteL1EventResponse = LifecycleWire<'DeleteL1EventResponse'>;
 
 export type ForgetEntityResponse = LifecycleWire<'ForgetEntityResponse'>;
 
+export type ForgetSourceResponse = LifecycleWire<'ForgetSourceResponse'>;
+
 export interface L2GraphConflictRule {
   predicate: string;
   opposite_predicates: string[];
@@ -1285,6 +1287,11 @@ export const memoryApi = {
       entity_id: entityId,
       delete_l1_events: deleteL1Events,
     })),
+  forgetSource: async (sourceName: string, connectionId?: string | null): Promise<ForgetSourceResponse> =>
+    parseForgottenSource(await api.post<unknown>('/memory/forget/source', {
+      source_name: sourceName,
+      connection_id: connectionId ?? null,
+    }), sourceName),
   upsertL2ConflictRule: async (payload: L2GraphConflictRulePayload): Promise<L2GraphConflictRule> =>
     unwrapMemoryResponse(await api.put<L2GraphConflictRule>(`/memory/l2/conflict-rules/${payload.predicate}`, {
       opposite_predicates: payload.opposite_predicates,

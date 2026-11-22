@@ -3681,6 +3681,7 @@
         "pause": "Pause",
         "resume": "Resume",
         "more": "More actions",
+        "clearRecords": "Clear all stored records",
         "back": "Back to sources",
         "add": "Add source"
       },
@@ -3701,7 +3702,11 @@
         "backfillCompleted": "{{source}} history backfill completed",
         "backfillFailed": "{{source}} history backfill failed: {{message}}",
         "syncFailed": "Failed to queue sync: {{message}}",
-        "toggleFailed": "Could not update source status: {{message}}"
+        "toggleFailed": "Could not update source status: {{message}}",
+        "forgetEventSuccess": "Record forgotten and derived memories cleaned",
+        "forgetEventFailed": "Failed to forget record: {{message}}",
+        "clearRecordsSuccess": "Cleared {{count}} stored record(s) from {{source}}",
+        "clearRecordsFailed": "Failed to clear records: {{message}}"
       },
       "detail": {
         "lastSync": "Last sync: {{value}}",
@@ -3730,7 +3735,16 @@
         "visitCount_one": "{{count}} visit",
         "visitCount_other": "{{count}} visits",
         "nextRun": "Next sync",
-        "syncMode": "Sync mode"
+        "syncMode": "Sync mode",
+        "forgetEvent": "Forget",
+        "forgetEventAria": "Forget record {{title}}",
+        "forgetEventConfirmTitle": "Forget this record?",
+        "forgetEventConfirmDescription": "This will remove the record from memory and clean derived memory inferences that rely on it.",
+        "forgetEventConfirmAction": "Forget record",
+        "forgetCancel": "Cancel",
+        "clearRecordsConfirmTitle": "Clear all stored records from {{source}}?",
+        "clearRecordsConfirmDescription": "This will permanently remove {{count}} stored record(s) and derived memories from {{source}}. The plugin itself will remain installed.",
+        "clearRecordsConfirmAction": "Clear all records"
       }
     },
     "stories": {
@@ -4167,6 +4181,9 @@
         "inspectItems": "View {{count}} details",
         "correct": "Correct",
         "correctItem": "Correct {{value}}",
+        "history": "History",
+        "historyItem": "View correction history for {{value}}",
+        "historyDrawerTitle": "Correction history",
         "editProfile": "Edit personal profile",
         "groups": {
           "identity": "Identity",

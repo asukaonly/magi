@@ -449,6 +449,23 @@ class L1EventWriteMixin:
         await host.initialize()
         return await host.event_repository.list_raw_event_ids_by_time_range(start=start, end=end, after_event_id=after_event_id, limit=limit)
 
+    async def list_raw_event_ids_by_source(
+        self,
+        *,
+        source_name: str,
+        connection_id: str | None = None,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]:
+        host = cast(L1EventWriteHostProtocol, self)
+        await host.initialize()
+        return await host.event_repository.list_raw_event_ids_by_source(
+            source_name=source_name,
+            connection_id=connection_id,
+            after_event_id=after_event_id,
+            limit=limit,
+        )
+
     async def list_active_event_ids_by_chat_sources(
         self,
         *,

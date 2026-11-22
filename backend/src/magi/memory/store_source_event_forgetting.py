@@ -461,6 +461,29 @@ class UnifiedSourceEventForgettingMixin:
             )
         return {**outcome.target_result, "l1_events_deleted": outcome.event_count}
 
+    async def forget_source_memory(
+        self,
+        *,
+        source_name: str,
+        connection_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Cascade forget all active and archived records from one data source."""
+        selector = ForgetSelector.source_records(
+            source_name=source_name,
+            connection_id=connection_id,
+        )
+        outcome = await self._execute_durable_forget(
+            selector,
+            reason="user_forget_source",
+            reuse_completed=False,
+        )
+        return {
+            "source_name": str(selector.payload["source_name"]),
+            "connection_id": selector.payload.get("connection_id"),
+            "l1_events_deleted": int(outcome.event_count),
+            "archived_events_deleted": int(outcome.target_result.get("archived_l1_events", 0)),
+        }
+
     async def resume_pending_forget_operations(
         self,
         *,

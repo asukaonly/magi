@@ -5,6 +5,7 @@ import {
   validateHistoryImporterResponse, validateHistoryImportSourcePreviewResponse,
   validateMemoryPortabilityOperation, validateClearMemoryResponseModel,
   validateDeleteL1EventResponse, validateForgetEntityResponse, validateForgetEpisodeResponse,
+  validateForgetSourceResponse,
 } from './generated/lifecycle-validators';
 
 export type LifecycleWire<Name extends keyof components['schemas']> = components['schemas'][Name];
@@ -83,5 +84,10 @@ export function parseForgottenEntity(value: unknown): LifecycleWire<'ForgetEntit
 
 export function parseForgottenEpisode(value: unknown, episodeId: string): LifecycleWire<'ForgetEpisodeResponse'> {
   if (!validateForgetEpisodeResponse(value) || value.episode_id !== episodeId) throw new ApiContractError('Invalid episode deletion result');
+  return value;
+}
+
+export function parseForgottenSource(value: unknown, sourceName: string): LifecycleWire<'ForgetSourceResponse'> {
+  if (!validateForgetSourceResponse(value) || value.source_name !== sourceName) throw new ApiContractError('Invalid source deletion result');
   return value;
 }

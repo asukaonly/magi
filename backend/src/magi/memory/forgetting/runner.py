@@ -46,6 +46,7 @@ class DurableForgetRunner:
         self._selectors = ForgetSelectorResolver(
             memory_db_path=host.memory_db_path,
             l1=host.l1,
+            archive_dir=getattr(host, "_archive_dir", None),
         )
         self._references = ForgetReferenceBuilder(
             memory_db_path=host.memory_db_path,
@@ -589,6 +590,10 @@ class DurableForgetRunner:
             if result is None:
                 raise RuntimeError("Episode disappeared during forget operation")
             target_result = dict(result)
+        elif selector.kind == "source_records":
+            target_result = dict(
+                await self._cleanup.cleanup_operation_archives(operation.operation_id)
+            )
         elif selector.kind == "chat_session":
             if self._host.l1 is not None:
                 await self._host.l1.retire_chat_session_projection(str(payload["session_id"]))

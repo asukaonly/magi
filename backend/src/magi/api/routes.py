@@ -110,6 +110,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/forget/entity": {"POST"},
         "/forget/time-range": {"POST"},
         "/forget/episode": {"POST"},
+        "/forget/source": {"POST"},
         "/l3/summaries": {"GET"},
         "/dashboard": {"GET"},
         "/maintenance/tasks": {"GET"},

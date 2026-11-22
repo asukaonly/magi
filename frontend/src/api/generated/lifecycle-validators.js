@@ -3301,8 +3301,8 @@ return errors === 0;
 }
 validate84.evaluated = {"props":{"episode_id":true,"event_ids":true,"l1_events_deleted":true},"dynamicProps":false,"dynamicItems":false};
 
-export const validateClearHistoryResponse = validate85;
-const schema37 = {"description":"Confirmed immutable transcript snapshot removed by a history clear.","properties":{"cleanup_pending":{"default":false,"title":"Cleanup Pending","type":"boolean"},"cleared_message_ids":{"items":{"type":"string"},"title":"Cleared Message Ids","type":"array"},"cleared_turn_ids":{"items":{"type":"string"},"title":"Cleared Turn Ids","type":"array"},"message":{"title":"Message","type":"string"},"session_id":{"title":"Session Id","type":"string"},"success":{"title":"Success","type":"boolean"},"user_id":{"title":"User Id","type":"string"}},"required":["success","message","user_id","session_id","cleared_message_ids","cleared_turn_ids","cleanup_pending"],"title":"ClearHistoryResponse","type":"object"};
+export const validateForgetSourceResponse = validate85;
+const schema37 = {"description":"Confirmed cascade deletion counts for all records from one source.","properties":{"archived_events_deleted":{"default":0,"minimum":0,"title":"Archived Events Deleted","type":"integer"},"connection_id":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Connection Id"},"l1_events_deleted":{"minimum":0,"title":"L1 Events Deleted","type":"integer"},"source_name":{"title":"Source Name","type":"string"}},"required":["source_name","connection_id","l1_events_deleted","archived_events_deleted"],"title":"ForgetSourceResponse","type":"object"};
 
 function validate85(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -3317,15 +3317,164 @@ evaluated0.items = undefined;
 if(errors === 0){
 if(data && typeof data == "object" && !Array.isArray(data)){
 let missing0;
-if((((((((data.success === undefined) && (missing0 = "success")) || ((data.message === undefined) && (missing0 = "message"))) || ((data.user_id === undefined) && (missing0 = "user_id"))) || ((data.session_id === undefined) && (missing0 = "session_id"))) || ((data.cleared_message_ids === undefined) && (missing0 = "cleared_message_ids"))) || ((data.cleared_turn_ids === undefined) && (missing0 = "cleared_turn_ids"))) || ((data.cleanup_pending === undefined) && (missing0 = "cleanup_pending"))){
+if(((((data.source_name === undefined) && (missing0 = "source_name")) || ((data.connection_id === undefined) && (missing0 = "connection_id"))) || ((data.l1_events_deleted === undefined) && (missing0 = "l1_events_deleted"))) || ((data.archived_events_deleted === undefined) && (missing0 = "archived_events_deleted"))){
 validate85.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+if(data.archived_events_deleted !== undefined){
+let data0 = data.archived_events_deleted;
+const _errs1 = errors;
+if(!((typeof data0 == "number") && (!(data0 % 1) && !isNaN(data0)))){
+validate85.errors = [{instancePath:instancePath+"/archived_events_deleted",schemaPath:"#/properties/archived_events_deleted/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
+return false;
+}
+if(errors === _errs1){
+if(typeof data0 == "number"){
+if(data0 < 0 || isNaN(data0)){
+validate85.errors = [{instancePath:instancePath+"/archived_events_deleted",schemaPath:"#/properties/archived_events_deleted/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"}];
+return false;
+}
+}
+}
+var valid0 = _errs1 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.connection_id !== undefined){
+let data1 = data.connection_id;
+const _errs3 = errors;
+const _errs4 = errors;
+let valid1 = false;
+const _errs5 = errors;
+if(typeof data1 !== "string"){
+const err0 = {instancePath:instancePath+"/connection_id",schemaPath:"#/properties/connection_id/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+var _valid0 = _errs5 === errors;
+valid1 = valid1 || _valid0;
+const _errs7 = errors;
+if(data1 !== null){
+const err1 = {instancePath:instancePath+"/connection_id",schemaPath:"#/properties/connection_id/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+var _valid0 = _errs7 === errors;
+valid1 = valid1 || _valid0;
+if(!valid1){
+const err2 = {instancePath:instancePath+"/connection_id",schemaPath:"#/properties/connection_id/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+validate85.errors = vErrors;
+return false;
+}
+else {
+errors = _errs4;
+if(vErrors !== null){
+if(_errs4){
+vErrors.length = _errs4;
+}
+else {
+vErrors = null;
+}
+}
+}
+var valid0 = _errs3 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.l1_events_deleted !== undefined){
+let data2 = data.l1_events_deleted;
+const _errs9 = errors;
+if(!((typeof data2 == "number") && (!(data2 % 1) && !isNaN(data2)))){
+validate85.errors = [{instancePath:instancePath+"/l1_events_deleted",schemaPath:"#/properties/l1_events_deleted/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
+return false;
+}
+if(errors === _errs9){
+if(typeof data2 == "number"){
+if(data2 < 0 || isNaN(data2)){
+validate85.errors = [{instancePath:instancePath+"/l1_events_deleted",schemaPath:"#/properties/l1_events_deleted/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"}];
+return false;
+}
+}
+}
+var valid0 = _errs9 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.source_name !== undefined){
+const _errs11 = errors;
+if(typeof data.source_name !== "string"){
+validate85.errors = [{instancePath:instancePath+"/source_name",schemaPath:"#/properties/source_name/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs11 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+}
+}
+else {
+validate85.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate85.errors = vErrors;
+return errors === 0;
+}
+validate85.evaluated = {"props":{"archived_events_deleted":true,"connection_id":true,"l1_events_deleted":true,"source_name":true},"dynamicProps":false,"dynamicItems":false};
+
+export const validateClearHistoryResponse = validate86;
+const schema38 = {"description":"Confirmed immutable transcript snapshot removed by a history clear.","properties":{"cleanup_pending":{"default":false,"title":"Cleanup Pending","type":"boolean"},"cleared_message_ids":{"items":{"type":"string"},"title":"Cleared Message Ids","type":"array"},"cleared_turn_ids":{"items":{"type":"string"},"title":"Cleared Turn Ids","type":"array"},"message":{"title":"Message","type":"string"},"session_id":{"title":"Session Id","type":"string"},"success":{"title":"Success","type":"boolean"},"user_id":{"title":"User Id","type":"string"}},"required":["success","message","user_id","session_id","cleared_message_ids","cleared_turn_ids","cleanup_pending"],"title":"ClearHistoryResponse","type":"object"};
+
+function validate86(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate86.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if((((((((data.success === undefined) && (missing0 = "success")) || ((data.message === undefined) && (missing0 = "message"))) || ((data.user_id === undefined) && (missing0 = "user_id"))) || ((data.session_id === undefined) && (missing0 = "session_id"))) || ((data.cleared_message_ids === undefined) && (missing0 = "cleared_message_ids"))) || ((data.cleared_turn_ids === undefined) && (missing0 = "cleared_turn_ids"))) || ((data.cleanup_pending === undefined) && (missing0 = "cleanup_pending"))){
+validate86.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
 return false;
 }
 else {
 if(data.cleanup_pending !== undefined){
 const _errs1 = errors;
 if(typeof data.cleanup_pending !== "boolean"){
-validate85.errors = [{instancePath:instancePath+"/cleanup_pending",schemaPath:"#/properties/cleanup_pending/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+validate86.errors = [{instancePath:instancePath+"/cleanup_pending",schemaPath:"#/properties/cleanup_pending/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs1 === errors;
@@ -3344,7 +3493,7 @@ const len0 = data1.length;
 for(let i0=0; i0<len0; i0++){
 const _errs5 = errors;
 if(typeof data1[i0] !== "string"){
-validate85.errors = [{instancePath:instancePath+"/cleared_message_ids/" + i0,schemaPath:"#/properties/cleared_message_ids/items/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+validate86.errors = [{instancePath:instancePath+"/cleared_message_ids/" + i0,schemaPath:"#/properties/cleared_message_ids/items/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
 var valid1 = _errs5 === errors;
@@ -3354,7 +3503,7 @@ break;
 }
 }
 else {
-validate85.errors = [{instancePath:instancePath+"/cleared_message_ids",schemaPath:"#/properties/cleared_message_ids/type",keyword:"type",params:{type: "array"},message:"must be array"}];
+validate86.errors = [{instancePath:instancePath+"/cleared_message_ids",schemaPath:"#/properties/cleared_message_ids/type",keyword:"type",params:{type: "array"},message:"must be array"}];
 return false;
 }
 }
@@ -3374,7 +3523,7 @@ const len1 = data3.length;
 for(let i1=0; i1<len1; i1++){
 const _errs9 = errors;
 if(typeof data3[i1] !== "string"){
-validate85.errors = [{instancePath:instancePath+"/cleared_turn_ids/" + i1,schemaPath:"#/properties/cleared_turn_ids/items/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+validate86.errors = [{instancePath:instancePath+"/cleared_turn_ids/" + i1,schemaPath:"#/properties/cleared_turn_ids/items/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
 var valid2 = _errs9 === errors;
@@ -3384,7 +3533,7 @@ break;
 }
 }
 else {
-validate85.errors = [{instancePath:instancePath+"/cleared_turn_ids",schemaPath:"#/properties/cleared_turn_ids/type",keyword:"type",params:{type: "array"},message:"must be array"}];
+validate86.errors = [{instancePath:instancePath+"/cleared_turn_ids",schemaPath:"#/properties/cleared_turn_ids/type",keyword:"type",params:{type: "array"},message:"must be array"}];
 return false;
 }
 }
@@ -3397,7 +3546,7 @@ if(valid0){
 if(data.message !== undefined){
 const _errs11 = errors;
 if(typeof data.message !== "string"){
-validate85.errors = [{instancePath:instancePath+"/message",schemaPath:"#/properties/message/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+validate86.errors = [{instancePath:instancePath+"/message",schemaPath:"#/properties/message/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
 var valid0 = _errs11 === errors;
@@ -3409,7 +3558,7 @@ if(valid0){
 if(data.session_id !== undefined){
 const _errs13 = errors;
 if(typeof data.session_id !== "string"){
-validate85.errors = [{instancePath:instancePath+"/session_id",schemaPath:"#/properties/session_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+validate86.errors = [{instancePath:instancePath+"/session_id",schemaPath:"#/properties/session_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
 var valid0 = _errs13 === errors;
@@ -3421,7 +3570,7 @@ if(valid0){
 if(data.success !== undefined){
 const _errs15 = errors;
 if(typeof data.success !== "boolean"){
-validate85.errors = [{instancePath:instancePath+"/success",schemaPath:"#/properties/success/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+validate86.errors = [{instancePath:instancePath+"/success",schemaPath:"#/properties/success/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs15 === errors;
@@ -3433,7 +3582,7 @@ if(valid0){
 if(data.user_id !== undefined){
 const _errs17 = errors;
 if(typeof data.user_id !== "string"){
-validate85.errors = [{instancePath:instancePath+"/user_id",schemaPath:"#/properties/user_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+validate86.errors = [{instancePath:instancePath+"/user_id",schemaPath:"#/properties/user_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
 var valid0 = _errs17 === errors;
@@ -3450,102 +3599,6 @@ var valid0 = true;
 }
 }
 else {
-validate85.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
-return false;
-}
-}
-validate85.errors = vErrors;
-return errors === 0;
-}
-validate85.evaluated = {"props":{"cleanup_pending":true,"cleared_message_ids":true,"cleared_turn_ids":true,"message":true,"session_id":true,"success":true,"user_id":true},"dynamicProps":false,"dynamicItems":false};
-
-export const validateDeleteMessageResponse = validate86;
-const schema38 = {"description":"Confirmed message removal and its remaining cleanup state.","properties":{"cleanup_pending":{"default":false,"title":"Cleanup Pending","type":"boolean"},"deleted_message_id":{"title":"Deleted Message Id","type":"string"},"session_id":{"title":"Session Id","type":"string"},"success":{"title":"Success","type":"boolean"},"user_id":{"title":"User Id","type":"string"}},"required":["success","user_id","session_id","deleted_message_id","cleanup_pending"],"title":"DeleteMessageResponse","type":"object"};
-
-function validate86(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
-let vErrors = null;
-let errors = 0;
-const evaluated0 = validate86.evaluated;
-if(evaluated0.dynamicProps){
-evaluated0.props = undefined;
-}
-if(evaluated0.dynamicItems){
-evaluated0.items = undefined;
-}
-if(errors === 0){
-if(data && typeof data == "object" && !Array.isArray(data)){
-let missing0;
-if((((((data.success === undefined) && (missing0 = "success")) || ((data.user_id === undefined) && (missing0 = "user_id"))) || ((data.session_id === undefined) && (missing0 = "session_id"))) || ((data.deleted_message_id === undefined) && (missing0 = "deleted_message_id"))) || ((data.cleanup_pending === undefined) && (missing0 = "cleanup_pending"))){
-validate86.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
-return false;
-}
-else {
-if(data.cleanup_pending !== undefined){
-const _errs1 = errors;
-if(typeof data.cleanup_pending !== "boolean"){
-validate86.errors = [{instancePath:instancePath+"/cleanup_pending",schemaPath:"#/properties/cleanup_pending/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
-return false;
-}
-var valid0 = _errs1 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
-if(data.deleted_message_id !== undefined){
-const _errs3 = errors;
-if(typeof data.deleted_message_id !== "string"){
-validate86.errors = [{instancePath:instancePath+"/deleted_message_id",schemaPath:"#/properties/deleted_message_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
-return false;
-}
-var valid0 = _errs3 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
-if(data.session_id !== undefined){
-const _errs5 = errors;
-if(typeof data.session_id !== "string"){
-validate86.errors = [{instancePath:instancePath+"/session_id",schemaPath:"#/properties/session_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
-return false;
-}
-var valid0 = _errs5 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
-if(data.success !== undefined){
-const _errs7 = errors;
-if(typeof data.success !== "boolean"){
-validate86.errors = [{instancePath:instancePath+"/success",schemaPath:"#/properties/success/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
-return false;
-}
-var valid0 = _errs7 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
-if(data.user_id !== undefined){
-const _errs9 = errors;
-if(typeof data.user_id !== "string"){
-validate86.errors = [{instancePath:instancePath+"/user_id",schemaPath:"#/properties/user_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
-return false;
-}
-var valid0 = _errs9 === errors;
-}
-else {
-var valid0 = true;
-}
-}
-}
-}
-}
-}
-}
-else {
 validate86.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
@@ -3553,10 +3606,10 @@ return false;
 validate86.errors = vErrors;
 return errors === 0;
 }
-validate86.evaluated = {"props":{"cleanup_pending":true,"deleted_message_id":true,"session_id":true,"success":true,"user_id":true},"dynamicProps":false,"dynamicItems":false};
+validate86.evaluated = {"props":{"cleanup_pending":true,"cleared_message_ids":true,"cleared_turn_ids":true,"message":true,"session_id":true,"success":true,"user_id":true},"dynamicProps":false,"dynamicItems":false};
 
-export const validateDeleteSessionResponse = validate87;
-const schema39 = {"description":"Confirmed session removal and its remaining cleanup state.","properties":{"cleanup_pending":{"default":false,"title":"Cleanup Pending","type":"boolean"},"deleted_session_id":{"title":"Deleted Session Id","type":"string"},"success":{"title":"Success","type":"boolean"},"user_id":{"title":"User Id","type":"string"}},"required":["success","user_id","deleted_session_id","cleanup_pending"],"title":"DeleteSessionResponse","type":"object"};
+export const validateDeleteMessageResponse = validate87;
+const schema39 = {"description":"Confirmed message removal and its remaining cleanup state.","properties":{"cleanup_pending":{"default":false,"title":"Cleanup Pending","type":"boolean"},"deleted_message_id":{"title":"Deleted Message Id","type":"string"},"session_id":{"title":"Session Id","type":"string"},"success":{"title":"Success","type":"boolean"},"user_id":{"title":"User Id","type":"string"}},"required":["success","user_id","session_id","deleted_message_id","cleanup_pending"],"title":"DeleteMessageResponse","type":"object"};
 
 function validate87(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -3571,7 +3624,7 @@ evaluated0.items = undefined;
 if(errors === 0){
 if(data && typeof data == "object" && !Array.isArray(data)){
 let missing0;
-if(((((data.success === undefined) && (missing0 = "success")) || ((data.user_id === undefined) && (missing0 = "user_id"))) || ((data.deleted_session_id === undefined) && (missing0 = "deleted_session_id"))) || ((data.cleanup_pending === undefined) && (missing0 = "cleanup_pending"))){
+if((((((data.success === undefined) && (missing0 = "success")) || ((data.user_id === undefined) && (missing0 = "user_id"))) || ((data.session_id === undefined) && (missing0 = "session_id"))) || ((data.deleted_message_id === undefined) && (missing0 = "deleted_message_id"))) || ((data.cleanup_pending === undefined) && (missing0 = "cleanup_pending"))){
 validate87.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
 return false;
 }
@@ -3588,10 +3641,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.deleted_session_id !== undefined){
+if(data.deleted_message_id !== undefined){
 const _errs3 = errors;
-if(typeof data.deleted_session_id !== "string"){
-validate87.errors = [{instancePath:instancePath+"/deleted_session_id",schemaPath:"#/properties/deleted_session_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+if(typeof data.deleted_message_id !== "string"){
+validate87.errors = [{instancePath:instancePath+"/deleted_message_id",schemaPath:"#/properties/deleted_message_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
 var valid0 = _errs3 === errors;
@@ -3600,10 +3653,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.success !== undefined){
+if(data.session_id !== undefined){
 const _errs5 = errors;
-if(typeof data.success !== "boolean"){
-validate87.errors = [{instancePath:instancePath+"/success",schemaPath:"#/properties/success/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.session_id !== "string"){
+validate87.errors = [{instancePath:instancePath+"/session_id",schemaPath:"#/properties/session_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
 var valid0 = _errs5 === errors;
@@ -3612,16 +3665,29 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.user_id !== undefined){
+if(data.success !== undefined){
 const _errs7 = errors;
-if(typeof data.user_id !== "string"){
-validate87.errors = [{instancePath:instancePath+"/user_id",schemaPath:"#/properties/user_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+if(typeof data.success !== "boolean"){
+validate87.errors = [{instancePath:instancePath+"/success",schemaPath:"#/properties/success/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs7 === errors;
 }
 else {
 var valid0 = true;
+}
+if(valid0){
+if(data.user_id !== undefined){
+const _errs9 = errors;
+if(typeof data.user_id !== "string"){
+validate87.errors = [{instancePath:instancePath+"/user_id",schemaPath:"#/properties/user_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs9 === errors;
+}
+else {
+var valid0 = true;
+}
 }
 }
 }
@@ -3636,4 +3702,87 @@ return false;
 validate87.errors = vErrors;
 return errors === 0;
 }
-validate87.evaluated = {"props":{"cleanup_pending":true,"deleted_session_id":true,"success":true,"user_id":true},"dynamicProps":false,"dynamicItems":false};
+validate87.evaluated = {"props":{"cleanup_pending":true,"deleted_message_id":true,"session_id":true,"success":true,"user_id":true},"dynamicProps":false,"dynamicItems":false};
+
+export const validateDeleteSessionResponse = validate88;
+const schema40 = {"description":"Confirmed session removal and its remaining cleanup state.","properties":{"cleanup_pending":{"default":false,"title":"Cleanup Pending","type":"boolean"},"deleted_session_id":{"title":"Deleted Session Id","type":"string"},"success":{"title":"Success","type":"boolean"},"user_id":{"title":"User Id","type":"string"}},"required":["success","user_id","deleted_session_id","cleanup_pending"],"title":"DeleteSessionResponse","type":"object"};
+
+function validate88(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate88.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if(((((data.success === undefined) && (missing0 = "success")) || ((data.user_id === undefined) && (missing0 = "user_id"))) || ((data.deleted_session_id === undefined) && (missing0 = "deleted_session_id"))) || ((data.cleanup_pending === undefined) && (missing0 = "cleanup_pending"))){
+validate88.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+if(data.cleanup_pending !== undefined){
+const _errs1 = errors;
+if(typeof data.cleanup_pending !== "boolean"){
+validate88.errors = [{instancePath:instancePath+"/cleanup_pending",schemaPath:"#/properties/cleanup_pending/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs1 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.deleted_session_id !== undefined){
+const _errs3 = errors;
+if(typeof data.deleted_session_id !== "string"){
+validate88.errors = [{instancePath:instancePath+"/deleted_session_id",schemaPath:"#/properties/deleted_session_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs3 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.success !== undefined){
+const _errs5 = errors;
+if(typeof data.success !== "boolean"){
+validate88.errors = [{instancePath:instancePath+"/success",schemaPath:"#/properties/success/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs5 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.user_id !== undefined){
+const _errs7 = errors;
+if(typeof data.user_id !== "string"){
+validate88.errors = [{instancePath:instancePath+"/user_id",schemaPath:"#/properties/user_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs7 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+}
+}
+else {
+validate88.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate88.errors = vErrors;
+return errors === 0;
+}
+validate88.evaluated = {"props":{"cleanup_pending":true,"deleted_session_id":true,"success":true,"user_id":true},"dynamicProps":false,"dynamicItems":false};

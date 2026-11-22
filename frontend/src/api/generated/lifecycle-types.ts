@@ -134,6 +134,26 @@ export interface components {
             /** L1 Events Deleted */
             l1_events_deleted: number;
         };
+        /**
+         * ForgetSourceResponse
+         * @description Confirmed cascade deletion counts for all records from one source.
+         */
+        ForgetSourceResponse: {
+            /**
+             * Archived Events Deleted
+             * @default 0
+             */
+            archived_events_deleted: number;
+            /**
+             * Connection Id
+             * @default null
+             */
+            connection_id: string | null;
+            /** L1 Events Deleted */
+            l1_events_deleted: number;
+            /** Source Name */
+            source_name: string;
+        };
         /** HistoryImportAppendResponse */
         HistoryImportAppendResponse: {
             /** Added Source Count */

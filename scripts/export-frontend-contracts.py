@@ -461,7 +461,12 @@ def lifecycle_models_and_routes():
         HistoryImportAppendResponse, HistoryImportJobResponse,
         HistoryImporterResponse, HistoryImportSourcePreviewResponse,
     )
-    from magi.api.routers.memory.schemas import DeleteL1EventResponse, ForgetEntityResponse, ForgetEpisodeResponse
+    from magi.api.routers.memory.schemas import (
+        DeleteL1EventResponse,
+        ForgetEntityResponse,
+        ForgetEpisodeResponse,
+        ForgetSourceResponse,
+    )
     from magi.api.routers.messages import user_messages_router
     from magi.api.routers.messages_models import ClearHistoryResponse, DeleteMessageResponse, DeleteSessionResponse
     from magi.memory.portability.operations import MemoryPortabilityOperation
@@ -488,6 +493,7 @@ def lifecycle_models_and_routes():
         ("POST", "/forget/entity"): ForgetEntityResponse,
         ("POST", "/forget/time-range"): ForgetEntityResponse,
         ("POST", "/forget/episode"): ForgetEpisodeResponse,
+        ("POST", "/forget/source"): ForgetSourceResponse,
     }
     message_routes = {
         ("POST", "/history/clear"): ClearHistoryResponse,
@@ -496,7 +502,7 @@ def lifecycle_models_and_routes():
     }
     models = [HistoryImportAppendResponse, HistoryImportJobResponse, HistoryImporterResponse,
               HistoryImportSourcePreviewResponse, MemoryPortabilityOperation, ClearMemoryResponseModel,
-              DeleteL1EventResponse, ForgetEntityResponse, ForgetEpisodeResponse,
+              DeleteL1EventResponse, ForgetEntityResponse, ForgetEpisodeResponse, ForgetSourceResponse,
               ClearHistoryResponse, DeleteMessageResponse, DeleteSessionResponse]
     return models, [("memory", memory_router, memory_routes), ("messages", user_messages_router, message_routes)]
 
@@ -524,7 +530,12 @@ def build_lifecycle_contract() -> dict:
 def build_lifecycle_examples() -> dict:
     from magi.api.routers.memory.clear import ClearMemoryResponseModel, build_clear_memory_response
     from magi.api.routers.memory.history_import_routes import _response, HistoryImportAppendResponse, HistoryImporterResponse, HistoryImportSourcePreviewResponse
-    from magi.api.routers.memory.schemas import DeleteL1EventResponse, ForgetEntityResponse, ForgetEpisodeResponse
+    from magi.api.routers.memory.schemas import (
+        DeleteL1EventResponse,
+        ForgetEntityResponse,
+        ForgetEpisodeResponse,
+        ForgetSourceResponse,
+    )
     from magi.api.routers.messages_models import ClearHistoryResponse, DeleteMessageResponse, DeleteSessionResponse
     from magi.memory.history_imports.models import HistoryImportJob, HistoryImportParticipant, HistoryImportSourceSummary
     from magi.memory.portability.operations import MemoryPortabilityOperation, ReadyMemoryRestoreInspection
@@ -561,6 +572,7 @@ def build_lifecycle_examples() -> dict:
         "deleteEvent": DeleteL1EventResponse(event_id="fixture-event", deleted=True, deletion_scope="source_event").model_dump(mode="json"),
         "forgetEntity": ForgetEntityResponse(l2_counts={"entities": 1}, l1_events_deleted=1).model_dump(mode="json"),
         "forgetEpisode": ForgetEpisodeResponse(episode_id="fixture-episode", event_ids=["fixture-event"], l1_events_deleted=1).model_dump(mode="json"),
+        "forgetSource": ForgetSourceResponse(source_name="chrome_history", connection_id="conn-chrome", l1_events_deleted=3, archived_events_deleted=1).model_dump(mode="json"),
         "clearHistory": ClearHistoryResponse(success=True, message="Cleared", user_id="fixture-user", session_id="fixture-session",
             cleared_message_ids=["fixture-message"], cleared_turn_ids=["fixture-turn"]).model_dump(mode="json"),
         "deleteMessage": DeleteMessageResponse(success=True, user_id="fixture-user", session_id="fixture-session",

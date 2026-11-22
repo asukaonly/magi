@@ -47,7 +47,7 @@ await generate('plugins', ['PluginConnectionResponse', 'PluginConnectionsRespons
 
 await generate('events', ['ChatDisplayMessage', 'ChatSessionSummary', 'HistoryPageResponse', 'SessionPageResponse', 'BackgroundTask', 'BackgroundTaskEvent', 'RunEvent', 'DelegateResult']);
 
-await generate('lifecycle', ['HistoryImportJobResponse', 'HistoryImportAppendResponse', 'HistoryImporterResponse', 'HistoryImportSourcePreviewResponse', 'MemoryPortabilityOperation', 'ClearMemoryResponseModel', 'DeleteL1EventResponse', 'ForgetEntityResponse', 'ForgetEpisodeResponse', 'ClearHistoryResponse', 'DeleteMessageResponse', 'DeleteSessionResponse']);
+await generate('lifecycle', ['HistoryImportJobResponse', 'HistoryImportAppendResponse', 'HistoryImporterResponse', 'HistoryImportSourcePreviewResponse', 'MemoryPortabilityOperation', 'ClearMemoryResponseModel', 'DeleteL1EventResponse', 'ForgetEntityResponse', 'ForgetEpisodeResponse', 'ForgetSourceResponse', 'ClearHistoryResponse', 'DeleteMessageResponse', 'DeleteSessionResponse']);
 
 await generate('identity', ['EntityChangePreview', 'EntityChangeResult', 'EntityTypeReviewGroups', 'EntityReviewRejectResult', 'EntityReviewKeepResult', 'EntityIdentityAudit']);
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from ...core.sqlite import sqlite_connection_async
@@ -20,9 +21,16 @@ class ProjectionSelection:
 class ForgetSelectorResolver:
     """Enumerate raw source rows and durable projection barriers."""
 
-    def __init__(self, *, memory_db_path: str, l1: Any) -> None:
+    def __init__(
+        self,
+        *,
+        memory_db_path: str,
+        l1: Any,
+        archive_dir: Path | str | None = None,
+    ) -> None:
         self._memory_db_path = memory_db_path
         self._l1 = l1
+        self._archive_dir = Path(archive_dir) if archive_dir is not None else None
 
     async def list_event_page(
         self,
@@ -65,6 +73,30 @@ class ForgetSelectorResolver:
                 after_event_id=after_event_id,
                 limit=page_size,
             )
+        elif selector.kind == "source_records":
+            source_name = str(payload["source_name"])
+            connection_id = (
+                str(payload["connection_id"]).strip()
+                if payload.get("connection_id")
+                else None
+            )
+            l1_ids = (
+                await self._l1.list_raw_event_ids_by_source(
+                    source_name=source_name,
+                    connection_id=connection_id,
+                    after_event_id=after_event_id,
+                    limit=page_size,
+                )
+                if self._l1 is not None
+                else []
+            )
+            archived_ids = await self._list_archived_source_event_ids(
+                source_name=source_name,
+                connection_id=connection_id,
+                after_event_id=after_event_id,
+                limit=page_size,
+            )
+            event_ids = sorted(set(l1_ids).union(archived_ids))[:page_size]
         elif selector.kind == "chat_session":
             if self._l1 is None:
                 return []
@@ -248,7 +280,60 @@ class ForgetSelectorResolver:
                 True,
                 True,
             )
+        if selector.kind == "source_records":
+            return True, False, True
         return True, True, True
+
+    async def _list_archived_source_event_ids(
+        self,
+        *,
+        source_name: str,
+        connection_id: str | None,
+        after_event_id: str,
+        limit: int,
+    ) -> list[str]:
+        if self._archive_dir is None or not self._archive_dir.is_dir():
+            return []
+        archive_paths = sorted(self._archive_dir.glob("*.db"))
+        if not archive_paths:
+            return []
+        collected: set[str] = set()
+        page_size = max(1, min(int(limit), 1000))
+        for archive_path in archive_paths:
+            async with sqlite_connection_async(archive_path) as db:
+                async with db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'archived_l1_events'"
+                ) as cursor:
+                    if await cursor.fetchone() is None:
+                        continue
+                if connection_id is not None:
+                    query = """
+                        SELECT event_id
+                        FROM archived_l1_events
+                        WHERE source = ?
+                          AND json_extract(
+                              CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,
+                              '$.metadata_json.source_connection_id'
+                          ) = ?
+                          AND event_id > ?
+                        ORDER BY event_id
+                        LIMIT ?
+                    """
+                    params: tuple[Any, ...] = (source_name, connection_id, after_event_id, page_size)
+                else:
+                    query = """
+                        SELECT event_id
+                        FROM archived_l1_events
+                        WHERE source = ?
+                          AND event_id > ?
+                        ORDER BY event_id
+                        LIMIT ?
+                    """
+                    params = (source_name, after_event_id, page_size)
+                async with db.execute(query, params) as cursor:
+                    for row in await cursor.fetchall():
+                        collected.add(str(row[0]))
+        return sorted(collected)[:page_size]
 
     async def episode_exists(self, episode_id: str) -> bool:
         async with sqlite_connection_async(self._memory_db_path) as db:

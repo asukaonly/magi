@@ -81,6 +81,7 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "v58_history_import_source_roles.py",
     "v59_timeline_cover_preferences.py",
     "v60_vector_projection_journal.py",
+    "v61_source_records_forget_selector.py",
 )
 
 

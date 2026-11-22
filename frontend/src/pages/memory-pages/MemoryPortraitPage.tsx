@@ -8,7 +8,15 @@ import { toast } from 'sonner';
 import { memoryPortraitSelfApi, type SelfPortraitPayload } from '@/api/modules/memoryPortraitSelf';
 import { profileApi } from '@/api/modules/profile';
 import { Button } from '@/components/ui/button';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
+import MemoryCorrectionHistory from '@/components/memory/correction/MemoryCorrectionHistory';
 import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 import PortraitWorldMap from '@/components/memory/portrait/PortraitWorldMap';
 import PortraitRecentState from '@/components/memory/portrait/PortraitRecentState';
@@ -75,6 +83,8 @@ export const MemoryPortraitPage = () => {
   const [loadError, setLoadError] = useState(false);
   const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
   const [correctionAction, setCorrectionAction] = useState<'replace' | 'remove'>('replace');
+  const [historyTarget, setHistoryTarget] = useState<MemoryCorrectionUiTarget | null>(null);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const beginRead = useRequestOwner();
 
@@ -131,10 +141,9 @@ export const MemoryPortraitPage = () => {
     return parts.length > 0 ? parts.join(' · ') : t('memory.portrait.hero.coldStart');
   }, [t, viewModel]);
 
-  const openCorrection = (item: PortraitDisplayItem, action: 'replace' | 'remove' = 'replace') => {
-    if (!item.assertionId || item.correctionValue == null) return;
-    setCorrectionAction(action);
-    setCorrectionTarget({
+  const toCorrectionTarget = (item: PortraitDisplayItem): MemoryCorrectionUiTarget | null => {
+    if (!item.assertionId || item.correctionValue == null) return null;
+    return {
       kind: 'assertion',
       id: item.assertionId,
       displaySentence: item.text,
@@ -142,7 +151,21 @@ export const MemoryPortraitPage = () => {
       traitName: item.correctionTraitName ?? undefined,
       valueOptions: item.correctionValueOptions,
       expectedUpdatedAt: item.updatedAt ?? undefined,
-    });
+    };
+  };
+
+  const openCorrection = (item: PortraitDisplayItem, action: 'replace' | 'remove' = 'replace') => {
+    const target = toCorrectionTarget(item);
+    if (!target) return;
+    setCorrectionAction(action);
+    setCorrectionTarget(target);
+  };
+
+  const openHistory = (item: PortraitDisplayItem) => {
+    const target = toCorrectionTarget(item);
+    if (!target) return;
+    setHistoryTarget(target);
+    setHistoryRefreshKey((value) => value + 1);
   };
 
   if (!payload) {
@@ -197,6 +220,7 @@ export const MemoryPortraitPage = () => {
               groups={viewModel.worldGroups}
               totalCount={viewModel.totalUnderstandingCount}
               onCorrect={openCorrection}
+              onViewHistory={openHistory}
               onChanged={() => { void loadPortrait(true); }}
             />
             <PortraitIdentitySection onFactSubmitted={() => void loadPortrait()} />
@@ -212,6 +236,7 @@ export const MemoryPortraitPage = () => {
           if (!open) setCorrectionTarget(null);
         }}
         onSaved={async () => {
+          setHistoryRefreshKey((value) => value + 1);
           if (!await loadPortrait()) {
             toast.warning(t('memory.portrait.refreshFailed', {
               defaultValue: '修正已经生效，但“关于你”暂时没有刷新。',
@@ -226,6 +251,36 @@ export const MemoryPortraitPage = () => {
           }
         }}
       />
+      <Sheet
+        open={historyTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setHistoryTarget(null);
+        }}
+      >
+        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle>{t('memory.portrait.world.historyDrawerTitle')}</SheetTitle>
+            {historyTarget ? (
+              <SheetDescription>{historyTarget.displaySentence}</SheetDescription>
+            ) : null}
+          </SheetHeader>
+          {historyTarget ? (
+            <div className="mt-4">
+              <MemoryCorrectionHistory
+                target={historyTarget}
+                refreshKey={historyRefreshKey}
+                onReverted={async () => {
+                  toast.success(t('memory.correction.history.revertSuccess', { defaultValue: '已撤销这次修正' }));
+                  await loadPortrait(true);
+                }}
+                onConflict={async () => {
+                  await loadPortrait(true);
+                }}
+              />
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </MemoryPageFrame>
   );
 };

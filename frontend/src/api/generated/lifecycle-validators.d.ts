@@ -9,6 +9,7 @@ export declare function validateClearMemoryResponseModel(value: unknown): value 
 export declare function validateDeleteL1EventResponse(value: unknown): value is components['schemas']['DeleteL1EventResponse'];
 export declare function validateForgetEntityResponse(value: unknown): value is components['schemas']['ForgetEntityResponse'];
 export declare function validateForgetEpisodeResponse(value: unknown): value is components['schemas']['ForgetEpisodeResponse'];
+export declare function validateForgetSourceResponse(value: unknown): value is components['schemas']['ForgetSourceResponse'];
 export declare function validateClearHistoryResponse(value: unknown): value is components['schemas']['ClearHistoryResponse'];
 export declare function validateDeleteMessageResponse(value: unknown): value is components['schemas']['DeleteMessageResponse'];
 export declare function validateDeleteSessionResponse(value: unknown): value is components['schemas']['DeleteSessionResponse'];

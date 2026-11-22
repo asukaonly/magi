@@ -274,6 +274,46 @@
         "title": "ForgetEpisodeResponse",
         "type": "object"
       },
+      "ForgetSourceResponse": {
+        "description": "Confirmed cascade deletion counts for all records from one source.",
+        "properties": {
+          "archived_events_deleted": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Archived Events Deleted",
+            "type": "integer"
+          },
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Connection Id"
+          },
+          "l1_events_deleted": {
+            "minimum": 0,
+            "title": "L1 Events Deleted",
+            "type": "integer"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_name",
+          "connection_id",
+          "l1_events_deleted",
+          "archived_events_deleted"
+        ],
+        "title": "ForgetSourceResponse",
+        "type": "object"
+      },
       "HistoryImportAppendResponse": {
         "properties": {
           "added_source_count": {

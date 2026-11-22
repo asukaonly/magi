@@ -15,6 +15,7 @@ SelectorKind = Literal[
     "entity",
     "time_range",
     "episode",
+    "source_records",
     "chat_session",
     "chat_history",
     "chat_message",
@@ -117,6 +118,22 @@ class ForgetSelector:
             payload={
                 "episode_id": _required_text(episode_id, field="episode_id"),
                 "delete_events": bool(delete_events),
+            },
+        )
+
+    @classmethod
+    def source_records(
+        cls,
+        *,
+        source_name: str,
+        connection_id: str | None = None,
+    ) -> "ForgetSelector":
+        normalized_connection = str(connection_id or "").strip() or None
+        return cls(
+            kind="source_records",
+            payload={
+                "source_name": _required_text(source_name, field="source_name"),
+                "connection_id": normalized_connection,
             },
         )
 

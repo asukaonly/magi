@@ -548,6 +548,11 @@
     },
     {
       "method": "POST",
+      "path": "/api/memory/forget/source",
+      "surface": "management"
+    },
+    {
+      "method": "POST",
       "path": "/api/memory/forget/time-range",
       "surface": "management"
     },

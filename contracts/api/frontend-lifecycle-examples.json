@@ -91,6 +91,12 @@
     ],
     "l1_events_deleted": 1
   },
+  "forgetSource": {
+    "archived_events_deleted": 1,
+    "connection_id": "conn-chrome",
+    "l1_events_deleted": 3,
+    "source_name": "chrome_history"
+  },
   "importAppend": {
     "added_source_count": 1,
     "duplicate_source_count": 0,

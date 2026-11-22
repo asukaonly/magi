@@ -3680,6 +3680,7 @@
         "pause": "暂停",
         "resume": "恢复",
         "more": "更多操作",
+        "clearRecords": "清空该来源全部已存记录",
         "back": "返回来源",
         "add": "添加来源"
       },
@@ -3700,7 +3701,11 @@
         "backfillCompleted": "{{source}} 补数据已完成",
         "backfillFailed": "{{source}} 补数据失败：{{message}}",
         "syncFailed": "同步请求失败：{{message}}",
-        "toggleFailed": "更新来源状态失败：{{message}}"
+        "toggleFailed": "更新来源状态失败：{{message}}",
+        "forgetEventSuccess": "已忘记该记录并清理相关记忆推断",
+        "forgetEventFailed": "忘记记录失败：{{message}}",
+        "clearRecordsSuccess": "已清空 {{source}} 的 {{count}} 条已存记录",
+        "clearRecordsFailed": "清空记录失败：{{message}}"
       },
       "detail": {
         "lastSync": "最近同步：{{value}}",
@@ -3728,7 +3733,16 @@
         "stored": "已入记忆",
         "visitCount": "访问 {{count}} 次",
         "nextRun": "下次同步",
-        "syncMode": "同步方式"
+        "syncMode": "同步方式",
+        "forgetEvent": "忘记",
+        "forgetEventAria": "忘记记录 {{title}}",
+        "forgetEventConfirmTitle": "忘记这条记录？",
+        "forgetEventConfirmDescription": "将从记忆中移除该记录，并同时清理依赖此记录的记忆推断与派生摘要。",
+        "forgetEventConfirmAction": "确认忘记",
+        "forgetCancel": "取消",
+        "clearRecordsConfirmTitle": "清空「{{source}}」的全部已存记录？",
+        "clearRecordsConfirmDescription": "将彻底移除「{{source}}」已存储的 {{count}} 条记录及相关记忆推断（含冷归档），但不会卸载插件本身。",
+        "clearRecordsConfirmAction": "清空全部记录"
       }
     },
     "stories": {
@@ -4165,6 +4179,9 @@
         "inspectItems": "查看 {{count}} 条具体信息",
         "correct": "修正",
         "correctItem": "修正 {{value}}",
+        "history": "记录",
+        "historyItem": "查看 {{value}} 的修正记录",
+        "historyDrawerTitle": "修正记录",
         "editProfile": "修改个人资料",
         "groups": {
           "identity": "身份信息",

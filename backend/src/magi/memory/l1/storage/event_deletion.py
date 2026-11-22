@@ -188,6 +188,51 @@ class SqliteEventDeletion:
             limit=limit,
         )
 
+    async def list_raw_event_ids_by_source(
+        self,
+        *,
+        source_name: str,
+        connection_id: str | None = None,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]:
+        """Return raw rows belonging to one source (and optional connection), including hidden rows."""
+        normalized_source = str(source_name or "").strip()
+        if not normalized_source:
+            raise ValueError("source_name must not be empty")
+        normalized_connection = str(connection_id or "").strip() or None
+        if normalized_connection is not None:
+            selector_sql = f"""
+                SELECT event_id
+                FROM {FACT_EVENTS_TABLE}
+                WHERE source = ?
+                  AND json_extract(
+                      CASE WHEN json_valid(metadata_json) THEN metadata_json ELSE '{{}}' END,
+                      '$.source_connection_id'
+                  ) = ?
+                  AND event_id > ?
+                ORDER BY event_id
+                LIMIT ?
+            """
+            selector_args: tuple[Any, ...] = (normalized_source, normalized_connection)
+        else:
+            selector_sql = f"""
+                SELECT event_id
+                FROM {FACT_EVENTS_TABLE}
+                WHERE source = ?
+                  AND event_id > ?
+                ORDER BY event_id
+                LIMIT ?
+            """
+            selector_args = (normalized_source,)
+        return await _list_event_ids(
+            self._db_path,
+            selector_sql=selector_sql,
+            selector_args=selector_args,
+            after_event_id=after_event_id,
+            limit=limit,
+        )
+
 
     async def list_active_event_ids_by_chat_sources(
         self,
