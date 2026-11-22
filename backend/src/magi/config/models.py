@@ -38,6 +38,7 @@ from .memory_models import (
     MemoryL4Settings as MemoryL4Settings,
     MemoryRerankerSettings as MemoryRerankerSettings,
     MemorySettings,
+    PrivacyFilterSettings as PrivacyFilterSettings,
     QueryExpansionSettings as QueryExpansionSettings,
 )
 from .plugin_models import (

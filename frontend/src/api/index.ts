@@ -18,6 +18,8 @@ export type {
   SessionListResponse,
   ExecutionTraceSummary,
   ExecutionTraceNode,
+  ExecutionTraceContextSection,
+  ExecutionTraceContextSent,
   ExecutionTraceSnapshot,
 } from './modules/messages';
 

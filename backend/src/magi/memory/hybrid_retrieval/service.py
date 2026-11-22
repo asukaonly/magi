@@ -20,6 +20,12 @@ from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDeci
 from .mode_registry import MODE_REGISTRY, VALID_MODES
 from .recall_shape import RecallShape
 from .router import normalize_query_mode
+from ..privacy_filter import (
+    is_active_chat_llm_local,
+    redact_structured_for_cloud,
+    resolve_privacy_filter_settings,
+    should_exclude_event_from_llm,
+)
 from .models import (
     IntentDeciderInput,
     RetrievalConfig,
@@ -450,7 +456,135 @@ class HybridRetrievalService(
             recall_shape=recall_shape,
             payload=payload,
         )
+        payload = self._apply_llm_egress_privacy(request=request, payload=payload)
         _log_retrieval_trace(payload)
+        return payload
+
+    @staticmethod
+    def _apply_llm_egress_privacy(
+        *,
+        request: RetrievalQuery,
+        payload: RetrievalPayload,
+    ) -> RetrievalPayload:
+        is_local = (
+            bool(request.is_local_llm)
+            if request.is_local_llm is not None
+            else is_active_chat_llm_local()
+        )
+        if is_local:
+            payload.trace["egress_privacy"] = {
+                "is_local_provider": True,
+                "excluded_local_only_count": 0,
+                "redacted": False,
+            }
+            return payload
+
+        excluded_ids: set[str] = set()
+        kept_events: list[dict[str, Any]] = []
+        for event in payload.l1_events:
+            if isinstance(event, dict) and should_exclude_event_from_llm(
+                event,
+                is_local_provider=False,
+            ):
+                event_id = str(event.get("event_id") or "").strip()
+                if event_id:
+                    excluded_ids.add(event_id)
+                continue
+            kept_events.append(event)
+        excluded_count = len(payload.l1_events) - len(kept_events)
+        payload.l1_events = kept_events
+
+        if payload.l1_evidence_bundles:
+            filtered_bundles: list[dict[str, Any]] = []
+            for bundle in payload.l1_evidence_bundles:
+                if not isinstance(bundle, dict):
+                    continue
+                next_bundle = dict(bundle)
+                for key in ("events", "answer_events"):
+                    items = next_bundle.get(key)
+                    if isinstance(items, list):
+                        kept_items = []
+                        for item in items:
+                            if isinstance(item, dict) and (
+                                str(item.get("event_id") or "").strip() in excluded_ids
+                                or should_exclude_event_from_llm(item, is_local_provider=False)
+                            ):
+                                item_id = str(item.get("event_id") or "").strip()
+                                if item_id and item_id not in excluded_ids:
+                                    excluded_ids.add(item_id)
+                                    excluded_count += 1
+                                continue
+                            kept_items.append(item)
+                        next_bundle[key] = kept_items
+                hit_ids = next_bundle.get("hit_event_ids")
+                if isinstance(hit_ids, list):
+                    next_bundle["hit_event_ids"] = [
+                        eid for eid in hit_ids if str(eid or "").strip() not in excluded_ids
+                    ]
+                if (
+                    next_bundle.get("events")
+                    or next_bundle.get("answer_events")
+                    or next_bundle.get("hit_event_ids")
+                ):
+                    filtered_bundles.append(next_bundle)
+            payload.l1_evidence_bundles = filtered_bundles
+
+        if payload.l1_timeline_summary:
+            filtered_timeline: list[dict[str, Any]] = []
+            for entry in payload.l1_timeline_summary:
+                if not isinstance(entry, dict):
+                    continue
+                entry_id = str(entry.get("event_id") or "").strip()
+                if entry_id and entry_id in excluded_ids:
+                    continue
+                supporting = entry.get("supporting_event_ids")
+                if isinstance(supporting, list) and supporting and all(
+                    str(eid or "").strip() in excluded_ids for eid in supporting
+                ):
+                    continue
+                if should_exclude_event_from_llm(
+                    {"content": str(entry.get("summary") or entry.get("content") or "")},
+                    is_local_provider=False,
+                ):
+                    excluded_count += 1
+                    continue
+                filtered_timeline.append(entry)
+            payload.l1_timeline_summary = filtered_timeline
+
+        privacy_cfg = resolve_privacy_filter_settings()
+        any_redacted = False
+        if privacy_cfg.enabled and privacy_cfg.redact_cloud_egress:
+            for attr in (
+                "l1_events",
+                "l1_evidence_bundles",
+                "l1_timeline_summary",
+                "l2_entity_cards",
+                "l2_relationships",
+                "l2_assertions",
+                "l2_episodes",
+                "l2_experiences",
+                "l2_state_facts",
+                "l2_state_history",
+                "l3_reflections",
+                "l4_procedures",
+                "structured_results",
+            ):
+                current = getattr(payload, attr, None)
+                if current:
+                    redacted_value, changed = redact_structured_for_cloud(current)
+                    setattr(payload, attr, redacted_value)
+                    any_redacted = any_redacted or changed
+            if payload.trace:
+                redacted_trace, trace_changed = redact_structured_for_cloud(payload.trace)
+                payload.trace = redacted_trace
+                any_redacted = any_redacted or trace_changed
+
+        pre_dropped = int(payload.trace.get("l1_egress_privacy_dropped_count") or 0)
+        payload.trace["egress_privacy"] = {
+            "is_local_provider": False,
+            "excluded_local_only_count": excluded_count + pre_dropped,
+            "redacted": any_redacted,
+        }
         return payload
 
     async def _apply_structured_recall(

@@ -1353,6 +1353,18 @@
       "summaryStepsValue": "{{completed}} done / {{failed}} failed",
       "summaryMode": "Mode",
       "summaryTokens": "Token Usage",
+      "contextSent": {
+        "title": "Context Sent",
+        "localProvider": "Local model",
+        "cloudProvider": "Cloud model",
+        "redactedBadge": "Sensitive data redacted",
+        "excludedCount": "{{count}} local-only excluded",
+        "recentActivity": "Recent Activity Included",
+        "recalledMemory": "Recalled Memory Included",
+        "sections": "Prompt Sections ({{count}})",
+        "chars": "{{count}} chars",
+        "none": "None included in this turn"
+      },
       "cacheTokens": "Cache Tokens",
       "summaryTokensValue": "In {{input}} / Out {{output}}",
       "summaryTokensWithReasoning": "In {{input}} / Out {{output}} / Think {{reasoning}}",

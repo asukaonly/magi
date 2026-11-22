@@ -29,6 +29,8 @@ export {
 export type {
   NormalizedExecutionPlanStep,
   NormalizedExecutionPlanSummary,
+  NormalizedExecutionTraceContextSection,
+  NormalizedExecutionTraceContextSent,
   NormalizedExecutionTraceNode,
   NormalizedExecutionTraceSnapshot,
   NormalizedExecutionTraceSummary,

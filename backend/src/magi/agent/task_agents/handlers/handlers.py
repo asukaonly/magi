@@ -19,6 +19,11 @@ from ....agent.execution.run_plan_port import BoundRunPlanReader
 from ....agent.execution.model_context_port import ModelContextPort
 from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
+from ....memory.privacy_filter import is_active_chat_llm_local
+from ....runtime_trace.context_sent import (
+    build_context_sent_snapshot,
+    get_context_sent_store,
+)
 from ..common import (
     BaseExecutionHandler,
     CommonHandlerDependencies,
@@ -409,6 +414,24 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
         streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
         session_id = str(getattr(request.context, "session_id", "") or "").strip()
+        if turn_id:
+            self_mem = getattr(getattr(request, "prompt_context", None), "self_memory", None)
+            excluded_count = int(getattr(self_mem, "recent_life_brief_excluded_count", 0) or 0)
+            brief_redacted = bool(getattr(self_mem, "recent_life_brief_redacted", False))
+            get_context_sent_store().record(
+                session_id=session_id,
+                turn_id=str(turn_id),
+                snapshot=build_context_sent_snapshot(
+                    provider="pending",
+                    model="pending",
+                    is_local_provider=is_active_chat_llm_local(),
+                    redacted=brief_redacted,
+                    system_prompt=request.system_prompt,
+                    messages=[],
+                    excluded_local_only_count=excluded_count,
+                    working_context=request.working_context,
+                ),
+            )
         detach_signal = self._build_detach_signal(session_id=session_id)
         cancel_token = self._build_cancel_token(request)
         context_control = request.context.control if hasattr(request.context, "control") else None

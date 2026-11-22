@@ -1352,6 +1352,18 @@
       "summaryStepsValue": "{{completed}} 个完成 / {{failed}} 个失败",
       "summaryMode": "模式",
       "summaryTokens": "Token 用量",
+      "contextSent": {
+        "title": "已发送上下文",
+        "localProvider": "本地模型",
+        "cloudProvider": "云端模型",
+        "redactedBadge": "已脱敏敏感信息",
+        "excludedCount": "已拦截 {{count}} 条仅本地记录",
+        "recentActivity": "带入的近期活动",
+        "recalledMemory": "带入的召回记忆",
+        "sections": "提示词分段（{{count}}）",
+        "chars": "{{count}} 字符",
+        "none": "本轮未带入"
+      },
       "cacheTokens": "缓存 Token",
       "summaryTokensValue": "输入 {{input}} / 输出 {{output}}",
       "summaryTokensWithReasoning": "输入 {{input}} / 输出 {{output}} / 思考 {{reasoning}}",

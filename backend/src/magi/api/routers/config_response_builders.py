@@ -33,6 +33,7 @@ from .config_schemas import (
     MemoryL3ConfigModel,
     MemoryL4ConfigModel,
     MemoryRerankerConfigModel,
+    PrivacyFilterConfigModel,
     QueryExpansionConfigModel,
 )
 from .config_update_paths import selection_limits_from_registry_limits
@@ -56,6 +57,13 @@ def build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfi
         graph_spreading=GraphSpreadingConfigModel(enabled=memory_cfg.graph_spreading.enabled),
         entity_semantic_edges=EntitySemanticEdgeConfigModel(
             enabled=memory_cfg.entity_semantic_edges.enabled
+        ),
+        privacy_filter=PrivacyFilterConfigModel(
+            enabled=memory_cfg.privacy_filter.enabled,
+            default_action=memory_cfg.privacy_filter.default_action,
+            blocked_domain_patterns=list(memory_cfg.privacy_filter.blocked_domain_patterns),
+            blocked_path_patterns=list(memory_cfg.privacy_filter.blocked_path_patterns),
+            redact_cloud_egress=memory_cfg.privacy_filter.redact_cloud_egress,
         ),
         l0=_build_memory_l0_config(memory_cfg),
         l1=_build_memory_l1_config(memory_cfg),

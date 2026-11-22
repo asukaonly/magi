@@ -12,6 +12,7 @@ import {
   Loader2,
   MessageSquare,
   Search,
+  ShieldCheck,
   Sparkles,
   Workflow,
   XCircle,
@@ -24,7 +25,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { flattenPlanningNodeForDisplay, type NormalizedExecutionTraceNode, type NormalizedExecutionTraceSnapshot } from '@/domain/chat/state';
+import {
+  flattenPlanningNodeForDisplay,
+  type NormalizedExecutionTraceContextSent,
+  type NormalizedExecutionTraceNode,
+  type NormalizedExecutionTraceSnapshot,
+} from '@/domain/chat/state';
 import { cn } from '@/lib/utils';
 import { formatTraceKind, formatTraceLabel, formatTraceStatus } from './traceDisplay';
 
@@ -330,6 +336,140 @@ const ContinuationNotice = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
+const ContextSentPanel = ({
+  contextSent,
+  turnId,
+}: {
+  contextSent: NormalizedExecutionTraceContextSent;
+  turnId: string;
+}) => {
+  const { t } = useTranslation('app');
+  const [expanded, setExpanded] = React.useState(false);
+
+  React.useEffect(() => {
+    setExpanded(false);
+  }, [turnId]);
+
+  const sections = React.useMemo(
+    () => [
+      ...contextSent.workingContextSections,
+      ...contextSent.systemPromptSections,
+    ],
+    [contextSent.systemPromptSections, contextSent.workingContextSections],
+  );
+
+  return (
+    <div className="mb-4 overflow-hidden rounded-xl border border-border/50 bg-card shadow-xs">
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20"
+      >
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <ShieldCheck className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="text-sm font-semibold text-foreground">
+            {t('chat.trace.contextSent.title')}
+          </span>
+          <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
+            {contextSent.provider} / {contextSent.model}
+          </span>
+          <span className="rounded-full border border-border/60 bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+            {contextSent.isLocalProvider
+              ? t('chat.trace.contextSent.localProvider')
+              : t('chat.trace.contextSent.cloudProvider')}
+          </span>
+          {contextSent.redacted && (
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-300">
+              {t('chat.trace.contextSent.redactedBadge')}
+            </span>
+          )}
+          {contextSent.excludedLocalOnlyCount > 0 && (
+            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+              {t('chat.trace.contextSent.excludedCount', {
+                count: contextSent.excludedLocalOnlyCount,
+              })}
+            </span>
+          )}
+        </div>
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground">
+          {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="space-y-4 border-t border-border/40 bg-muted/15 px-4 py-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+                {t('chat.trace.contextSent.recentActivity')}
+              </div>
+              {contextSent.recentLifeBriefItems.length > 0 ? (
+                <ul className="space-y-1.5 rounded-md border border-border/50 bg-background/80 p-3 text-xs leading-5 text-foreground">
+                  {contextSent.recentLifeBriefItems.map((item, idx) => (
+                    <li key={`${idx}-${item}`} className="wrap-break-word">
+                      • {item}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="rounded-md border border-border/50 bg-background/60 p-3 text-xs text-muted-foreground">
+                  {t('chat.trace.contextSent.none')}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+                {t('chat.trace.contextSent.recalledMemory')}
+              </div>
+              {contextSent.recalledMemoryItems.length > 0 ? (
+                <ul className="space-y-1.5 rounded-md border border-border/50 bg-background/80 p-3 text-xs leading-5 text-foreground">
+                  {contextSent.recalledMemoryItems.map((item, idx) => (
+                    <li key={`${idx}-${item}`} className="wrap-break-word">
+                      • {item}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="rounded-md border border-border/50 bg-background/60 p-3 text-xs text-muted-foreground">
+                  {t('chat.trace.contextSent.none')}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {sections.length > 0 && (
+            <div>
+              <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+                {t('chat.trace.contextSent.sections', { count: sections.length })}
+              </div>
+              <div className="space-y-2">
+                {sections.map((section, idx) => (
+                  <details
+                    key={`${idx}-${section.title}`}
+                    className="rounded-md border border-border/50 bg-background/80"
+                  >
+                    <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-foreground">
+                      <span className="truncate">{section.title}</span>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {t('chat.trace.contextSent.chars', { count: section.charCount })}
+                      </span>
+                    </summary>
+                    <pre className="max-h-56 overflow-auto border-t border-border/40 p-3 text-xs leading-5 text-muted-foreground whitespace-pre-wrap wrap-break-word">
+                      {section.preview}
+                    </pre>
+                  </details>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
   open,
   onOpenChange,
@@ -447,6 +587,12 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
               </div>
 
               <div className="min-h-0 flex-1 overflow-auto bg-muted/20 px-6 py-5 xl:px-8">
+                {snapshot.contextSent && (
+                  <ContextSentPanel
+                    contextSent={snapshot.contextSent}
+                    turnId={snapshot.turnId}
+                  />
+                )}
                 <div className="min-w-[760px] overflow-hidden rounded-xl border border-border/50 bg-card shadow-xs">
                   <div className="grid grid-cols-[minmax(0,1fr)_112px_132px_56px] border-b border-border/50 bg-muted/35 px-4 py-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
                     <div>{t('chat.trace.tableNode')}</div>

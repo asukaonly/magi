@@ -57,15 +57,23 @@ class PromptSelfMemoryMixin:
 
         recent_life_brief_entries: List[str] = []
         recent_user_context_cue: str | None = None
+        recent_life_brief_excluded_count = 0
+        recent_life_brief_redacted = False
         brief_service = getattr(self, "recent_life_brief_service", None)
         if allow_implicit_memory and brief_service is not None and user_id:
             try:
                 brief = await brief_service.build_brief(user_id=user_id)
                 recent_life_brief_entries = list(brief.entries)
                 recent_user_context_cue = brief.recent_user_context_cue
+                recent_life_brief_excluded_count = int(
+                    getattr(brief, "excluded_local_only_count", 0) or 0
+                )
+                recent_life_brief_redacted = bool(getattr(brief, "redacted", False))
             except Exception:
                 recent_life_brief_entries = []
                 recent_user_context_cue = None
+                recent_life_brief_excluded_count = 0
+                recent_life_brief_redacted = False
 
         journal_entries: List[Dict[str, Any]] = []
         service = self.persona_journal_service_factory() if self.persona_journal_service_factory else None
@@ -94,6 +102,8 @@ class PromptSelfMemoryMixin:
             persona_turn_plan=persona_turn_plan,
             persona_journal_entries=journal_entries,
             recent_life_brief=recent_life_brief_entries,
+            recent_life_brief_excluded_count=recent_life_brief_excluded_count,
+            recent_life_brief_redacted=recent_life_brief_redacted,
         )
 
     async def _build_persona_turn_plan(

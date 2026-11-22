@@ -35,6 +35,8 @@ class SelfMemoryContext:
     retrieval_memory: RetrievalMemoryContext = field(default_factory=RetrievalMemoryContext)
     persona_journal_entries: List[Dict[str, Any]] = field(default_factory=list)  # Recent persona reflections
     recent_life_brief: List[str] = field(default_factory=list)  # Bounded 72h ambient activity summary
+    recent_life_brief_excluded_count: int = 0
+    recent_life_brief_redacted: bool = False
 
 
 @dataclass

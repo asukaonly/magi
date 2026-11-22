@@ -425,6 +425,14 @@ export interface EmbeddingConfig {
   local: LocalEmbeddingConfig;
 }
 
+export interface PrivacyFilterConfig {
+  enabled: boolean;
+  default_action: 'local_only' | 'drop';
+  blocked_domain_patterns: string[];
+  blocked_path_patterns: string[];
+  redact_cloud_egress: boolean;
+}
+
 export interface MemoryConfig {
   db_path?: string;
   retention_days: number;
@@ -436,6 +444,7 @@ export interface MemoryConfig {
   query_expansion: QueryExpansionConfig;
   graph_spreading: GraphSpreadingConfig;
   entity_semantic_edges: components['schemas']['EntitySemanticEdgeConfigModel'];
+  privacy_filter?: PrivacyFilterConfig;
   l0: MemoryL0Config;
   l1: MemoryL1Config;
   l2: MemoryL2Config;
@@ -680,6 +689,13 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       max_expansions: 2,
     },
     entity_semantic_edges: { enabled: false },
+    privacy_filter: {
+      enabled: true,
+      default_action: 'local_only',
+      blocked_domain_patterns: [],
+      blocked_path_patterns: [],
+      redact_cloud_egress: true,
+    },
     graph_spreading: {
       enabled: true,
     },

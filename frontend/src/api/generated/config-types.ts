@@ -1004,6 +1004,7 @@ export interface components {
             l2: components["schemas"]["MemoryL2ConfigModel"];
             l3: components["schemas"]["MemoryL3ConfigModel"];
             l4: components["schemas"]["MemoryL4ConfigModel"];
+            privacy_filter: components["schemas"]["PrivacyFilterConfigModel"];
             query_expansion: components["schemas"]["QueryExpansionConfigModel"];
             reranker: components["schemas"]["MemoryRerankerConfigModel"];
             /**
@@ -1337,6 +1338,29 @@ export interface components {
              * @default true
              */
             state_transition_enabled: boolean;
+        };
+        /** PrivacyFilterConfigModel */
+        PrivacyFilterConfigModel: {
+            /** Blocked Domain Patterns */
+            blocked_domain_patterns: string[];
+            /** Blocked Path Patterns */
+            blocked_path_patterns: string[];
+            /**
+             * Default Action
+             * @default local_only
+             * @enum {string}
+             */
+            default_action: "local_only" | "drop";
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Redact Cloud Egress
+             * @default true
+             */
+            redact_cloud_egress: boolean;
         };
         /** ProbeResult */
         ProbeResult: {

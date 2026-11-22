@@ -7,6 +7,7 @@ import logging
 from typing import Any, Dict, List, Protocol, cast
 
 from ...utils.diagnostic_logging import full_content_logging_enabled
+from ..privacy_filter import is_active_chat_llm_local, should_exclude_event_from_llm
 from .correction_evidence_governance import decide_l1_correction_evidence
 from .debug_detail import DETAIL_LIMIT, event_records, log_detail
 from .models import RetrievalPayload, RetrievalQuery
@@ -151,6 +152,7 @@ class HybridRetrievalPostProcessingMixin:
             mode_plan=mode_plan,
             host=host,
         )
+        self._apply_l1_egress_privacy_filter(payload, request=request)
         payload, fusion_audit = self._apply_result_fusion(
             payload,
             request=request,
@@ -259,6 +261,35 @@ class HybridRetrievalPostProcessingMixin:
         payload.trace["l1_correction_governance_dropped_count"] = (
             original_count - len(payload.l1_events)
         )
+
+    @staticmethod
+    def _apply_l1_egress_privacy_filter(
+        payload: RetrievalPayload,
+        *,
+        request: RetrievalQuery,
+    ) -> None:
+        """Drop local-only or sensitive L1 events before fusion and mode reduction."""
+        if not payload.l1_events:
+            return
+        is_local = (
+            bool(request.is_local_llm)
+            if request.is_local_llm is not None
+            else is_active_chat_llm_local()
+        )
+        if is_local:
+            return
+        original_count = len(payload.l1_events)
+        payload.l1_events = [
+            event
+            for event in payload.l1_events
+            if not (
+                isinstance(event, dict)
+                and should_exclude_event_from_llm(event, is_local_provider=False)
+            )
+        ]
+        dropped = original_count - len(payload.l1_events)
+        if dropped > 0:
+            payload.trace["l1_egress_privacy_dropped_count"] = dropped
 
     def _apply_result_fusion(
         self,

@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from ...core.logger import get_logger
 from ...utils.runtime import get_runtime_paths
+from ..context_sent import get_context_sent_store
 from .detail_enrichment import enrich_projected_trace
 from .models import (
     ExecutionTraceNode,
@@ -103,7 +104,14 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
                         llm_nodes=merged_llm,
                         tool_nodes=merged_tools,
                     )
-                return projection.to_dict()
+                payload = projection.to_dict()
+                context_sent = get_context_sent_store().get(
+                    session_id=session_id,
+                    turn_id=normalized_turn_id,
+                )
+                if context_sent is not None:
+                    payload["context_sent"] = context_sent
+                return payload
         if turn is None:
             return None
         spans = self._load_trace_spans(trace_id=str(turn.get("trace_id") or ""))
@@ -121,7 +129,16 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
             llm_calls=llm_calls,
             tool_calls=tool_calls,
         )
-        return snapshot.to_dict() if snapshot is not None else None
+        if snapshot is None:
+            return None
+        payload = snapshot.to_dict()
+        context_sent = get_context_sent_store().get(
+            session_id=session_id,
+            turn_id=normalized_turn_id,
+        )
+        if context_sent is not None:
+            payload["context_sent"] = context_sent
+        return payload
 
     def get_trace_summary(
         self,

@@ -52,6 +52,9 @@ class RetrievalQuery:
     # Recent chat history used to resolve indexical references ("that game",
     # "the one we talked about"). None means no context available.
     conversation_context: Optional[list[ConversationTurn]] = None
+    # Explicit provider locality override for cloud LLM privacy egress filtering.
+    # None resolves from the active chat LLM provider configuration.
+    is_local_llm: Optional[bool] = None
 
 
 @dataclass

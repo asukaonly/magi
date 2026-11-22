@@ -253,6 +253,26 @@ export interface ExecutionTraceNode {
   children: ExecutionTraceNode[];
 }
 
+export interface ExecutionTraceContextSection {
+  title: string;
+  preview: string;
+  char_count: number;
+}
+
+export interface ExecutionTraceContextSent {
+  provider: string;
+  model: string;
+  is_local_provider: boolean;
+  redacted: boolean;
+  excluded_local_only_count: number;
+  recent_life_brief_items: string[];
+  recalled_memory_items: string[];
+  system_prompt_sections: ExecutionTraceContextSection[];
+  working_context_sections: ExecutionTraceContextSection[];
+  message_count: number;
+  captured_at?: number | null;
+}
+
 export interface ExecutionTraceSnapshot {
   turn_id: string;
   user_id: string;
@@ -267,6 +287,7 @@ export interface ExecutionTraceSnapshot {
   supersession_reason?: string | null;
   summary: ExecutionTraceSummary;
   root: ExecutionTraceNode;
+  context_sent?: ExecutionTraceContextSent | null;
 }
 
 type ClearHistoryResponse = LifecycleWire<'ClearHistoryResponse'>;

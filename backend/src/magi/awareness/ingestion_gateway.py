@@ -13,6 +13,7 @@ from ulid import ULID
 from ..core.logger import get_logger
 from ..events.events import Event, EventTypes
 from ..events.domain_payloads import SourceEventEmitted, TaskContext
+from ..memory.privacy_filter import evaluate_source_privacy
 from ..memory.source_ingestion import (
     SourceCommitOutcome,
     SourceCommitReceipt,
@@ -84,6 +85,31 @@ class SourceIngestionGateway:
             allowed_edge_whitelist=allowed_edge_whitelist,
             host_idempotency_key=host_idempotency_key,
         )
+        privacy_decision = self._evaluate_payload_privacy(payload)
+        if privacy_decision.action == "drop":
+            logger.info(
+                "Source event dropped by privacy filter",
+                source_id=source.source_id,
+                reason=privacy_decision.reason,
+                rule=privacy_decision.matched_rule,
+            )
+            return SourceIngestionResult(
+                event_id=event_id,
+                ingested=False,
+                stats={
+                    "memory_outcome": "privacy_dropped",
+                    "projection_published": False,
+                    "projection_skipped": True,
+                    "skip_reason": privacy_decision.reason or "privacy_filter_drop",
+                    "privacy_rule": privacy_decision.matched_rule,
+                },
+            )
+        if privacy_decision.action == "local_only":
+            self._mark_payload_local_only(
+                payload,
+                reason=privacy_decision.reason,
+                matched_rule=privacy_decision.matched_rule,
+            )
         event = Event(
             type=EventTypes.SOURCE_EVENT_EMITTED,
             data=payload,
@@ -196,6 +222,51 @@ class SourceIngestionGateway:
             memory_event_type=str(getattr(source, "memory_event_type", "SOURCE_EVENT")),
             l2_batch_policy_dict=l2_batch_policy_dict,
         )
+
+    @staticmethod
+    def _evaluate_payload_privacy(payload: SourceEventEmitted):
+        output_dict = dict(payload.output_dict or {})
+        domain_payload = dict(output_dict.get("domain_payload") or {})
+        projection = dict(payload.projection_dict or {})
+        projection_meta = dict(projection.get("metadata") or {})
+        merged_meta = {**domain_payload, **projection_meta}
+        content = str(
+            projection.get("content")
+            or projection.get("summary")
+            or domain_payload.get("summary")
+            or domain_payload.get("content")
+            or ""
+        )
+        return evaluate_source_privacy(
+            source_name=str(payload.source_id or payload.source_name or ""),
+            content=content,
+            metadata=merged_meta,
+        )
+
+    @staticmethod
+    def _mark_payload_local_only(
+        payload: SourceEventEmitted,
+        *,
+        reason: str | None,
+        matched_rule: str | None,
+    ) -> None:
+        privacy_meta = {
+            "exclude_from_llm": True,
+            "reason": reason or "privacy_filter_local_only",
+            "matched_rule": matched_rule,
+        }
+        output_dict = payload.output_dict
+        if isinstance(output_dict, dict):
+            domain_payload = dict(output_dict.get("domain_payload") or {})
+            domain_payload["exclude_from_llm"] = True
+            domain_payload["privacy"] = privacy_meta
+            output_dict["domain_payload"] = domain_payload
+        projection_dict = payload.projection_dict
+        if isinstance(projection_dict, dict):
+            proj_meta = dict(projection_dict.get("metadata") or {})
+            proj_meta["exclude_from_llm"] = True
+            proj_meta["privacy"] = privacy_meta
+            projection_dict["metadata"] = proj_meta
 
     @staticmethod
     def _metadata_dict(

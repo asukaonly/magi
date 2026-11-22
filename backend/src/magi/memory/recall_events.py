@@ -5,6 +5,12 @@ from typing import Any
 from .evidence import USER_VISIBLE_L1_RETRIEVAL_SCOPES
 from .hybrid_retrieval.correction_evidence_governance import decide_l1_correction_evidence
 from .hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
+from .privacy_filter import (
+    is_active_chat_llm_local,
+    redact_structured_for_cloud,
+    resolve_privacy_filter_settings,
+    should_exclude_event_from_llm,
+)
 
 
 async def govern_recall_events(
@@ -51,9 +57,20 @@ async def read_recall_event(memory: Any, request: RetrievalQuery) -> RetrievalPa
     rows = await memory.l1.query_events(
         event_id=request.read_event_id, user_id=request.user_id,
         l1_retrieval_scopes=list(USER_VISIBLE_L1_RETRIEVAL_SCOPES), limit=1,
+        include_metadata_json=True,
         include_embedding_fields=False,
     )
     rows = await govern_recall_events(memory, rows, request, time_range=time_range, historical=historical)
+    is_local = (
+        bool(request.is_local_llm)
+        if request.is_local_llm is not None
+        else is_active_chat_llm_local()
+    )
+    rows = [
+        event
+        for event in rows
+        if not should_exclude_event_from_llm(event, is_local_provider=is_local)
+    ]
     payload = RetrievalPayload(trace={"query_mode": mode, "resolved_time_range": time_range})
     if not rows:
         return payload
@@ -73,9 +90,24 @@ async def read_recall_event(memory: Any, request: RetrievalQuery) -> RetrievalPa
             user_id=request.user_id, include_embedding_fields=False,
         )
         neighbors = await govern_recall_events(memory, neighbors, request, time_range=time_range, historical=historical)
+        neighbors = [
+            item
+            for item in neighbors
+            if not should_exclude_event_from_llm(item, is_local_provider=is_local)
+        ]
     # Keep the original chunk once; the surrounding records remain labeled context.
     neighbors = [item for item in neighbors if item.get("event_id") != event["event_id"]]
     bundle = {"hit_event_ids": [event["event_id"]], "answer_events": neighbors, "events": neighbors}
     payload.l1_evidence_bundles = [bundle]
     payload.l1_timeline_summary = build_timeline_summary(question=request.query, evidence_bundles=[bundle])
+    privacy_cfg = resolve_privacy_filter_settings()
+    if (not is_local) and privacy_cfg.enabled and privacy_cfg.redact_cloud_egress:
+        payload.l1_events, redacted_events = redact_structured_for_cloud(payload.l1_events)
+        payload.l1_evidence_bundles, redacted_bundles = redact_structured_for_cloud(payload.l1_evidence_bundles)
+        payload.l1_timeline_summary, redacted_summary = redact_structured_for_cloud(payload.l1_timeline_summary)
+        payload.trace["egress_privacy"] = {
+            "is_local_provider": False,
+            "excluded_local_only_count": 0,
+            "redacted": bool(redacted_events or redacted_bundles or redacted_summary),
+        }
     return payload

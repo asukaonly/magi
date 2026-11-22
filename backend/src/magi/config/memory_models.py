@@ -625,6 +625,88 @@ class EntitySemanticEdgeSettings(BaseModel):
     enabled: bool = Field(default=False)
 
 
+DEFAULT_PRIVACY_BLOCKED_DOMAIN_PATTERNS: tuple[str, ...] = (
+    "*.bank",
+    "*bank.*",
+    "icbc.com.cn",
+    "cmbchina.com",
+    "ccb.com",
+    "boc.cn",
+    "abchina.com",
+    "chase.com",
+    "bankofamerica.com",
+    "wellsfargo.com",
+    "citibank.com",
+    "hsbc.com",
+    "alipay.com",
+    "pay.weixin.qq.com",
+    "paypal.com",
+    "stripe.com",
+    "1password.com",
+    "bitwarden.com",
+    "lastpass.com",
+    "dashlane.com",
+    "appleid.apple.com",
+    "accounts.google.com/signin",
+    "*/login*",
+    "*/signin*",
+    "*/oauth/callback*",
+    "*/auth/callback*",
+    "*/2fa*",
+    "*/mfa*",
+    "localhost*token=*",
+    "localhost*secret=*",
+    "127.0.0.1*token=*",
+    "127.0.0.1*secret=*",
+)
+
+DEFAULT_PRIVACY_BLOCKED_PATH_PATTERNS: tuple[str, ...] = (
+    "*.env",
+    "*.env.*",
+    "*/.ssh/*",
+    "*id_rsa*",
+    "*id_ed25519*",
+    "*id_ecdsa*",
+    "*.pem",
+    "*.p12",
+    "*.pfx",
+    "*.kdbx",
+    "*credentials.json*",
+    "*secrets.yaml*",
+    "*secrets.json*",
+    "*/.aws/credentials*",
+    "*/.netrc*",
+    "*/.npmrc*",
+    "*wallet.dat*",
+)
+
+
+class PrivacyFilterSettings(BaseModel):
+    """Privacy rules controlling sensitive source ingestion and cloud LLM egress."""
+
+    enabled: bool = Field(default=True)
+    default_action: Literal["local_only", "drop"] = Field(
+        default="local_only",
+        description=(
+            "Default action when a source event matches sensitive rules: "
+            "'local_only' stores locally with exclude_from_llm=True (local LLM allowed, "
+            "cloud LLM blocked); 'drop' skips ingestion entirely."
+        ),
+    )
+    blocked_domain_patterns: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_PRIVACY_BLOCKED_DOMAIN_PATTERNS),
+        description="Domain or URL patterns excluded from cloud LLM egress or ingestion.",
+    )
+    blocked_path_patterns: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_PRIVACY_BLOCKED_PATH_PATTERNS),
+        description="File path patterns excluded from cloud LLM egress or ingestion.",
+    )
+    redact_cloud_egress: bool = Field(
+        default=True,
+        description="Deterministically redact API keys, credentials, and payment/ID numbers before cloud LLM calls.",
+    )
+
+
 class ChromaVectorSettings(BaseModel):
     """Server-side Chroma connection settings; credentials stay in the environment."""
 
@@ -667,6 +749,7 @@ class MemorySettings(BaseModel):
     entity_semantic_edges: EntitySemanticEdgeSettings = Field(
         default_factory=EntitySemanticEdgeSettings
     )
+    privacy_filter: PrivacyFilterSettings = Field(default_factory=PrivacyFilterSettings)
     l0: MemoryL0Settings = Field(default_factory=MemoryL0Settings)
     l1: MemoryL1Settings = Field(default_factory=MemoryL1Settings)
     l2: MemoryL2Settings = Field(default_factory=MemoryL2Settings)
@@ -683,6 +766,8 @@ class MemorySettings(BaseModel):
 
 __all__ = [
     "CrossEncoderSettings",
+    "DEFAULT_PRIVACY_BLOCKED_DOMAIN_PATTERNS",
+    "DEFAULT_PRIVACY_BLOCKED_PATH_PATTERNS",
     "EmbeddingBackend",
     "EmbeddingMode",
     "EmbeddingSettings",
@@ -705,5 +790,6 @@ __all__ = [
     "MemoryL4Settings",
     "MemoryRerankerSettings",
     "MemorySettings",
+    "PrivacyFilterSettings",
     "QueryExpansionSettings",
 ]

@@ -1,4 +1,6 @@
 import type {
+  ExecutionTraceContextSection,
+  ExecutionTraceContextSent,
   ExecutionTraceNode,
   ExecutionTraceSnapshot,
   ExecutionTraceSummary,
@@ -52,6 +54,26 @@ export interface NormalizedExecutionTraceNode {
   children: NormalizedExecutionTraceNode[];
 }
 
+export interface NormalizedExecutionTraceContextSection {
+  title: string;
+  preview: string;
+  charCount: number;
+}
+
+export interface NormalizedExecutionTraceContextSent {
+  provider: string;
+  model: string;
+  isLocalProvider: boolean;
+  redacted: boolean;
+  excludedLocalOnlyCount: number;
+  recentLifeBriefItems: string[];
+  recalledMemoryItems: string[];
+  systemPromptSections: NormalizedExecutionTraceContextSection[];
+  workingContextSections: NormalizedExecutionTraceContextSection[];
+  messageCount: number;
+  capturedAt?: number | null;
+}
+
 export interface NormalizedExecutionTraceSnapshot {
   turnId: string;
   userId: string;
@@ -66,6 +88,7 @@ export interface NormalizedExecutionTraceSnapshot {
   supersessionReason?: string | null;
   summary: NormalizedExecutionTraceSummary;
   root: NormalizedExecutionTraceNode;
+  contextSent?: NormalizedExecutionTraceContextSent | null;
 }
 
 type TraceEntryMessage = {
@@ -291,6 +314,44 @@ export const flattenPlanningNodeForDisplay = (
   return reshapeTraceRootForDisplay(root);
 };
 
+const normalizeContextSections = (
+  sections: ExecutionTraceContextSection[] | undefined,
+): NormalizedExecutionTraceContextSection[] => (
+  Array.isArray(sections)
+    ? sections
+      .filter((section): section is ExecutionTraceContextSection => Boolean(section && typeof section === 'object'))
+      .map((section) => ({
+        title: String(section.title || ''),
+        preview: String(section.preview || ''),
+        charCount: Number(section.char_count || 0),
+      }))
+      .filter((section) => section.title.length > 0 || section.preview.length > 0)
+    : []
+);
+
+const normalizeContextSent = (
+  raw: ExecutionTraceContextSent | null | undefined,
+): NormalizedExecutionTraceContextSent | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  return {
+    provider: String(raw.provider || 'unknown'),
+    model: String(raw.model || 'unknown'),
+    isLocalProvider: Boolean(raw.is_local_provider),
+    redacted: Boolean(raw.redacted),
+    excludedLocalOnlyCount: Number(raw.excluded_local_only_count || 0),
+    recentLifeBriefItems: Array.isArray(raw.recent_life_brief_items)
+      ? raw.recent_life_brief_items.map((item) => String(item || '').trim()).filter(Boolean)
+      : [],
+    recalledMemoryItems: Array.isArray(raw.recalled_memory_items)
+      ? raw.recalled_memory_items.map((item) => String(item || '').trim()).filter(Boolean)
+      : [],
+    systemPromptSections: normalizeContextSections(raw.system_prompt_sections),
+    workingContextSections: normalizeContextSections(raw.working_context_sections),
+    messageCount: Number(raw.message_count || 0),
+    capturedAt: raw.captured_at ?? null,
+  };
+};
+
 export const normalizeTraceSnapshot = (raw: ExecutionTraceSnapshot | null | undefined): NormalizedExecutionTraceSnapshot | null => {
   if (!raw) return null;
   const summary = normalizeTraceSummary(raw.summary);
@@ -309,6 +370,7 @@ export const normalizeTraceSnapshot = (raw: ExecutionTraceSnapshot | null | unde
     supersessionReason: raw.supersession_reason || null,
     summary,
     root: normalizeTraceNode(raw.root),
+    contextSent: normalizeContextSent(raw.context_sent),
   };
 };
 

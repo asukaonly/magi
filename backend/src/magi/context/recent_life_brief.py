@@ -17,6 +17,12 @@ from ..memory.l2.corrections.repository import (
     MemoryCorrectionRepository,
     get_subject_revision_generation,
 )
+from ..memory.privacy_filter import (
+    is_active_chat_llm_local,
+    redact_cloud_egress_text,
+    resolve_privacy_filter_settings,
+    should_exclude_event_from_llm,
+)
 from ..memory.source_event_governance import source_event_derivation_block_ids
 
 logger = get_logger(__name__)
@@ -269,6 +275,8 @@ class RecentLifeBrief:
     recent_user_context_cue: str | None = None
     estimated_tokens: int = 0
     source_count: int = 0
+    excluded_local_only_count: int = 0
+    redacted: bool = False
 
 
 @dataclass(slots=True)
@@ -293,14 +301,15 @@ class RecentLifeBriefService:
         self._ttl_seconds = max(0.0, float(ttl_seconds))
         self._window_seconds = max(3600.0, float(window_seconds))
         self._max_tokens = max(80, int(max_tokens))
-        self._cache: dict[str, _CacheEntry] = {}
+        self._cache: dict[tuple[str, bool], _CacheEntry] = {}
 
     def invalidate(self, user_id: str | None = None) -> None:
         """Clear cached briefs for one user or all users."""
         if user_id is None:
             self._cache.clear()
         else:
-            self._cache.pop(user_id, None)
+            self._cache.pop((user_id, False), None)
+            self._cache.pop((user_id, True), None)
 
     def _invalidation_token(self) -> tuple[int, int, int, int]:
         if self._memory is None:
@@ -317,6 +326,7 @@ class RecentLifeBriefService:
         *,
         user_id: str,
         now: float | None = None,
+        is_local_provider: bool | None = None,
     ) -> RecentLifeBrief:
         """Return cached or freshly built 72h brief with zero LLM calls."""
         normalized_user_id = str(user_id or "").strip()
@@ -326,9 +336,15 @@ class RecentLifeBriefService:
         if l1 is None:
             return RecentLifeBrief()
 
+        effective_local = (
+            bool(is_local_provider)
+            if is_local_provider is not None
+            else is_active_chat_llm_local()
+        )
         current_time = float(now if now is not None else time.time())
         token = self._invalidation_token()
-        cached = self._cache.get(normalized_user_id)
+        cache_key = (normalized_user_id, effective_local)
+        cached = self._cache.get(cache_key)
         if (
             cached is not None
             and cached.token == token
@@ -340,11 +356,12 @@ class RecentLifeBriefService:
         brief = await self._compute_brief(
             user_id=normalized_user_id,
             now=current_time,
+            is_local_provider=effective_local,
         )
         # Re-read token so concurrent mutations during read don't poison cache.
         post_token = self._invalidation_token()
         if post_token == token:
-            self._cache[normalized_user_id] = _CacheEntry(
+            self._cache[cache_key] = _CacheEntry(
                 token=post_token,
                 created_at=current_time,
                 brief=brief,
@@ -356,6 +373,7 @@ class RecentLifeBriefService:
         *,
         user_id: str,
         now: float,
+        is_local_provider: bool,
     ) -> RecentLifeBrief:
         start_time = now - self._window_seconds
         l1 = getattr(self._memory, "l1", None)
@@ -372,7 +390,10 @@ class RecentLifeBriefService:
             include_embedding_fields=False,
             order_by="timestamp_desc",
         )
-        events = await self._filter_governed_events(raw_events)
+        events, excluded_local_only_count = await self._filter_governed_events(
+            raw_events,
+            is_local_provider=is_local_provider,
+        )
 
         day_summaries = await self._fetch_recent_day_summaries(
             start_time=start_time,
@@ -404,14 +425,30 @@ class RecentLifeBriefService:
             if line:
                 candidate_lines.append(line)
 
+        privacy_cfg = resolve_privacy_filter_settings()
+        should_redact = (not is_local_provider) and privacy_cfg.enabled and privacy_cfg.redact_cloud_egress
+        any_redacted = False
+        if should_redact and candidate_lines:
+            redacted_lines: list[str] = []
+            for line in candidate_lines:
+                clean_line, changed = redact_cloud_egress_text(line)
+                any_redacted = any_redacted or changed
+                redacted_lines.append(clean_line)
+            candidate_lines = redacted_lines
+
+        cue = _extract_recent_user_context_cue(events, now=now)
+        if should_redact and cue:
+            cue, cue_changed = redact_cloud_egress_text(cue)
+            any_redacted = any_redacted or cue_changed
+
         if not candidate_lines:
             return RecentLifeBrief(
                 entries=(),
-                recent_user_context_cue=_extract_recent_user_context_cue(
-                    events, now=now
-                ),
+                recent_user_context_cue=cue,
                 estimated_tokens=0,
                 source_count=0,
+                excluded_local_only_count=excluded_local_only_count,
+                redacted=any_redacted,
             )
 
         header_text = "\n".join(RECENT_LIFE_BRIEF_HEADER_LINES) + "\n"
@@ -433,19 +470,23 @@ class RecentLifeBriefService:
                     used_tokens = header_tokens + estimate_brief_tokens(clipped + "\n")
                 break
 
-        cue = _extract_recent_user_context_cue(events, now=now)
         return RecentLifeBrief(
             entries=tuple(selected),
             recent_user_context_cue=cue,
             estimated_tokens=used_tokens if selected else 0,
             source_count=len(grouped_sources),
+            excluded_local_only_count=excluded_local_only_count,
+            redacted=any_redacted,
         )
 
     async def _filter_governed_events(
         self,
         raw_events: list[dict[str, Any]],
-    ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        *,
+        is_local_provider: bool,
+    ) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]], int]:
         candidates: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        excluded_local_only_count = 0
         for event in raw_events or []:
             if not isinstance(event, dict):
                 continue
@@ -456,7 +497,11 @@ class RecentLifeBriefService:
             if not source or source in _EXCLUDED_SOURCES or domain in _EXCLUDED_DOMAINS:
                 continue
             metadata = _parse_metadata(event.get("metadata_json"))
-            if _is_excluded_from_llm(metadata):
+            if should_exclude_event_from_llm(
+                {**event, "metadata_json": metadata},
+                is_local_provider=is_local_provider,
+            ):
+                excluded_local_only_count += 1
                 continue
             content = _clean_single_line(event.get("content"))
             if not content and not metadata:
@@ -464,11 +509,11 @@ class RecentLifeBriefService:
             candidates.append((event, metadata))
 
         if not candidates:
-            return []
+            return [], excluded_local_only_count
 
         memory_db_path = getattr(self._memory, "memory_db_path", None)
         if not memory_db_path:
-            return candidates
+            return candidates, excluded_local_only_count
 
         event_ids = [
             str(event.get("event_id") or "").strip()
@@ -476,7 +521,7 @@ class RecentLifeBriefService:
             if str(event.get("event_id") or "").strip()
         ]
         if not event_ids:
-            return []
+            return [], excluded_local_only_count
 
         blocked: set[str] = set()
         try:
@@ -491,13 +536,16 @@ class RecentLifeBriefService:
                 "RecentLifeBrief governance check skipped due to unavailable schema",
                 error=str(exc),
             )
-            return candidates
+            return candidates, excluded_local_only_count
 
-        return [
-            (event, metadata)
-            for event, metadata in candidates
-            if str(event.get("event_id") or "").strip() not in blocked
-        ]
+        return (
+            [
+                (event, metadata)
+                for event, metadata in candidates
+                if str(event.get("event_id") or "").strip() not in blocked
+            ],
+            excluded_local_only_count,
+        )
 
     async def _fetch_recent_day_summaries(
         self,

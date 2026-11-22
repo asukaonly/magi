@@ -26,6 +26,15 @@ from ....llm.cancellable_client import (
     RetractRaised,
 )
 from ....llm.provider_bridge import LLMProviderBridge
+from ....memory.privacy_filter import (
+    is_local_llm_provider,
+    redact_cloud_egress_text,
+    resolve_privacy_filter_settings,
+)
+from ....runtime_trace.context_sent import (
+    build_context_sent_snapshot,
+    get_context_sent_store,
+)
 from ..context_compactor import ContextCompactor
 from ..task_budget import consume_task_llm_calls, reserve_task_llm_calls
 from magi.control.run_control import RunControl
@@ -206,19 +215,95 @@ async def _prepare_llm_call(
     )
 
 
+def _redact_messages_for_cloud_egress(
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    changed = False
+    sanitized: list[dict[str, Any]] = []
+    for msg in messages or []:
+        if not isinstance(msg, dict):
+            sanitized.append(msg)
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            redacted_text, text_changed = redact_cloud_egress_text(content)
+            changed = changed or text_changed
+            sanitized.append({**msg, "content": redacted_text} if text_changed else msg)
+        elif isinstance(content, list):
+            next_blocks: list[Any] = []
+            block_any_changed = False
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str):
+                    redacted_text, text_changed = redact_cloud_egress_text(block["text"])
+                    if text_changed:
+                        block_any_changed = True
+                        next_blocks.append({**block, "text": redacted_text})
+                    else:
+                        next_blocks.append(block)
+                else:
+                    next_blocks.append(block)
+            changed = changed or block_any_changed
+            sanitized.append({**msg, "content": next_blocks} if block_any_changed else msg)
+        else:
+            sanitized.append(msg)
+    return sanitized, changed
+
+
+def _apply_cloud_egress_guard_and_record_context(
+    llm: LLMAdapter,
+    request: FunctionCallingLlmRequest,
+) -> FunctionCallingLlmRequest:
+    provider_name = str(getattr(llm, "provider_name", "") or "unknown")
+    model_name = str(getattr(llm, "model_name", "") or "unknown")
+    base_url = getattr(llm, "base_url", None)
+    is_local = is_local_llm_provider(provider=provider_name, base_url=base_url)
+
+    privacy_cfg = resolve_privacy_filter_settings()
+    redacted = False
+    effective_request = request
+    if (not is_local) and privacy_cfg.enabled and privacy_cfg.redact_cloud_egress:
+        safe_system, sys_changed = redact_cloud_egress_text(request.system_prompt)
+        safe_messages, msg_changed = _redact_messages_for_cloud_egress(request.messages)
+        redacted = bool(sys_changed or msg_changed)
+        if redacted:
+            effective_request = replace(
+                request,
+                system_prompt=safe_system,
+                messages=safe_messages,
+            )
+
+    if effective_request.turn_id:
+        get_context_sent_store().record(
+            session_id=effective_request.session_id,
+            turn_id=effective_request.turn_id,
+            snapshot=build_context_sent_snapshot(
+                provider=provider_name,
+                model=model_name,
+                is_local_provider=is_local,
+                redacted=redacted,
+                system_prompt=effective_request.system_prompt,
+                messages=effective_request.messages,
+            ),
+        )
+    return effective_request
+
+
 async def _call_llm_with_tools_params(
     owner: object,
     params: _ToolsLlmCallParams,
 ) -> Dict[str, Any]:
     prepared = await _prepare_llm_call(owner, params.control)
     model_name = prepared.llm.model_name
-    request = _build_tools_request(prepared.request_id, params)
+    request = _apply_cloud_egress_guard_and_record_context(
+        prepared.llm,
+        _build_tools_request(prepared.request_id, params),
+    )
 
     log_tools_llm_request(
         request_id=prepared.request_id,
         model_name=model_name,
-        system_prompt=params.system_prompt,
-        messages=params.messages,
+        system_prompt=request.system_prompt,
+        messages=request.messages,
         tools=params.tools,
     )
 
@@ -260,13 +345,16 @@ async def _call_llm_without_tools_params(
 ) -> Dict[str, Any]:
     prepared = await _prepare_llm_call(owner, params.control)
     model_name = prepared.llm.model_name
-    request = _build_final_response_request(prepared.request_id, params)
+    request = _apply_cloud_egress_guard_and_record_context(
+        prepared.llm,
+        _build_final_response_request(prepared.request_id, params),
+    )
 
     log_final_llm_request(
         request_id=prepared.request_id,
         model_name=model_name,
-        system_prompt=params.system_prompt,
-        messages=params.messages,
+        system_prompt=request.system_prompt,
+        messages=request.messages,
     )
 
     try:

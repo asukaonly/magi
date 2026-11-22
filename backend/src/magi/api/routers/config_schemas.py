@@ -8,6 +8,10 @@ from magi_plugin_sdk.runtime_paths import get_magi_home
 from magi_plugin_sdk.endpoints import EndpointRef
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ...config.memory_models import (
+    DEFAULT_PRIVACY_BLOCKED_DOMAIN_PATTERNS,
+    DEFAULT_PRIVACY_BLOCKED_PATH_PATTERNS,
+)
 from ...config.models import (
     LLMCapabilitiesSettings,
     LLMConcurrencyOverrideSettings,
@@ -202,6 +206,18 @@ class EntitySemanticEdgeConfigModel(BaseModel):
     enabled: bool = Field(default=False)
 
 
+class PrivacyFilterConfigModel(BaseModel):
+    enabled: bool = Field(default=True)
+    default_action: Literal["local_only", "drop"] = Field(default="local_only")
+    blocked_domain_patterns: List[str] = Field(
+        default_factory=lambda: list(DEFAULT_PRIVACY_BLOCKED_DOMAIN_PATTERNS)
+    )
+    blocked_path_patterns: List[str] = Field(
+        default_factory=lambda: list(DEFAULT_PRIVACY_BLOCKED_PATH_PATTERNS)
+    )
+    redact_cloud_egress: bool = Field(default=True)
+
+
 class MemoryConfigModel(BaseModel):
     db_path: Optional[str] = Field(default_factory=lambda: str(get_magi_home() / "data/memory"))
     retention_days: int = Field(default=90, ge=1)
@@ -215,6 +231,7 @@ class MemoryConfigModel(BaseModel):
     entity_semantic_edges: EntitySemanticEdgeConfigModel = Field(
         default_factory=EntitySemanticEdgeConfigModel
     )
+    privacy_filter: PrivacyFilterConfigModel = Field(default_factory=PrivacyFilterConfigModel)
     l0: MemoryL0ConfigModel = Field(default_factory=MemoryL0ConfigModel)
     l1: MemoryL1ConfigModel = Field(default_factory=MemoryL1ConfigModel)
     l2: MemoryL2ConfigModel = Field(default_factory=MemoryL2ConfigModel)

@@ -2414,6 +2414,9 @@
           "l4": {
             "$ref": "#/components/schemas/MemoryL4ConfigModel"
           },
+          "privacy_filter": {
+            "$ref": "#/components/schemas/PrivacyFilterConfigModel"
+          },
           "query_expansion": {
             "$ref": "#/components/schemas/QueryExpansionConfigModel"
           },
@@ -2438,6 +2441,7 @@
           "query_expansion",
           "graph_spreading",
           "entity_semantic_edges",
+          "privacy_filter",
           "l0",
           "l1",
           "l2",
@@ -3007,6 +3011,52 @@
           "reflection_daily_limit"
         ],
         "title": "PersonalitySettingsModel",
+        "type": "object"
+      },
+      "PrivacyFilterConfigModel": {
+        "properties": {
+          "blocked_domain_patterns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocked Domain Patterns",
+            "type": "array"
+          },
+          "blocked_path_patterns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocked Path Patterns",
+            "type": "array"
+          },
+          "default_action": {
+            "default": "local_only",
+            "enum": [
+              "local_only",
+              "drop"
+            ],
+            "title": "Default Action",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "redact_cloud_egress": {
+            "default": true,
+            "title": "Redact Cloud Egress",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "default_action",
+          "blocked_domain_patterns",
+          "blocked_path_patterns",
+          "redact_cloud_egress"
+        ],
+        "title": "PrivacyFilterConfigModel",
         "type": "object"
       },
       "ProbeResult": {
