@@ -109,7 +109,7 @@ def _build_memory_metadata(
     metadata_json.update(dict(projection.get("metadata") or {}))
     _add_l2_batch_policy(metadata_json, payload.l2_batch_policy_dict or {})
     _add_activity_snapshot(metadata_json, activity_snapshot, content)
-    _add_structured_hints(metadata_json, metadata)
+    _add_structured_hints(metadata_json, metadata, payload=payload)
     _add_policy_metadata(metadata_json, policy_data, output)
     metadata_json["memory_owner_user_id"] = owner_user_id
     return metadata_json
@@ -151,13 +151,81 @@ def _add_activity_snapshot(
 def _add_structured_hints(
     metadata_json: MutableMapping[str, Any],
     metadata: Mapping[str, Any],
+    *,
+    payload: SourceEventEmitted | None = None,
 ) -> None:
     entity_hints = metadata.get("entities") or []
     if entity_hints:
         metadata_json["structured_entity_hints"] = list(entity_hints)
-    graph_hints = metadata.get("fact_hints") or []
+    graph_hints: list[dict[str, Any]] = [
+        dict(hint) for hint in (metadata.get("fact_hints") or []) if isinstance(hint, Mapping)
+    ]
+
+    relation_candidates: list[Mapping[str, Any]] = []
+    if payload is not None and payload.relation_candidates:
+        relation_candidates.extend(
+            item for item in payload.relation_candidates if isinstance(item, Mapping)
+        )
+    elif metadata.get("relation_candidates"):
+        relation_candidates.extend(
+            item for item in metadata.get("relation_candidates", []) if isinstance(item, Mapping)
+        )
+
+    allowed_whitelist = (
+        {
+            str(edge).strip().upper()
+            for edge in payload.allowed_edge_whitelist
+            if str(edge).strip()
+        }
+        if payload is not None and payload.allowed_edge_whitelist
+        else None
+    )
+
+    seen_keys = {
+        (
+            str(item.get("predicate") or "").strip().upper(),
+            str(item.get("object_ref") or item.get("object_id") or "").strip(),
+        )
+        for item in graph_hints
+    }
+    for candidate in relation_candidates:
+        predicate = str(candidate.get("predicate") or "").strip().upper()
+        object_ref = str(candidate.get("object_ref") or candidate.get("object_id") or "").strip()
+        if not predicate or not object_ref:
+            continue
+        if allowed_whitelist is not None and predicate not in allowed_whitelist:
+            continue
+        dedupe_key = (predicate, object_ref)
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        subject_ref = str(
+            candidate.get("subject_ref") or candidate.get("subject_id") or "user:self"
+        ).strip()
+        hint_entry: dict[str, Any] = {
+            "subject_ref": subject_ref,
+            "subject_type": str(candidate.get("subject_type") or "user").strip() or "user",
+            "predicate": predicate,
+            "object_ref": object_ref,
+            "object_type": str(candidate.get("object_type") or "topic").strip() or "topic",
+            "fact_kind": str(candidate.get("fact_kind") or "interaction_evidence").strip()
+            or "interaction_evidence",
+            "confidence": float(candidate.get("confidence", 0.5)),
+            "origin_mode": "source_structured",
+        }
+        if candidate.get("evidence_text"):
+            hint_entry["evidence_text"] = str(candidate["evidence_text"])
+        attributes: dict[str, Any] = {}
+        if isinstance(candidate.get("attributes"), Mapping):
+            attributes.update(dict(candidate["attributes"]))
+        if isinstance(candidate.get("object_attributes"), Mapping):
+            attributes.update(dict(candidate["object_attributes"]))
+        if attributes:
+            hint_entry["attributes"] = attributes
+        graph_hints.append(hint_entry)
+
     if graph_hints:
-        metadata_json["structured_graph_hints"] = list(graph_hints)
+        metadata_json["structured_graph_hints"] = graph_hints
 
 
 def _add_policy_metadata(

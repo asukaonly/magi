@@ -154,16 +154,21 @@ def test_first_context_metadata_selects_the_host_profile(interaction, expected):
     "case_source,case_content",
     [
         pytest.param(
-            "timeline", "Visited GitHub today", id="timeline_source_falls_back_to_chat_profile"
+            "timeline", "Visited GitHub today", id="timeline_source_falls_back_to_source_default"
         ),
-        pytest.param("some_unknown_source", "data", id="unknown_source_still_falls_back_to_chat"),
+        pytest.param(
+            "some_unknown_source", "data", id="unknown_source_falls_back_to_source_default"
+        ),
     ],
 )
-def test_sources_without_specific_profiles_use_chat_fallback(case_source, case_content):
+def test_sources_without_specific_profiles_use_restricted_source_default(case_source, case_content):
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
     profile = resolve_extraction_profile(_make_event(source=case_source, content=case_content))
-    assert profile.profile_id == "chat.user_message"
+    assert profile.profile_id == "source.default"
+    assert profile.allow_assertion is False
+    assert "LIKES" not in profile.allowed_predicates
+    assert "USES" in profile.allowed_predicates
 
 
 def test_history_import_profiles_require_matching_source_and_event_type():

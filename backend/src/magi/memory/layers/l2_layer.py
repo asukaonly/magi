@@ -30,6 +30,11 @@ def _default_batch_owner(event: MemoryEvent) -> str | None:
     session_id = (event.session_id or "").strip()
     if session_id:
         return f"chat:{session_id}"
+    source = (event.source or "").strip().lower()
+    if source and source != "chat":
+        observed_at = float(event.timestamp or event.created_at or 0.0)
+        hour_bucket = int(observed_at // 3600)
+        return f"source:{source}:{hour_bucket}"
     return None
 
 

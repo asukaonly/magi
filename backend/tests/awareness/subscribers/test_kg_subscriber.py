@@ -54,55 +54,36 @@ async def test_subscriber_skips_candidates_without_graph_endpoints(
 
 
 @pytest.mark.asyncio
-async def test_processes_whitelisted_relations(fake_bus, fake_writer):
+async def test_subscriber_blocks_direct_bypass_writes(fake_bus, fake_writer):
     sub = KGSubscriber(event_bus=fake_bus, kg_writer=fake_writer)
     await sub.start()
     candidates = [
         {"predicate": "VIEWED", "object_id": "tool:chrome", "subject_id": "user:1"},
         {"predicate": "VIEWED", "object_id": "tool:vscode"},
-        {"predicate": "INVALID", "object_id": "x"},  # not in whitelist
+        {"predicate": "INVALID", "object_id": "x"},
     ]
     payload = _make_payload_with_relations(candidates, ["VIEWED"])
-    fake_writer.start.assert_awaited_once()
     subscription = fake_bus.subscribe.await_args
     assert subscription.args[0] == EventTypes.SOURCE_EVENT_EMITTED
     await subscription.args[1](
         Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="evt-X")
     )
     await sub.drain()
-    assert fake_writer.add_edge.await_count == 2
-    for call in fake_writer.add_edge.await_args_list:
-        edge = call.args[0]
-        assert isinstance(edge, KnowledgeGraphEdgeWrite)
-        assert edge.evidence_event_ids == ("evt-X",)
-        assert edge.predicate == "VIEWED"
+    fake_writer.add_edge.assert_not_awaited()
+    assert sub.get_stats()["bypass_blocked"] == 3
 
     await sub.stop()
     fake_bus.unsubscribe.assert_awaited_once_with("sub-id")
-    fake_writer.stop.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_handler_failure_does_not_break_subscriber(fake_bus, fake_writer):
-    fake_writer.add_edge.side_effect = [RuntimeError("queue closed"), None]
+async def test_subscriber_ignores_malformed_events_safely(fake_bus, fake_writer):
     sub = KGSubscriber(event_bus=fake_bus, kg_writer=fake_writer)
     await sub.start()
     handler = fake_bus.subscribe.await_args.args[1]
     try:
-        for event_id, object_id in [
-            ("event-failed", "tool:failed"),
-            ("event-healthy", "tool:healthy"),
-        ]:
-            payload = _make_payload_with_relations(
-                [{"predicate": "VIEWED", "object_id": object_id}], ["VIEWED"]
-            )
-            await handler(
-                Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id=event_id)
-            )
+        await handler(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data={"bad": True}, event_id="bad-1"))
         await sub.drain()
-        assert [
-            (call.args[0].evidence_event_ids, call.args[0].object_id)
-            for call in fake_writer.add_edge.await_args_list
-        ] == [(("event-failed",), "tool:failed"), (("event-healthy",), "tool:healthy")]
+        fake_writer.add_edge.assert_not_awaited()
     finally:
         await sub.stop()

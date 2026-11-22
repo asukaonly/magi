@@ -157,6 +157,61 @@ DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
         extraction_instructions=_HISTORY_CHAT_INSTRUCTIONS,
         phase1_instructions=_HISTORY_CHAT_INSTRUCTIONS,
     ),
+    "source.default": ExtractionProfile(
+        profile_id="source.default",
+        source_types=frozenset(),
+        allowed_entity_types=frozenset(
+            {
+                "software",
+                "technology",
+                "project",
+                "media",
+                "topic",
+                "place",
+                "event",
+                "activity",
+                "organization",
+                "group",
+                "person",
+            }
+        ),
+        allowed_predicates=frozenset(
+            {
+                "INTERESTED_IN",
+                "VIEWED",
+                "VISITED",
+                "LISTENED",
+                "USES",
+                "USED",
+                "EXECUTED",
+                "COMMITTED",
+                "CHECKED_OUT",
+                "MERGED",
+                "REBASED",
+                "ATTENDED",
+                "CREATES",
+                "REFERENCES",
+                "INTERACTED_WITH",
+            }
+        ),
+        allowed_assertion_families=frozenset(),
+        allow_graph=True,
+        allow_assertion=False,
+        extraction_instructions=(
+            "These events are passive external activity observations without a "
+            "source-specific extraction profile. Extract only concrete factual "
+            "activity edges explicitly grounded in the observed event. Do not "
+            "infer personal identity facts, stable likes or dislikes, traits, "
+            "or private relationships from passive telemetry."
+        ),
+        phase1_instructions=(
+            "These events are passive external activity observations without a "
+            "source-specific extraction profile. Extract only concrete factual "
+            "activity edges explicitly grounded in the observed event. Do not "
+            "infer personal identity facts, stable likes or dislikes, traits, "
+            "or private relationships from passive telemetry."
+        ),
+    ),
 }
 
 _BUILTIN_YAML_PATH = get_backend_root() / "configs" / "l2_extraction_profiles.yaml"
@@ -282,11 +337,15 @@ def _load_profiles_from_yaml(path: Path) -> dict[str, ExtractionProfile]:
         profiles["history_import.document"] = DEFAULT_EXTRACTION_PROFILES["history_import.document"]
     if "history_import.chat" not in profiles:
         profiles["history_import.chat"] = DEFAULT_EXTRACTION_PROFILES["history_import.chat"]
+    if "source.default" not in profiles:
+        profiles["source.default"] = DEFAULT_EXTRACTION_PROFILES["source.default"]
 
     return profiles
 
 
 def _parse_source_types(value: Any, *, profile_id: str) -> frozenset[str]:
+    if profile_id == "source.default":
+        return frozenset()
     if isinstance(value, (list, tuple, set, frozenset)):
         normalized = {str(item).strip().lower() for item in value if str(item).strip()}
         if normalized:
@@ -446,6 +505,13 @@ def _default_profile_id_for_event(
     for profile_id, profile in source_matches:
         if not profile.event_types:
             return profile_id
+    if not source or source == "chat" or is_personal_document(
+        source=event.source or "",
+        event_type=event.event_type or "",
+    ):
+        return "chat.user_message"
+    if "source.default" in registry:
+        return "source.default"
     return "chat.user_message"
 
 

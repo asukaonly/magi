@@ -24,12 +24,15 @@ def test_bump_accumulates_and_promotes_at_threshold(tmp_path):
     c = _counter(tmp_path)
 
     async def run():
+        now = 1_000_000.0
         # threshold 3: not promoted until the 3rd distinct event for the same key
-        assert await c.bump("chrome", "github.com", "e1", threshold=3) == (1, False)
-        assert await c.bump("chrome", "github.com", "e2", threshold=3) == (2, False)
-        assert await c.bump("chrome", "github.com", "e3", threshold=3) == (3, True)
-        # stays promoted afterwards
-        assert await c.bump("chrome", "github.com", "e4", threshold=3) == (4, True)
+        assert await c.bump("chrome", "github.com", "e1", threshold=3, now=now) == (1, False)
+        assert await c.bump("chrome", "github.com", "e2", threshold=3, now=now + 10.0) == (2, False)
+        assert await c.bump("chrome", "github.com", "e3", threshold=3, now=now + 20.0) == (3, True)
+        # immediately repeated event within 6h cooldown downgrades to structured-only
+        assert await c.bump("chrome", "github.com", "e4", threshold=3, now=now + 30.0) == (4, False)
+        # after 6h cooldown elapses, next event is re-admitted for full extraction
+        assert await c.bump("chrome", "github.com", "e5", threshold=3, now=now + 20.0 + 6 * 3600.0) == (5, True)
 
     asyncio.run(run())
 
@@ -66,13 +69,13 @@ def test_prune_removes_stale_unpromoted_keeps_promoted(tmp_path):
         await c.bump("chrome", "noise.com", "e1", threshold=3, now=now)
         # promoted key, also seen long ago
         await c.bump("chrome", "kept.com", "e2", threshold=1, now=now)  # threshold 1 -> promoted
-        # prune with retention 100s, "now" much later -> noise is stale, kept is promoted
-        deleted = await c.prune_stale(retention_seconds=100.0, now=now + 10_000.0)
+        # prune with retention 100s, "now" much later (past 6h cooldown too) -> noise is stale, kept is promoted
+        deleted = await c.prune_stale(retention_seconds=100.0, now=now + 25_000.0)
         assert deleted == 1
         # noise gone -> counting it again starts fresh at 1
-        assert await c.bump("chrome", "noise.com", "e9", threshold=3, now=now + 10_000.0) == (1, False)
-        # promoted key survived -> still promoted
-        assert await c.bump("chrome", "kept.com", "e10", threshold=1, now=now + 10_000.0) == (2, True)
+        assert await c.bump("chrome", "noise.com", "e9", threshold=3, now=now + 25_000.0) == (1, False)
+        # promoted key survived and is past 6h cooldown -> count advances and re-admits
+        assert await c.bump("chrome", "kept.com", "e10", threshold=1, now=now + 25_000.0) == (2, True)
 
     asyncio.run(run())
 
@@ -183,9 +186,15 @@ def test_promote_cap_none_disables_the_cap(tmp_path):
 
 
 def test_already_promoted_key_bypasses_the_cap(tmp_path):
-    # An established (already-promoted) key keeps running full L2 even when the window's new
-    # promotions are saturated — the cap gates only the first crossing, not re-bumps.
-    c = _capped_counter(tmp_path, cap=1, window=60.0)
+    # An established (already-promoted) key respects per-key cooldown within the window,
+    # and once cooldown expires it re-admits even when new-promotion capacity is saturated.
+    c = L2PromotionCounter(
+        str(tmp_path / "promo.db"),
+        promote_cap=1,
+        promote_window_seconds=60.0,
+        llm_cooldown_seconds=30.0,
+    )
+    asyncio.run(c.initialize())
 
     async def run():
         now = 1000.0
@@ -193,8 +202,11 @@ def test_already_promoted_key_bypasses_the_cap(tmp_path):
         assert (await c.bump("chrome", "established.com", "e1", threshold=1, now=now))[1] is True
         # A different key cannot promote now (cap saturated).
         assert (await c.bump("chrome", "other.com", "o1", threshold=1, now=now))[1] is False
-        # But the established key's re-bump stays promoted (bypasses the cap).
-        assert (await c.bump("chrome", "established.com", "e2", threshold=1, now=now))[1] is True
+        # Within cooldown, repeated event on established key downgrades to structured-only.
+        assert (await c.bump("chrome", "established.com", "e2", threshold=1, now=now + 5.0))[1] is False
+        # Once cooldown elapses (even while the 60s new-promotion cap is still saturated),
+        # the established key re-admits without consuming new-promotion capacity.
+        assert (await c.bump("chrome", "established.com", "e3", threshold=1, now=now + 31.0))[1] is True
 
     asyncio.run(run())
 

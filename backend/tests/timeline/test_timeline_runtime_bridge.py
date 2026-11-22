@@ -239,5 +239,10 @@ async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_gr
     # prefix in front of the narration body.
     assert stored.content == "Photo Library Captured I still like Asuka best."
     assert "I still like Asuka best." in stored.content
-    assert len(memory.edges) == 1
-    assert memory.edges[0]["predicate"] == "LIKES"
+    # Relation candidates are routed into L2 structured_graph_hints rather than bypassed via KGSubscriber.
+    assert len(memory.edges) == 0
+    hints = metadata.get("structured_graph_hints") or []
+    assert len(hints) == 1
+    assert hints[0]["predicate"] == "LIKES"
+    assert hints[0]["object_ref"] == "person:asuka"
+    assert hints[0]["origin_mode"] == "source_structured"

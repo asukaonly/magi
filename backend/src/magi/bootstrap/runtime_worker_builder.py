@@ -90,7 +90,6 @@ from ..hooks.lifecycle import HooksModule
 from ..skills.lifecycle import SkillsModule
 from ..timeline.handler import build_timeline_handler
 from ..timeline.lifecycle import (
-    KGSubscriberModule,
     TimelineModule,
     TimelineSchedulersModule,
     TimelineSubscriberModule,
@@ -311,7 +310,6 @@ def _build_processing_modules(context: RuntimeBootstrapContext) -> list[Lifecycl
         ),
         TimelineModule(context),
         TimelineSubscriberModule(context),
-        KGSubscriberModule(context),
         SourceStateUpdateSubscriberModule(context),
         SchedulerModule(context, target_ready=schedule_target_ready),
         AgentScheduleRegistrationModule(context),

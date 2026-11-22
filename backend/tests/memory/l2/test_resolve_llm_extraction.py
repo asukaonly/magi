@@ -50,7 +50,7 @@ async def test_frequency_admission_survives_restart_and_preserves_missing_counte
     for event_id in ["e1", "e2", "e3"]:
         event = SimpleNamespace(metadata_json=metadata, source="chrome", event_id=event_id)
         outcomes.append(await resolve_llm_extraction(event, L2PromotionCounter(path)))
-    assert outcomes == [False, True, True]
+    assert outcomes == [False, True, False]
     assert (
         await resolve_llm_extraction(
             SimpleNamespace(

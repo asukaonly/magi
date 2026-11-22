@@ -129,3 +129,44 @@ profiles:
       anchor only when the host marks the imported message timestamp as
       trusted. File order, file modification time, and import time do not prove
       that a fact is current.
+
+  source.default:
+    source_types: []
+    allowed_entity_types:
+      - software
+      - technology
+      - project
+      - media
+      - topic
+      - place
+      - event
+      - activity
+      - organization
+      - group
+      - person
+    allowed_predicates:
+      - INTERESTED_IN
+      - VIEWED
+      - VISITED
+      - LISTENED
+      - USES
+      - USED
+      - EXECUTED
+      - COMMITTED
+      - CHECKED_OUT
+      - MERGED
+      - REBASED
+      - ATTENDED
+      - CREATES
+      - REFERENCES
+      - INTERACTED_WITH
+    allowed_assertion_families: []
+    allow_graph: true
+    allow_assertion: false
+    extraction_instructions: |
+      These events are passive external activity observations without a
+      source-specific extraction profile.
+
+      Extract only concrete factual activity edges explicitly grounded in the
+      observed event. Do not infer personal identity facts, stable likes or
+      dislikes, traits, or private relationships from passive telemetry.

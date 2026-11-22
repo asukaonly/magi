@@ -496,6 +496,9 @@ def test_provider_failure_raises_instead_of_becoming_empty_result(monkeypatch):
     provider_logger = Mock()
     l2_logger = Mock()
     monkeypatch.setattr("magi.llm.provider_bridge.logging.logger", provider_logger)
+    monkeypatch.setattr(
+        "magi.llm.provider_bridge.logging.full_content_logging_enabled", lambda: True
+    )
     monkeypatch.setattr("magi.memory.l2.llm_json_client.logger", l2_logger)
 
     with pytest.raises(L2LLMCallError) as caught:
