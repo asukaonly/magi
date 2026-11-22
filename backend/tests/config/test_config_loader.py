@@ -243,12 +243,15 @@ def test_loader_save_writes_llm_overrides_only(tmp_path: Path, monkeypatch) -> N
         }
     )
 
-    llm_data = yaml.safe_load((tmp_path / "config" / "llm.yaml").read_text(encoding="utf-8")) or {}
+    raw_llm_yaml = (tmp_path / "config" / "llm.yaml").read_text(encoding="utf-8")
+    llm_data = yaml.safe_load(raw_llm_yaml) or {}
 
     assert saved is True
     assert llm_data["providers"]["openai"]["enabled"] is True
     assert llm_data["providers"]["openai"]["provider_type"] == "openai"
-    assert llm_data["providers"]["openai"]["services"]["chat"]["api_key"] == "sk-test"
+    assert llm_data["providers"]["openai"]["services"]["chat"]["api_key"].startswith("secret_ref:")
+    assert "sk-test" not in raw_llm_yaml
+    assert loader.load().llm.providers["openai"].services.chat.api_key == "sk-test"
     assert llm_data["providers"]["openai"]["services"]["chat"]["base_url"] == "https://api.openai.com/v1"
     assert llm_data["selections"]["core"]["provider_id"] == "openai"
     assert llm_data["selections"]["core"]["model"] == "gpt-5"

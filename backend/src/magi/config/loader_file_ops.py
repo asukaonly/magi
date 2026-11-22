@@ -12,9 +12,16 @@ from typing import Any, Dict, Tuple
 
 import yaml
 
+from ..core.secret_store import get_secret_store
 from .diff_utils import deep_merge_dict
 from .llm_registry import LLMProviderRegistryModel, build_runtime_llm_defaults, load_llm_provider_registry
 from .models import AppConfig
+from .secret_refs import (
+    externalize_yaml_secrets,
+    find_plaintext_secrets,
+    hydrate_yaml_secrets,
+    rollback_secret_writes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -185,9 +192,40 @@ class ConfigLoaderFileOpsMixin:
             if tmp_path is not None:
                 tmp_path.unlink(missing_ok=True)
 
+    def _migrate_plaintext_secrets_in_file(self, path: Path, *, namespace: str) -> Dict[str, Any]:
+        """Atomically migrate any legacy plaintext secrets in ``path`` into the OS secret store."""
+        raw = self._load_yaml_file(path)
+        if not raw or not find_plaintext_secrets(raw, namespace=namespace):
+            return raw
+        secret_store = get_secret_store()
+        rollback_entries: list[tuple[str, str | None]] = []
+        try:
+            sanitized, rollback_entries, _ = externalize_yaml_secrets(
+                raw,
+                namespace=namespace,
+                secret_store=secret_store,
+            )
+            self._write_yaml_file(path, sanitized)
+            logger.info(
+                "Migrated legacy plaintext config secrets to secret store | path=%s | count=%d",
+                str(path),
+                len(rollback_entries),
+            )
+            return sanitized
+        except Exception as exc:
+            if rollback_entries:
+                rollback_secret_writes(secret_store, rollback_entries)
+            logger.warning(
+                "Failed to migrate plaintext config secrets to secret store; keeping existing file intact | path=%s | error=%s",
+                str(path),
+                str(exc),
+            )
+            return raw
+
     def _load_yaml(self) -> Dict[str, Any]:
-        """Load and parse YAML configuration file."""
-        data = self._load_yaml_file(self._config_file)
+        """Load and parse YAML configuration file, hydrating secret references in memory."""
+        secret_store = get_secret_store()
+        data = self._migrate_plaintext_secrets_in_file(self._config_file, namespace="agent")
         data = self._merge_split_plugin_config(data)
         data["llm"] = self._load_effective_llm_config()
         lifecycle_data = self._load_yaml_file(self._lifecycle_config_file)
@@ -195,12 +233,15 @@ class ConfigLoaderFileOpsMixin:
             data["lifecycle"] = lifecycle_data["lifecycle"]
         else:
             data["lifecycle"] = lifecycle_data
-        return data
+        return hydrate_yaml_secrets(data, secret_store=secret_store)
 
     def _load_effective_llm_config(self) -> Dict[str, Any]:
         """Load effective LLM config by merging registry defaults and runtime overrides."""
         defaults = self._build_llm_defaults()
-        overrides = self._load_yaml_file(self._llm_config_file)
+        overrides = self._migrate_plaintext_secrets_in_file(
+            self._llm_config_file,
+            namespace="llm",
+        )
         return deep_merge_dict(defaults, overrides)
 
     def _load_llm_provider_registry(self) -> LLMProviderRegistryModel:

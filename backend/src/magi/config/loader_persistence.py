@@ -10,8 +10,14 @@ from pathlib import Path
 from typing import Any, Dict
 from uuid import uuid4
 
+from ..core.secret_store import get_secret_store
 from .diff_utils import deep_merge_dict, extract_dict_overrides
 from .models import AppConfig
+from .secret_refs import (
+    externalize_yaml_secrets,
+    hydrate_yaml_secrets,
+    rollback_secret_writes,
+)
 from ..utils.log_redaction import refresh_known_log_secrets
 
 logger = logging.getLogger(__name__)
@@ -24,6 +30,8 @@ class _ConfigSaveWorkspace:
     llm_effective: Dict[str, Any]
     lifecycle_payload: Dict[str, Any]
     plugins_index: Dict[str, Any]
+    previous_agent_disk: Dict[str, Any]
+    previous_llm_disk: Dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,11 +82,14 @@ class ConfigLoaderPersistenceMixin:
         self._prune_deprecated_memory_settings(agent_yaml)
 
     def _prepare_save_workspace(self) -> _ConfigSaveWorkspace:
-        agent_yaml = self._load_yaml_file(self._config_file)
+        secret_store = get_secret_store()
+        previous_agent_disk = self._load_yaml_file(self._config_file)
+        agent_yaml = hydrate_yaml_secrets(previous_agent_disk, secret_store=secret_store)
         self._prepare_agent_yaml_for_save(agent_yaml)
         plugins_index = self._load_package_index()
         llm_defaults = self._build_llm_defaults()
-        llm_overrides = self._load_yaml_file(self._llm_config_file)
+        previous_llm_disk = self._load_yaml_file(self._llm_config_file)
+        llm_overrides = hydrate_yaml_secrets(previous_llm_disk, secret_store=secret_store)
         llm_effective = deep_merge_dict(llm_defaults, llm_overrides)
         lifecycle_yaml = self._load_yaml_file(self._lifecycle_config_file)
         lifecycle_payload = dict(lifecycle_yaml.get("lifecycle") or lifecycle_yaml)
@@ -88,6 +99,8 @@ class ConfigLoaderPersistenceMixin:
             llm_effective=llm_effective,
             lifecycle_payload=lifecycle_payload,
             plugins_index=plugins_index,
+            previous_agent_disk=previous_agent_disk,
+            previous_llm_disk=previous_llm_disk,
         )
 
     def _apply_save_updates(
@@ -137,13 +150,43 @@ class ConfigLoaderPersistenceMixin:
         AppConfig.model_validate(validation_payload)
 
     def _write_save_workspace(self, workspace: _ConfigSaveWorkspace) -> None:
+        secret_store = get_secret_store()
         llm_overrides = extract_dict_overrides(workspace.llm_defaults, workspace.llm_effective)
-        self._write_yaml_file(self._config_file, workspace.agent_yaml)
-        self._write_yaml_file(self._llm_config_file, llm_overrides)
-        self._write_yaml_file(
-            self._lifecycle_config_file, {"lifecycle": workspace.lifecycle_payload}
-        )
-        self._write_yaml_file(self._plugins_index_file, workspace.plugins_index)
+        agent_snapshot = self._snapshot_file(self._config_file)
+        llm_snapshot = self._snapshot_file(self._llm_config_file)
+        agent_rollback: list[tuple[str, str | None]] = []
+        llm_rollback: list[tuple[str, str | None]] = []
+        try:
+            agent_disk, agent_rollback, agent_cleared = externalize_yaml_secrets(
+                workspace.agent_yaml,
+                namespace="agent",
+                secret_store=secret_store,
+                previous_disk_data=workspace.previous_agent_disk,
+            )
+            llm_disk, llm_rollback, llm_cleared = externalize_yaml_secrets(
+                llm_overrides,
+                namespace="llm",
+                secret_store=secret_store,
+                previous_disk_data=workspace.previous_llm_disk,
+            )
+            self._write_yaml_file(self._config_file, agent_disk)
+            self._write_yaml_file(self._llm_config_file, llm_disk)
+            self._write_yaml_file(
+                self._lifecycle_config_file, {"lifecycle": workspace.lifecycle_payload}
+            )
+            self._write_yaml_file(self._plugins_index_file, workspace.plugins_index)
+        except Exception:
+            self._restore_file(self._config_file, agent_snapshot)
+            self._restore_file(self._llm_config_file, llm_snapshot)
+            rollback_secret_writes(secret_store, llm_rollback)
+            rollback_secret_writes(secret_store, agent_rollback)
+            raise
+
+        for cleared_ref in (*agent_cleared, *llm_cleared):
+            try:
+                secret_store.delete(cleared_ref)
+            except Exception:
+                logger.debug("Ignoring secret cleanup failure for cleared ref %s", cleared_ref)
 
     @staticmethod
     def _snapshot_file(path: Path) -> _FileSnapshot:

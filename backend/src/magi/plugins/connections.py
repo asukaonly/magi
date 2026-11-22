@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import json
+import logging
 from pathlib import Path
 import re
 import shutil
@@ -19,8 +20,16 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 from magi_plugin_sdk.context import PluginContext
 from magi_plugin_sdk.runtime import CapabilityReadiness, ConnectionStatus, PluginConnection
 
+from ..core.secret_store import (
+    SecretStore,
+    get_secret_store,
+    is_secret_ref,
+    make_secret_ref,
+)
 from ..utils.runtime import RuntimePaths, get_runtime_paths
 from .connection_persistence import connection_file_lock, write_connection_json
+
+logger = logging.getLogger(__name__)
 
 
 class ConnectionNotFoundError(KeyError):
@@ -98,6 +107,7 @@ class PluginConnectionStore:
         require_package: Callable[[str], object],
         authorize_enable: Callable[[PluginConnection], object] | None = None,
         validate_settings: Callable[[PluginConnection], None] | None = None,
+        secret_store: SecretStore | None = None,
     ) -> None:
         paths = runtime_paths if runtime_paths is not None else get_runtime_paths()
         self.root = paths.runtime_dir.absolute() / "plugin-connections"
@@ -105,6 +115,68 @@ class PluginConnectionStore:
         self._require_package = require_package
         self._authorize_enable = authorize_enable
         self._validate_settings = validate_settings
+        self._secret_store_override = secret_store
+
+    def _secret_store(self) -> SecretStore:
+        return self._secret_store_override if self._secret_store_override is not None else get_secret_store()
+
+    @staticmethod
+    def _rollback_secrets(
+        store: SecretStore,
+        entries: list[tuple[str, str | None]],
+    ) -> None:
+        for secret_ref, previous in reversed(entries):
+            try:
+                if previous is None:
+                    store.delete(secret_ref)
+                else:
+                    store.set(secret_ref, previous)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _delete_stale_secrets(store: SecretStore, refs: list[str]) -> None:
+        for secret_ref in refs:
+            if not is_secret_ref(secret_ref):
+                continue
+            try:
+                store.delete(secret_ref)
+            except Exception:
+                logger.debug("Ignoring stale plugin secret deletion failure for %s", secret_ref)
+
+    def _migrate_plaintext_credentials(self, registry: _Registry) -> None:
+        """Atomically migrate legacy plaintext plugin credentials in state.json into SecretStore."""
+        pending: list[tuple[_Record, str, str, str]] = []
+        for connection_id, record in registry.connections.items():
+            for ref, stored in record.credentials.items():
+                if stored and not is_secret_ref(stored):
+                    secret_ref = make_secret_ref("plugins", connection_id, ref)
+                    pending.append((record, ref, secret_ref, stored))
+        if not pending:
+            return
+        store = self._secret_store()
+        rollback: list[tuple[str, str | None]] = []
+        original_values: list[tuple[_Record, str, str]] = []
+        try:
+            for record, ref, secret_ref, plaintext in pending:
+                prev = store.get(secret_ref)
+                store.set(secret_ref, plaintext)
+                rollback.append((secret_ref, prev))
+                original_values.append((record, ref, plaintext))
+                record.credentials[ref] = secret_ref
+            self._write(registry)
+            logger.info(
+                "Migrated legacy plaintext plugin credentials to secret store | count=%d",
+                len(pending),
+            )
+        except Exception as exc:
+            for record, ref, plaintext in original_values:
+                record.credentials[ref] = plaintext
+            self._rollback_secrets(store, rollback)
+            logger.warning(
+                "Failed to migrate plaintext plugin credentials; preserving existing state.json | error=%s",
+                str(exc),
+            )
 
     def _read(self) -> _Registry:
         try:
@@ -123,6 +195,7 @@ class PluginConnectionStore:
             refs = list(record.connection.credential_refs.values())
             if len(refs) != len(set(refs)):
                 raise ConnectionStoreError("Plugin connection credential references are not unique")
+        self._migrate_plaintext_credentials(registry)
         return registry
 
     def _write(self, registry: _Registry) -> None:
@@ -148,22 +221,45 @@ class PluginConnectionStore:
             if self._authorize_enable(connection) is False:
                 raise PermissionError("Connection enable authorization was denied")
 
-    @staticmethod
-    def _credentials(record: _Record, updates: dict[str, str | None]) -> None:
-        refs = dict(record.connection.credential_refs)
+    def _credentials(
+        self,
+        record: _Record,
+        updates: dict[str, str | None],
+    ) -> tuple[list[tuple[str, str | None]], list[str]]:
         for key, value in updates.items():
             if not key.strip() or len(key) > 256:
                 raise ValueError("Credential key must contain between 1 and 256 characters")
-            old_ref = refs.pop(key, None)
-            if old_ref is not None:
-                record.credentials.pop(old_ref, None)
-            if value is not None:
-                if not isinstance(value, str) or not value:
-                    raise ValueError("Credential value must be a nonempty string")
-                reference = f"cred_{uuid4().hex}"
-                refs[key] = reference
-                record.credentials[reference] = value
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ValueError("Credential value must be a nonempty string")
+
+        store = self._secret_store()
+        refs = dict(record.connection.credential_refs)
+        rollback: list[tuple[str, str | None]] = []
+        stale_refs: list[str] = []
+        try:
+            for key, value in updates.items():
+                old_ref = refs.pop(key, None)
+                if old_ref is not None:
+                    old_stored = record.credentials.pop(old_ref, None)
+                    if is_secret_ref(old_stored):
+                        stale_refs.append(str(old_stored))
+                if value is not None:
+                    reference = f"cred_{uuid4().hex}"
+                    secret_ref = make_secret_ref(
+                        "plugins",
+                        record.connection.connection_id,
+                        reference,
+                    )
+                    prev = store.get(secret_ref)
+                    store.set(secret_ref, value)
+                    rollback.append((secret_ref, prev))
+                    refs[key] = reference
+                    record.credentials[reference] = secret_ref
+        except Exception:
+            self._rollback_secrets(store, rollback)
+            raise
         record.connection = record.connection.model_copy(update={"credential_refs": refs})
+        return rollback, stale_refs
 
     def create(
         self,
@@ -180,12 +276,19 @@ class PluginConnectionStore:
             display_name=display_name.strip(), settings=settings or {}, enabled=enabled,
         )
         record = _Record(connection=connection)
-        self._credentials(record, credentials or {})
-        with connection_file_lock(self.root):
-            self._admit(record.connection)
-            registry = self._read()
-            registry.connections[connection.connection_id] = record
-            self._write(registry)
+        rollback: list[tuple[str, str | None]] = []
+        stale_refs: list[str] = []
+        try:
+            rollback, stale_refs = self._credentials(record, credentials or {})
+            with connection_file_lock(self.root):
+                self._admit(record.connection)
+                registry = self._read()
+                registry.connections[connection.connection_id] = record
+                self._write(registry)
+        except Exception:
+            self._rollback_secrets(self._secret_store(), rollback)
+            raise
+        self._delete_stale_secrets(self._secret_store(), stale_refs)
         return record.connection.model_copy(deep=True)
 
     def list(self, plugin_id: str | None = None) -> list[PluginConnection]:
@@ -275,12 +378,22 @@ class PluginConnectionStore:
             refs = list(record.connection.credential_refs.values())
             if len(refs) != len(set(refs)):
                 raise ValueError("Credential references must be unique")
-            self._credentials(record, credentials or {})
-            retained = set(record.connection.credential_refs.values())
-            record.credentials = {key: value for key, value in record.credentials.items() if key in retained}
-            self._admit(record.connection)
-            record.readiness = []
-            self._write(registry)
+            rollback: list[tuple[str, str | None]] = []
+            stale_refs: list[str] = []
+            try:
+                rollback, stale_refs = self._credentials(record, credentials or {})
+                retained = set(record.connection.credential_refs.values())
+                for ref, stored in list(record.credentials.items()):
+                    if ref not in retained and is_secret_ref(stored):
+                        stale_refs.append(str(stored))
+                record.credentials = {key: value for key, value in record.credentials.items() if key in retained}
+                self._admit(record.connection)
+                record.readiness = []
+                self._write(registry)
+            except Exception:
+                self._rollback_secrets(self._secret_store(), rollback)
+                raise
+            self._delete_stale_secrets(self._secret_store(), stale_refs)
             return record.connection.model_copy(deep=True)
 
     def _instance_dir(self, connection_id: str) -> Path:
@@ -303,7 +416,14 @@ class PluginConnectionStore:
         with connection_file_lock(self.root):
             record = self._record(self._read(), connection_id)
             reference = record.connection.credential_refs.get(key)
-            return record.credentials.get(reference) if reference is not None else None
+            if reference is None:
+                return None
+            stored = record.credentials.get(reference)
+            if stored is None:
+                return None
+            if is_secret_ref(stored):
+                return self._secret_store().get(stored)
+            return stored
 
     def _write_credential(self, connection_id: str, key: str, value: str | None) -> None:
         with connection_file_lock(self.root):
@@ -312,10 +432,17 @@ class PluginConnectionStore:
             self._require_package(record.connection.plugin_id)
             if value is None and key not in record.connection.credential_refs:
                 return
-            self._credentials(record, {key: value})
-            record.connection = record.connection.model_copy(update={"revision": record.connection.revision + 1})
-            record.readiness = []
-            self._write(registry)
+            rollback: list[tuple[str, str | None]] = []
+            stale_refs: list[str] = []
+            try:
+                rollback, stale_refs = self._credentials(record, {key: value})
+                record.connection = record.connection.model_copy(update={"revision": record.connection.revision + 1})
+                record.readiness = []
+                self._write(registry)
+            except Exception:
+                self._rollback_secrets(self._secret_store(), rollback)
+                raise
+            self._delete_stale_secrets(self._secret_store(), stale_refs)
 
     def read_state(self, connection_id: str) -> tuple[int, dict[str, JsonValue], dict[str, JsonValue]]:
         """Return host JSON state and its independent optimistic revision."""
@@ -398,7 +525,11 @@ class PluginConnectionStore:
             instance_dir = self._instance_dir(connection_id)
             if instance_dir.exists():
                 shutil.rmtree(instance_dir)
+            secret_refs_to_delete = [
+                str(val) for val in record.credentials.values() if is_secret_ref(val)
+            ]
             del registry.connections[connection_id]
             self._write(registry)
+            self._delete_stale_secrets(self._secret_store(), secret_refs_to_delete)
             (self.root / f"{connection_id}.ingress.json").unlink(missing_ok=True)
             (self.root / f"{connection_id}.collectors.json").unlink(missing_ok=True)

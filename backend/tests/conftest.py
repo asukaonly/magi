@@ -26,7 +26,9 @@ import pytest
 # Set a process-local home before importing any module that caches runtime paths.
 # Every pytest worker gets its own root even when the caller has a real MAGI_HOME.
 os.environ["MAGI_HOME"] = tempfile.mkdtemp(prefix="magi-pytest-session-")
+os.environ.setdefault("MAGI_SECRET_STORE", "memory")
 
+from magi.core.secret_store import InMemorySecretStore, set_secret_store
 from magi.db import run_upgrade_head
 from magi.utils.runtime import RuntimePaths
 
@@ -38,8 +40,12 @@ def _hermetic_runtime_paths(monkeypatch, tmp_path_factory):
 
     root = tmp_path_factory.mktemp("runtime-home")
     monkeypatch.setenv("MAGI_HOME", str(root))
+    monkeypatch.setenv("MAGI_SECRET_STORE", "memory")
     monkeypatch.setenv("MAGI_DATA_EPOCH", "3f6bb646-46ea-4650-8424-ea74bd384be3")
     monkeypatch.setattr(runtime, "_runtime_paths", RuntimePaths(base_dir=root))
+    set_secret_store(InMemorySecretStore())
+    yield
+    set_secret_store(InMemorySecretStore())
 
 
 @pytest.fixture
