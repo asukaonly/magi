@@ -467,7 +467,7 @@ mod tests {
             .await
             .unwrap();
         let saved = fs::read_to_string(root.path().join("credentials.json")).unwrap();
-        assert!(saved.contains(&device_key));
+        assert!(!saved.contains(&device_key));
         assert!(!saved.contains(&pair_code));
         assert!(!saved.contains(&session_key));
         assert!(!serde_json::to_string(&connections.list())
