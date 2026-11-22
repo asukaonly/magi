@@ -90,6 +90,8 @@ class L2StoreSnapshotQueryMixin:
         limit: int = 100,
         offset: int = 0,
         query: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
     ) -> List[Dict[str, Any]]:
         """List materialized ToM snapshots ordered by recency."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -112,6 +114,12 @@ class L2StoreSnapshotQueryMixin:
         if entity_type:
             query += " AND entity_type = ?"
             args.append(entity_type)
+        if start_time is not None:
+            query += " AND snapshot.last_updated_at >= ?"
+            args.append(float(start_time))
+        if end_time is not None:
+            query += " AND snapshot.last_updated_at <= ?"
+            args.append(float(end_time))
         search_sql, search_args = build_like_search_clause(
             [
                 "snapshot_id",

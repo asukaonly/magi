@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
@@ -43,6 +43,8 @@ class ViewportSourceData:
     assertions: list[dict[str, Any]]
     snapshots: list[dict[str, Any]]
     episodes: list[dict[str, Any]]
+    events_truncated: bool = False
+    hybrid_matched_event_ids: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
@@ -175,12 +177,29 @@ class TimelineViewportBuilder:
             if scale in ("day", "week")
             else []
         )
+        events, events_truncated = await self._load_events(start=query.start, end=query.end)
+        hybrid_matched_ids: set[str] = set()
+        if query.has_filters and query.search_query:
+            hybrid_events = await self._search_events_hybrid(query)
+            if hybrid_events:
+                seen_ids = {str(ev.get("event_id") or "") for ev in events}
+                for item in hybrid_events:
+                    eid = str(item.get("event_id") or "")
+                    if not eid:
+                        continue
+                    hybrid_matched_ids.add(eid)
+                    if eid not in seen_ids:
+                        events.append(item)
+                        seen_ids.add(eid)
+                events.sort(key=lambda item: float(item.get("timestamp") or 0.0), reverse=True)
         return ViewportSourceData(
-            events=await self._load_events(start=query.start, end=query.end),
+            events=events,
             summaries=await self._load_summaries(start=query.start, end=query.end),
-            assertions=await self._load_assertions(),
-            snapshots=await self._load_snapshots(),
+            assertions=await self._load_assertions(start=query.start, end=query.end),
+            snapshots=await self._load_snapshots(start=query.start, end=query.end),
             episodes=episodes,
+            events_truncated=events_truncated,
+            hybrid_matched_event_ids=frozenset(hybrid_matched_ids),
         )
 
     def _filter_viewport_sources(
@@ -189,11 +208,17 @@ class TimelineViewportBuilder:
         query: TimelineQueryInterpretation,
     ) -> ViewportSourceData:
         return ViewportSourceData(
-            events=self._filter_events(sources.events, query),
+            events=self._filter_events(
+                sources.events,
+                query,
+                hybrid_matched_ids=sources.hybrid_matched_event_ids,
+            ),
             summaries=self._filter_summaries(sources.summaries, query),
             assertions=sources.assertions,
             snapshots=sources.snapshots,
             episodes=sources.episodes,
+            events_truncated=sources.events_truncated,
+            hybrid_matched_event_ids=sources.hybrid_matched_event_ids,
         )
 
     async def _derive_viewport_data(
@@ -416,6 +441,7 @@ class TimelineViewportBuilder:
             "summary": {
                 "cluster_count": len(derived.clusters),
                 "event_count": len(sources.events),
+                "events_truncated": bool(sources.events_truncated),
                 "dominant_modes": [cluster["dominant_mode"] for cluster in derived.clusters[:3]],
             },
             "overview": derived.overview,
@@ -435,29 +461,27 @@ class TimelineViewportBuilder:
     async def build_context_bundle(self, *, anchor: dict[str, Any]) -> dict[str, Any]:
         return await self._context_bundle_builder.build(anchor=anchor)
 
-    async def _load_events(self, *, start: float, end: float) -> list[dict[str, Any]]:
+    async def _load_events(self, *, start: float, end: float) -> tuple[list[dict[str, Any]], bool]:
         if self._l1 is None:
-            return []
-        events = await self._l1.query_events(
-            start_time=start,
-            end_time=end,
-            limit=EVENT_QUERY_LIMIT,
-            l1_retrieval_scopes=list(USER_VISIBLE_L1_RETRIEVAL_SCOPES),
+            return [], False
+        events = list(
+            await self._l1.query_events(
+                start_time=start,
+                end_time=end,
+                limit=EVENT_QUERY_LIMIT,
+                l1_retrieval_scopes=list(USER_VISIBLE_L1_RETRIEVAL_SCOPES),
+            )
         )
-        # Surface truncation. When the result is exactly at the cap we
-        # can't tell whether there's just barely enough or thousands more
-        # past the limit; log loudly so it shows up in ops. A future
-        # iteration could fold this into the viewport response (e.g.
-        # `summary.events_truncated: true`) so the UI can flag it.
-        if len(events) >= EVENT_QUERY_LIMIT:
+        truncated = len(events) >= EVENT_QUERY_LIMIT
+        if truncated:
             logger.warning(
-                "Timeline viewport hit event-query limit; clusters and " "themes may be incomplete",
+                "Timeline viewport hit event-query limit; clusters and themes may be incomplete",
                 limit=EVENT_QUERY_LIMIT,
                 window_start=start,
                 window_end=end,
                 window_hours=round((end - start) / 3600, 1),
             )
-        if self._archives is not None and len(events) < EVENT_QUERY_LIMIT:
+        if self._archives is not None and not truncated:
             archived_events = await self._load_archived_l1_events(start=start, end=end)
             if archived_events:
                 seen_ids = {str(ev.get("event_id") or "") for ev in events}
@@ -466,7 +490,90 @@ class TimelineViewportBuilder:
                         events.append(archived)
                         seen_ids.add(archived["event_id"])
                 events.sort(key=lambda item: float(item.get("timestamp") or 0.0), reverse=True)
-        return events
+        return events, truncated
+
+    async def _search_events_hybrid(
+        self,
+        query: TimelineQueryInterpretation,
+    ) -> list[dict[str, Any]]:
+        """Run FTS5 BM25 + vector + cold-archive search for a timeline text query."""
+        candidate_ids: list[str] = []
+        seen_ids: set[str] = set()
+        results: list[dict[str, Any]] = []
+
+        if self._l1 is not None and query.search_query:
+            if hasattr(self._l1, "bm25_search"):
+                try:
+                    bm25_hits = await self._l1.bm25_search(
+                        query.search_query,
+                        limit=100,
+                        start_time=query.start,
+                        end_time=query.end,
+                        l1_retrieval_scopes=list(USER_VISIBLE_L1_RETRIEVAL_SCOPES),
+                    )
+                    for event_id, _score in bm25_hits or []:
+                        eid = str(event_id)
+                        if eid and eid not in seen_ids:
+                            seen_ids.add(eid)
+                            candidate_ids.append(eid)
+                except Exception as exc:
+                    logger.debug("Timeline FTS5 search skipped", error=str(exc))
+
+            if hasattr(self._l1, "vector_search"):
+                try:
+                    vec_hits = await self._l1.vector_search(
+                        query=query.search_query,
+                        limit=50,
+                    )
+                    for hit in vec_hits or []:
+                        eid = str(getattr(hit, "entity_id", "") or "").split("::", 1)[0]
+                        if eid and eid not in seen_ids:
+                            seen_ids.add(eid)
+                            candidate_ids.append(eid)
+                except Exception as exc:
+                    logger.debug("Timeline vector search skipped", error=str(exc))
+
+            if candidate_ids and hasattr(self._l1, "fetch_events"):
+                try:
+                    hydrated = await self._l1.fetch_events(
+                        candidate_ids,
+                        time_start=query.start,
+                        time_end=query.end,
+                        l1_retrieval_scopes=list(USER_VISIBLE_L1_RETRIEVAL_SCOPES),
+                    )
+                    results.extend(hydrated)
+                except Exception as exc:
+                    logger.debug("Timeline hybrid hydration skipped", error=str(exc))
+
+        if self._archives is not None and query.search_query:
+            try:
+                archived = await self._archives.search(
+                    query=query.search_query,
+                    layer="l1",
+                    start_time=query.start,
+                    end_time=query.end,
+                    limit=100,
+                )
+                present = {str(ev.get("event_id") or "") for ev in results}
+                for item in archived.items:
+                    if item.record_id in present:
+                        continue
+                    results.append(
+                        {
+                            "event_id": item.record_id,
+                            "timestamp": float(item.occurred_at),
+                            "source": item.source,
+                            "event_type": item.event_type,
+                            "content": item.content,
+                            "metadata_json": {"archived": True},
+                            "archived": True,
+                        }
+                    )
+                    present.add(item.record_id)
+            except Exception as exc:
+                logger.debug("Timeline archive search skipped", error=str(exc))
+
+        return results
 
     async def _load_archived_l1_events(self, *, start: float, end: float) -> list[dict[str, Any]]:
         if self._archives is None:
@@ -530,7 +637,16 @@ class TimelineViewportBuilder:
     ) -> list[dict[str, Any]]:
         summaries: list[dict[str, Any]] = []
         if self._l3 is not None:
-            summaries = list(await self._l3.list_summaries(limit=200))
+            try:
+                summaries = list(
+                    await self._l3.list_summaries(
+                        limit=200,
+                        start_time=start,
+                        end_time=end,
+                    )
+                )
+            except TypeError:
+                summaries = list(await self._l3.list_summaries(limit=200))
         if self._archives is not None and start is not None and end is not None:
             try:
                 archived = await self._archives.search(
@@ -563,14 +679,48 @@ class TimelineViewportBuilder:
                     seen_ids.add(item.record_id)
         return summaries
 
-    async def _load_assertions(self) -> list[dict[str, Any]]:
+    async def _load_assertions(
+        self,
+        *,
+        start: float | None = None,
+        end: float | None = None,
+    ) -> list[dict[str, Any]]:
         if self._l2 is None or not hasattr(self._l2, "list_tom_assertions"):
             return []
+        if start is not None and end is not None:
+            clause = (
+                "COALESCE(last_validated_at, updated_at, created_at) >= ? "
+                "AND COALESCE(first_inferred_at, created_at, updated_at) <= ?",
+                [float(start), float(end)],
+            )
+            try:
+                return await self._l2.list_tom_assertions(
+                    entity_id=_CANONICAL_SELF_ENTITY_ID,
+                    temporal_clause=clause,
+                    limit=200,
+                )
+            except TypeError:
+                pass
         return await self._l2.list_tom_assertions(entity_id=_CANONICAL_SELF_ENTITY_ID, limit=200)
 
-    async def _load_snapshots(self) -> list[dict[str, Any]]:
+    async def _load_snapshots(
+        self,
+        *,
+        start: float | None = None,
+        end: float | None = None,
+    ) -> list[dict[str, Any]]:
         if self._l2 is None or not hasattr(self._l2, "list_tom_snapshots"):
             return []
+        if start is not None and end is not None:
+            try:
+                return await self._l2.list_tom_snapshots(
+                    entity_id=_CANONICAL_SELF_ENTITY_ID,
+                    start_time=start,
+                    end_time=end,
+                    limit=50,
+                )
+            except TypeError:
+                pass
         return await self._l2.list_tom_snapshots(entity_id=_CANONICAL_SELF_ENTITY_ID, limit=50)
 
     async def _load_episodes(self, *, start: float, end: float) -> list[dict[str, Any]]:
@@ -749,14 +899,31 @@ class TimelineViewportBuilder:
         self,
         events: list[dict[str, Any]],
         interpretation: TimelineQueryInterpretation,
+        *,
+        hybrid_matched_ids: frozenset[str] = frozenset(),
     ) -> list[dict[str, Any]]:
         if not interpretation.has_filters:
             return events
-        return [
-            event
-            for event in events
-            if self._matches_text(self._event_search_text(event), interpretation)
-        ]
+        # Apply mood hints on raw L1 events only when mood is the sole semantic filter;
+        # otherwise mood hints filter L3/state bands so raw music/browsing events are not dropped.
+        apply_mood_on_events = bool(
+            interpretation.mood_hints
+            and not interpretation.activity_hints
+            and not interpretation.residual_terms
+        )
+        matched: list[dict[str, Any]] = []
+        for event in events:
+            eid = str(event.get("event_id") or "")
+            if eid and eid in hybrid_matched_ids:
+                matched.append(event)
+                continue
+            if self._matches_text(
+                self._event_search_text(event),
+                interpretation,
+                apply_mood=apply_mood_on_events,
+            ):
+                matched.append(event)
+        return matched
 
     def _filter_summaries(
         self,
@@ -768,15 +935,26 @@ class TimelineViewportBuilder:
         return [
             summary
             for summary in summaries
-            if self._matches_text(self._summary_search_text(summary), interpretation)
+            if self._matches_text(
+                self._summary_search_text(summary),
+                interpretation,
+                apply_mood=True,
+            )
         ]
 
-    def _matches_text(self, text: str, interpretation: TimelineQueryInterpretation) -> bool:
+    def _matches_text(
+        self,
+        text: str,
+        interpretation: TimelineQueryInterpretation,
+        *,
+        apply_mood: bool = True,
+    ) -> bool:
         haystack = text.lower()
 
-        for hint in interpretation.mood_hints:
-            if not any(alias in haystack for alias in self._query_interpreter.expand_hint(hint)):
-                return False
+        if apply_mood:
+            for hint in interpretation.mood_hints:
+                if not any(alias in haystack for alias in self._query_interpreter.expand_hint(hint)):
+                    return False
 
         for hint in interpretation.activity_hints:
             if not any(alias in haystack for alias in self._query_interpreter.expand_hint(hint)):

@@ -105,4 +105,4 @@ async def test_context_bundle_builder_collects_cross_layer_evidence() -> None:
     assert bundle["l2_state_evidence"][0]["assertion_id"] == "assertion-1"
     assert bundle["l2_state_evidence"][1]["triple_id"] == "edge-1"
     assert bundle["l3_reflections"][0]["summary_id"] == "summary-1"
-    assert bundle["l4_related_procedures"][0]["skill_id"] == "skill-1"
+    assert bundle["l4_related_procedures"] == []

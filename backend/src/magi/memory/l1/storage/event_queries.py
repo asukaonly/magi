@@ -199,6 +199,34 @@ class SqliteEventQueries:
         records = {str(row["event_id"]): _record(row) for row in rows}
         return [records[event_id] for event_id in event_ids if event_id in records]
 
+    async def find_event_by_photo_asset_id(
+        self,
+        asset_id: str,
+        *,
+        source_filters: Optional[List[str]] = None,
+    ) -> Optional[MemoryEventRecord]:
+        """Directly resolve one active photo-library event matching ``asset_id``."""
+        cleaned = str(asset_id or "").strip()
+        if not cleaned:
+            return None
+        sources = list(source_filters or ("photo_library", "photo-library"))
+        placeholders = ", ".join("?" for _ in sources)
+        escaped = cleaned.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        sql = (
+            f"SELECT {select_event_columns()} FROM {FACT_EVENTS_TABLE} "
+            "LEFT JOIN l1_event_embedding_state USING(event_id) "
+            f"WHERE deleted_at IS NULL AND source IN ({placeholders}) "
+            "AND (source_item_id = ? OR idempotency_key = ? OR metadata_json LIKE ? ESCAPE '\\') "
+            "ORDER BY timestamp DESC LIMIT 1"
+        )
+        args: list[Any] = [*sources, cleaned, cleaned, pattern]
+        async with event_connection(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
+                row = await cursor.fetchone()
+        return _record(row) if row is not None else None
+
 
     def _build_fetch_events_query(
         self,

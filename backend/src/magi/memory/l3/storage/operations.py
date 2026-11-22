@@ -324,8 +324,10 @@ class L3SummaryPersistenceMixin:
         query: str | None = None,
         summary_type: str | None = None,
         summary_category: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
     ) -> List[Dict[str, Any]]:
-        """List most recent summaries."""
+        """List summaries ordered by recency, optionally overlapping [start_time, end_time]."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
         sql = f"SELECT * FROM summaries WHERE {active_summary_predicate()}"
@@ -336,6 +338,12 @@ class L3SummaryPersistenceMixin:
         if summary_category:
             sql += " AND summary_category = ?"
             args.append(summary_category)
+        if start_time is not None:
+            sql += " AND COALESCE(period_end, period_start, updated_at) >= ?"
+            args.append(float(start_time))
+        if end_time is not None:
+            sql += " AND COALESCE(period_start, period_end, updated_at) <= ?"
+            args.append(float(end_time))
         search_sql, search_args = build_like_search_clause(
             [
                 "summary_id",

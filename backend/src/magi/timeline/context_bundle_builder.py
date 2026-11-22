@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
+from ..memory.evidence import USER_VISIBLE_L1_RETRIEVAL_SCOPES
 
 from .. import i18n as core_i18n
 from .presentation_text import AGENT_SOURCES, display_text, prompt_excerpts
@@ -33,15 +34,11 @@ class TimelineContextBundleBuilder:
             return await self._build_episode_bundle(anchor, episode_id)
 
         event_ids = list(dict.fromkeys(
-            anchor.get("source_event_ids") or anchor.get("representative_event_ids") or []
+            str(eid) for eid in (anchor.get("source_event_ids") or anchor.get("representative_event_ids") or [])
+            if eid
         ))
 
-        l1_events: list[dict[str, Any]] = []
-        if self._l1 is not None:
-            for event_id in event_ids:
-                event = await self._l1.get_user_visible_event(str(event_id))
-                if event is not None:
-                    l1_events.append(self._to_event_preview(event))
+        l1_events = await self._fetch_visible_event_previews(event_ids)
         await self._enrich_prompts(l1_events)
         event_ids = [event["event_id"] for event in l1_events]
 
@@ -54,12 +51,7 @@ class TimelineContextBundleBuilder:
                     for assertion in assertions
                     if set(assertion.get("evidence_events") or []) & set(event_ids)
                 )
-            if hasattr(self._l2, "find_edges_by_event_id"):
-                for event_id in event_ids:
-                    l2_state_evidence.extend(
-                        self._with_evidence_events_alias(edge)
-                        for edge in await self._l2.find_edges_by_event_id(str(event_id))
-                    )
+            l2_state_evidence.extend(await self._find_edges(event_ids))
 
         l3_reflections: list[dict[str, Any]] = []
         if self._l3 is not None and hasattr(self._l3, "list_summaries"):
@@ -70,16 +62,12 @@ class TimelineContextBundleBuilder:
                 if set(summary.get("source_event_ids") or []) & set(event_ids)
             ]
 
-        l4_related_procedures: list[dict[str, Any]] = []
-        if self._l4 is not None and hasattr(self._l4, "get_all_skills"):
-            l4_related_procedures = await self._l4.get_all_skills(limit=5)
-
         return {
             "anchor": anchor,
             "l1_events": l1_events,
             "l2_state_evidence": l2_state_evidence,
             "l3_reflections": l3_reflections,
-            "l4_related_procedures": l4_related_procedures,
+            "l4_related_procedures": [],
             "chat_excerpts": [
                 {
                     "event_id": event["event_id"],
@@ -98,22 +86,11 @@ class TimelineContextBundleBuilder:
         episode_events = await self._l2.list_episode_events(episode_id=episode_id)
         event_ids = [str(ee.get("event_id")) for ee in episode_events if ee.get("event_id")]
 
-        l1_events: list[dict[str, Any]] = []
-        if self._l1 is not None:
-            for eid in event_ids:
-                event = await self._l1.get_user_visible_event(eid)
-                if event is not None:
-                    l1_events.append(self._to_event_preview(event))
+        l1_events = await self._fetch_visible_event_previews(event_ids)
         await self._enrich_prompts(l1_events)
         event_ids = [event["event_id"] for event in l1_events]
 
-        l2_state_evidence: list[dict[str, Any]] = []
-        if hasattr(self._l2, "find_edges_by_event_id"):
-            for eid in event_ids[:10]:
-                l2_state_evidence.extend(
-                    self._with_evidence_events_alias(edge)
-                    for edge in await self._l2.find_edges_by_event_id(eid)
-                )
+        l2_state_evidence = await self._find_edges(event_ids[:20])
 
         l3_reflections: list[dict[str, Any]] = []
         if self._l3 is not None and hasattr(self._l3, "list_summaries"):
@@ -139,6 +116,44 @@ class TimelineContextBundleBuilder:
             ],
             "runtime_trace": [],
         }
+
+    async def _fetch_visible_event_previews(self, event_ids: list[str]) -> list[dict[str, Any]]:
+        if self._l1 is None or not event_ids:
+            return []
+        if hasattr(self._l1, "fetch_events"):
+            events = await self._l1.fetch_events(
+                event_ids,
+                l1_retrieval_scopes=list(USER_VISIBLE_L1_RETRIEVAL_SCOPES),
+            )
+            if isinstance(events, list):
+                return [self._to_event_preview(event) for event in events if isinstance(event, dict)]
+        previews: list[dict[str, Any]] = []
+        for event_id in event_ids:
+            event = await self._l1.get_user_visible_event(str(event_id))
+            if event is not None:
+                previews.append(self._to_event_preview(event))
+        return previews
+
+    async def _find_edges(self, event_ids: list[str]) -> list[dict[str, Any]]:
+        if self._l2 is None or not event_ids:
+            return []
+        if hasattr(self._l2, "find_edges_by_event_ids"):
+            edges = await self._l2.find_edges_by_event_ids(event_ids)
+            if isinstance(edges, list):
+                return [self._with_evidence_events_alias(edge) for edge in edges]
+        if hasattr(self._l2, "find_edges_by_event_id"):
+            collected: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for event_id in event_ids:
+                for edge in await self._l2.find_edges_by_event_id(str(event_id)):
+                    tid = str(edge.get("triple_id") or "")
+                    if tid and tid in seen:
+                        continue
+                    if tid:
+                        seen.add(tid)
+                    collected.append(self._with_evidence_events_alias(edge))
+            return collected
+        return []
 
     def _to_event_preview(self, event: dict[str, Any]) -> dict[str, Any]:
         metadata = self._event_metadata(event)

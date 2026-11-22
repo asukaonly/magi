@@ -378,8 +378,10 @@ class TimelineService:
             if not file_path:
                 return None
             try:
-                with open(file_path, "rb") as fh:
-                    data = fh.read()
+                import aiofiles
+
+                async with aiofiles.open(file_path, "rb") as fh:
+                    data = await fh.read()
             except OSError:
                 return None
             return data, content_type or "application/octet-stream"
@@ -493,30 +495,53 @@ class TimelineService:
         if not asset_id:
             return None, None
         l1_store = getattr(self._unified_memory, "l1", None)
-        if l1_store is None or not hasattr(l1_store, "query_events"):
-            return None, None
-        try:
-            events = await l1_store.query_events(
-                source_filters=list(PHOTO_LIBRARY_SOURCE_FILTERS),
-                limit=5000,
-                order_by="timestamp_desc",
-            )
-        except Exception:
+        if l1_store is None:
             return None, None
 
-        for event in events or []:
-            metadata = _photo_metadata(event)
-            for photo in _iter_representative_photos(metadata) or []:
-                candidate = photo.get("asset_local_id") or photo.get("local_identifier")
-                if not isinstance(candidate, str) or candidate.strip() != asset_id:
-                    continue
-                path = photo.get("path")
-                if not isinstance(path, str) or not path.strip():
-                    return None, None
-                content_type = photo.get("mime_type") or photo.get("content_type")
-                if not isinstance(content_type, str) or not content_type.strip():
-                    content_type = _guess_image_content_type(path)
-                return path.strip(), content_type.strip()
+        event: Optional[dict[str, Any]] = None
+        if hasattr(l1_store, "find_event_by_photo_asset_id"):
+            try:
+                event = await l1_store.find_event_by_photo_asset_id(
+                    asset_id,
+                    source_filters=list(PHOTO_LIBRARY_SOURCE_FILTERS),
+                )
+            except Exception:
+                event = None
+        elif hasattr(l1_store, "query_events"):
+            try:
+                events = await l1_store.query_events(
+                    source_filters=list(PHOTO_LIBRARY_SOURCE_FILTERS),
+                    limit=50,
+                    order_by="timestamp_desc",
+                )
+                for candidate_event in events or []:
+                    if self._extract_photo_path(candidate_event, asset_id) != (None, None):
+                        event = candidate_event
+                        break
+            except Exception:
+                event = None
+
+        if event is None:
+            return None, None
+        return self._extract_photo_path(event, asset_id)
+
+    @staticmethod
+    def _extract_photo_path(
+        event: dict[str, Any],
+        asset_id: str,
+    ) -> tuple[Optional[str], Optional[str]]:
+        metadata = _photo_metadata(event)
+        for photo in _iter_representative_photos(metadata) or []:
+            candidate = photo.get("asset_local_id") or photo.get("local_identifier")
+            if not isinstance(candidate, str) or candidate.strip() != asset_id:
+                continue
+            path = photo.get("path")
+            if not isinstance(path, str) or not path.strip():
+                return None, None
+            content_type = photo.get("mime_type") or photo.get("content_type")
+            if not isinstance(content_type, str) or not content_type.strip():
+                content_type = _guess_image_content_type(path)
+            return path.strip(), content_type.strip()
         return None, None
 
     async def get_event_context_bundle(self, event_ids: list[str]) -> dict:

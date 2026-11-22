@@ -215,6 +215,21 @@ class L1EventQueryMixin(
         )
         return [host._record_to_dict(record) for record in records]
 
+    async def find_event_by_photo_asset_id(
+        self,
+        asset_id: str,
+        *,
+        source_filters: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Directly resolve one active photo-library event matching ``asset_id``."""
+        host = cast(L1EventQueryHostProtocol, self)
+        await host.initialize()
+        finder = getattr(host.event_repository, "find_event_by_photo_asset_id", None)
+        if finder is None:
+            return None
+        record = await finder(asset_id, source_filters=source_filters)
+        return host._record_to_dict(record) if record is not None else None
+
     async def list_events(
         self, *, limit: int = 100, event_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:

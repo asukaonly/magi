@@ -758,6 +758,41 @@ class L2StoreRelationshipQueryMixin:
                 row = await cursor.fetchone()
         return host._relation_row_to_dict(row) if row else None
 
+    async def find_edges_by_event_ids(self, event_ids: List[str]) -> List[Dict[str, Any]]:
+        """Return deduplicated active graph edges citing any of ``event_ids`` in one query."""
+        host = cast(L2RetrievalQueryHostProtocol, self)
+        await host.initialize()
+        unique_ids = [str(eid) for eid in dict.fromkeys(event_ids) if str(eid)]
+        if not unique_ids:
+            return []
+        clauses: list[str] = []
+        params: list[Any] = []
+        for eid in unique_ids:
+            escaped = eid.replace('"', '""')
+            clauses.append("evidence_event_ids LIKE ?")
+            params.append(f'%"{escaped}"%')
+        where_or = " OR ".join(clauses)
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"SELECT * FROM knowledge_graph WHERE status = 'active' AND ({where_or}) "
+                "ORDER BY updated_at DESC LIMIT 500",
+                tuple(params),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        wanted = set(unique_ids)
+        seen_triples: set[str] = set()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            triple_id = str(row["triple_id"])
+            if triple_id in seen_triples:
+                continue
+            evidence = set(json.loads(row["evidence_event_ids"] or "[]"))
+            if evidence & wanted:
+                seen_triples.add(triple_id)
+                results.append(host._relation_row_to_dict(row))
+        return results
+
     async def find_edges_by_event_id(self, event_id: str) -> List[Dict[str, Any]]:
         """Return graph edges that cite a specific event as evidence."""
         host = cast(L2RetrievalQueryHostProtocol, self)
