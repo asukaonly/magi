@@ -59,10 +59,16 @@ def build_source_projection(
     source: Source,
     output: SourceOutput,
     metadata: SourceOutputMetadata | None = None,
+    *,
+    display_labels: dict[str, str] | None = None,
 ) -> SourceProjection:
     """Render canonical display and embedding projections for one source output."""
     _validate_output_contract(output)
-    text = _build_projection_text(source=source, output=output)
+    text = _build_projection_text(
+        source=source,
+        output=output,
+        display_labels=display_labels,
+    )
     projection_metadata = _build_projection_metadata(
         source=source,
         output=output,
@@ -80,15 +86,46 @@ def build_source_projection(
     )
 
 
+async def build_source_projection_async(
+    source: Source,
+    output: SourceOutput,
+    metadata: SourceOutputMetadata | None = None,
+    *,
+    display_labels: dict[str, str] | None = None,
+) -> SourceProjection:
+    """Async projection builder avoiding synchronous cross-process i18n IPC."""
+    resolved_labels = display_labels
+    if resolved_labels is None:
+        preparer = getattr(source, "prepare_ingestion_metadata_async", None)
+        if callable(preparer):
+            prepared = await preparer(output, include_idempotency_key=False)
+            if isinstance(prepared, dict) and isinstance(prepared.get("display_labels"), dict):
+                resolved_labels = prepared["display_labels"]
+    return build_source_projection(
+        source,
+        output,
+        metadata,
+        display_labels=resolved_labels,
+    )
+
+
 def _build_projection_text(
     *,
     source: Source,
     output: SourceOutput,
+    display_labels: dict[str, str] | None = None,
 ) -> _SourceProjectionText:
-    display_prefix = _join_with_space(
-        _display_label(source, output.activity.source),
-        _display_label(source, output.activity.action),
+    source_label = (
+        str(display_labels["source"]).strip()
+        if isinstance(display_labels, dict) and "source" in display_labels
+        else _display_label(source, output.activity.source)
     )
+    action_label = (
+        str(display_labels["action"]).strip()
+        if isinstance(display_labels, dict) and "action" in display_labels
+        else _display_label(source, output.activity.action)
+    )
+    display_prefix = _join_with_space(source_label, action_label)
     embedding_head = _join_embedding_head(
         _embedding_label(output.activity.source),
         _embedding_label(output.activity.action),
@@ -279,4 +316,5 @@ def _normalize_retrieval_terms(values: list[str] | None) -> list[str]:
 __all__ = [
     "SourceProjection",
     "build_source_projection",
+    "build_source_projection_async",
 ]

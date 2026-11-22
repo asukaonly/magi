@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import replace
+import asyncio
 from typing import Any
 import uuid
 
@@ -94,6 +95,79 @@ class SourceProxy(Source):
 
             kwargs["language"] = resolve_host_plugin_language()
         return self.owner.invoke_sync(self.target, "t", key, *args, **kwargs)
+
+    async def source_item_identity_async(self, item: dict[str, Any]) -> str:
+        return await self.owner.invoke(self.target, "source_item_identity", item)
+
+    async def prepare_ingestion_metadata_async(
+        self,
+        output: Any,
+        *,
+        language: str | None = None,
+        include_idempotency_key: bool = True,
+    ) -> dict[str, Any]:
+        """Resolve all ingestion metadata over non-blocking async IPC (0 invoke_sync calls)."""
+        from .i18n import resolve_host_plugin_language
+
+        effective_language = language or resolve_host_plugin_language()
+        if "prepare_ingestion_metadata" in self._methods:
+            result = await self.owner.invoke(
+                self.target,
+                "prepare_ingestion_metadata",
+                output,
+                language=effective_language,
+                include_idempotency_key=include_idempotency_key,
+            )
+            if isinstance(result, dict):
+                return result
+
+        output_dict = output.to_dict()
+        source_facet = output.activity.source
+        action_facet = output.activity.action
+        calls: list[Any] = [
+            self.owner.invoke(self.target, "source_item_version_fingerprint", output_dict),
+            self.owner.invoke(self.target, "l2_batch_policy", output),
+            self.owner.invoke(
+                self.target,
+                "t",
+                source_facet.i18n_key,
+                language=effective_language,
+                fallback=source_facet.fallback or source_facet.code,
+            ),
+            self.owner.invoke(
+                self.target,
+                "t",
+                action_facet.i18n_key,
+                language=effective_language,
+                fallback=action_facet.fallback or action_facet.code,
+            ),
+        ]
+        if include_idempotency_key:
+            calls.append(self.owner.invoke(self.target, "idempotency_key", output))
+        results = await asyncio.gather(*calls)
+        fingerprint, policy, source_label, action_label = results[:4]
+        idempotency_key = results[4] if include_idempotency_key else None
+        policy_dict = (
+            {
+                "owner": policy.owner,
+                "catch_up_owner": policy.catch_up_owner,
+                "max_events": policy.max_events,
+                "min_ready_events": policy.min_ready_events,
+                "max_estimated_tokens": policy.max_estimated_tokens,
+                "max_wait_seconds": policy.max_wait_seconds,
+            }
+            if policy is not None
+            else None
+        )
+        return {
+            "source_fingerprint": fingerprint,
+            "idempotency_key": idempotency_key,
+            "l2_batch_policy": policy_dict,
+            "display_labels": {
+                "source": str(source_label or "").strip(),
+                "action": str(action_label or "").strip(),
+            },
+        }
 
     def __getattr__(self, name: str) -> Any:
         if name not in SOURCE_METHODS or name not in self._methods:

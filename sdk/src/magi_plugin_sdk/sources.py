@@ -559,6 +559,49 @@ class Source(ABC):
         value = str(output.source_item_id or "").strip()
         return value or None
 
+    def prepare_ingestion_metadata(
+        self,
+        output: SourceOutput,
+        *,
+        language: str | None = None,
+        include_idempotency_key: bool = True,
+    ) -> dict[str, Any]:
+        """Bundle ingestion metadata (fingerprint, policy, labels) into one call."""
+        output_dict = output.to_dict()
+        effective_language = language or get_current_language()
+        source_label = self.t(
+            output.activity.source.i18n_key,
+            language=effective_language,
+            fallback=output.activity.source.fallback or output.activity.source.code,
+        ).strip()
+        action_label = self.t(
+            output.activity.action.i18n_key,
+            language=effective_language,
+            fallback=output.activity.action.fallback or output.activity.action.code,
+        ).strip()
+        policy = self.l2_batch_policy(output)
+        policy_dict = (
+            {
+                "owner": policy.owner,
+                "catch_up_owner": policy.catch_up_owner,
+                "max_events": policy.max_events,
+                "min_ready_events": policy.min_ready_events,
+                "max_estimated_tokens": policy.max_estimated_tokens,
+                "max_wait_seconds": policy.max_wait_seconds,
+            }
+            if policy is not None
+            else None
+        )
+        return {
+            "source_fingerprint": self.source_item_version_fingerprint(output_dict),
+            "idempotency_key": self.idempotency_key(output) if include_idempotency_key else None,
+            "l2_batch_policy": policy_dict,
+            "display_labels": {
+                "source": source_label,
+                "action": action_label,
+            },
+        }
+
     def _build_activity_facet(
         self,
         *,

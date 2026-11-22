@@ -1340,8 +1340,8 @@ class ProcessPluginProxy(Plugin):
             "plugin", f"{phase}_settings_action", action_id, identity=identity, **kwargs
         )
 
-    def build_temporal_summary_features(self, **kwargs: Any) -> Any:
-        return self.invoke_sync("plugin", "build_temporal_summary_features", **kwargs)
+    async def build_temporal_summary_features(self, **kwargs: Any) -> Any:
+        return await self.invoke("plugin", "build_temporal_summary_features", **kwargs)
 
     async def clear_user_content(self, context: Any) -> None:
         await self.invoke("plugin", "clear_user_content", context)

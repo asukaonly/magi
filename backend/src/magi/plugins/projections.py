@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from copy import deepcopy
+import inspect
 import logging
 from typing import Any
 
@@ -82,6 +83,67 @@ class PluginProjectionService:
                         budget = TemporalSummaryFeatureBudget(**budget)
                     kwargs["budget"] = budget
                     features = plugin.build_temporal_summary_features(**kwargs)
+                except Exception as exc:
+                    logger.warning(
+                        "Plugin temporal summary feature builder failed",
+                        extra={"plugin_id": plugin.plugin_id, "source_type": source_type, "error": str(exc)},
+                    )
+                    continue
+                if features:
+                    dumper = getattr(features, "model_dump", None)
+                    value = dumper() if callable(dumper) else dict(features)
+                    value["projection"] = projection_provenance
+                    value["source_type"] = source_type
+                    features_by_source[f"{plugin.connection.connection_id}:{source_type}"] = value
+        return features_by_source
+
+    async def build_temporal_summary_features_async(
+        self,
+        *,
+        events: list[dict[str, Any]],
+        summary_category: str,
+        period_start: float,
+        period_end: float,
+        source_filter: list[str] | None = None,
+        feature_budgets: dict[str, TemporalSummaryFeatureBudget | dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Collect plugin-provided temporal summary features without blocking the event loop."""
+
+        features_by_source: dict[str, Any] = {}
+        events_by_source: dict[str, list[dict[str, Any]]] = {}
+        normalized_filter = {str(s).strip() for s in source_filter or [] if str(s).strip()}
+        for event in events:
+            source_type = self._event_source(event)
+            if not source_type:
+                continue
+            if normalized_filter and source_type not in normalized_filter:
+                continue
+            events_by_source.setdefault(source_type, []).append(event)
+
+        if not events_by_source:
+            return features_by_source
+
+        for plugin in self.iter_loaded_plugins():
+            for source_type, source_events in events_by_source.items():
+                source_events = self._authorized_events(plugin, source_type, source_events)
+                if not source_events:
+                    continue
+                projection_provenance = self._projection_provenance(plugin, source_events)
+                try:
+                    kwargs: dict[str, Any] = {
+                        "source_type": source_type,
+                        "events": source_events,
+                        "summary_category": summary_category,
+                        "period_start": period_start,
+                        "period_end": period_end,
+                    }
+                    budget = (feature_budgets or {}).get(source_type)
+                    if isinstance(budget, dict):
+                        budget = TemporalSummaryFeatureBudget(**budget)
+                    kwargs["budget"] = budget
+                    features = plugin.build_temporal_summary_features(**kwargs)
+                    if inspect.isawaitable(features):
+                        features = await features
                 except Exception as exc:
                     logger.warning(
                         "Plugin temporal summary feature builder failed",

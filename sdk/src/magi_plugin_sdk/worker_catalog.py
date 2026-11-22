@@ -21,6 +21,7 @@ SOURCE_METHODS = frozenset(
         "source_item_version_fingerprint",
         "idempotency_key",
         "l2_batch_policy",
+        "prepare_ingestion_metadata",
         "request_activation_authorization",
         "flush_runtime_state",
         "t",

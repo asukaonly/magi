@@ -142,7 +142,7 @@ class MemoryStoreModule(LifecycleModule):
             enable_l3=memory_config.l3.enabled,
             enable_l4=memory_config.l4.enabled,
             l2_batch_flush_interval_seconds=memory_config.l2.batch_flush_interval_seconds,
-            temporal_summary_features_builder=plugin_projection_service.build_temporal_summary_features,
+            temporal_summary_features_builder=plugin_projection_service.build_temporal_summary_features_async,
             extraction_profile_provider=plugin_projection_service.iter_extraction_profiles,
             tuning=self._build_store_tuning(memory_config),
         )

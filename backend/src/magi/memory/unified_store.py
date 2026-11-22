@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
 from .embedding.embedding_service import MemoryEmbeddingService
 from .embedding.ports import VectorIndexFactory
@@ -97,7 +97,7 @@ class _MemoryStoreBuildContext:
     embedding_service: MemoryEmbeddingService | None
     scenario_llm_pool: "ScenarioLLMPool | None"
     memory_config_getter: Callable[[], Any] | None
-    temporal_summary_features_builder: Callable[..., dict[str, Any]] | None
+    temporal_summary_features_builder: Callable[..., dict[str, Any] | Awaitable[dict[str, Any]]] | None
     extraction_profile_provider: Callable[[], Any] | None
 
 
@@ -138,7 +138,7 @@ class UnifiedMemoryStore(
         scenario_llm_pool: "ScenarioLLMPool | None" = None,
         memory_config_getter: Callable[[], Any] | None = None,
         archive_dir_path: Optional[str] = None,
-        temporal_summary_features_builder: Callable[..., dict[str, Any]] | None = None,
+        temporal_summary_features_builder: Callable[..., dict[str, Any] | Awaitable[dict[str, Any]]] | None = None,
         extraction_profile_provider: Callable[[], Any] | None = None,
         tuning: "MemoryStoreTuning | None" = None,
     ) -> None:

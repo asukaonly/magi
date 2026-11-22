@@ -5,6 +5,7 @@ from __future__ import annotations
 from magi_plugin_sdk.runtime_paths import get_magi_home
 import logging
 import asyncio
+import inspect
 import re
 import time
 import uuid
@@ -392,7 +393,7 @@ class L3SummaryStore(
         temporal_llm_timeout_seconds: float | None = None,
         temporal_llm_min_event_count: int = 2,
         scenario_llm_pool: ScenarioLLMPool | None = None,
-        temporal_summary_features_builder: Callable[..., dict[str, Any]] | None = None,
+        temporal_summary_features_builder: Callable[..., dict[str, Any] | Awaitable[dict[str, Any]]] | None = None,
         evidence_timestamp_resolver: (
             Callable[[List[str]], Awaitable[Mapping[str, float]]] | None
         ) = None,
@@ -564,7 +565,7 @@ class L3SummaryStore(
         if len(events) < max(1, int(min_events)):
             return None
 
-        evidence_pack = self._build_temporal_summary_evidence_pack(
+        evidence_pack = await self._build_temporal_summary_evidence_pack(
             selection=selection,
             events=events,
             summary_category=summary_category,
@@ -611,7 +612,7 @@ class L3SummaryStore(
             source_filter=list(source_filter) if source_filter else None,
         )
 
-    def _build_temporal_summary_evidence_pack(
+    async def _build_temporal_summary_evidence_pack(
         self,
         *,
         selection: TemporalEvidenceSelection,
@@ -631,7 +632,7 @@ class L3SummaryStore(
         evidence_pack.omitted_event_count = int(selection.omitted_event_count)
         evidence_pack.source_distribution = dict(selection.source_distribution)
         evidence_pack.selection_policy = dict(selection.selection_policy)
-        evidence_pack.plugin_summary_features = self._temporal_plugin_summary_features(
+        evidence_pack.plugin_summary_features = await self._temporal_plugin_summary_features(
             selection=selection,
             summary_category=summary_category,
             period_start=period_start,
@@ -646,7 +647,7 @@ class L3SummaryStore(
             ]))
         return evidence_pack
 
-    def _temporal_plugin_summary_features(
+    async def _temporal_plugin_summary_features(
         self,
         *,
         selection: TemporalEvidenceSelection,
@@ -658,17 +659,17 @@ class L3SummaryStore(
         if self._temporal_summary_features_builder is None:
             return {}
         try:
-            return dict(
-                self._temporal_summary_features_builder(
-                    events=list(selection.feature_events),
-                    summary_category=summary_category,
-                    period_start=period_start,
-                    period_end=period_end,
-                    source_filter=list(source_filter) if source_filter else None,
-                    feature_budgets=dict(selection.feature_budgets),
-                )
-                or {}
+            raw = self._temporal_summary_features_builder(
+                events=list(selection.feature_events),
+                summary_category=summary_category,
+                period_start=period_start,
+                period_end=period_end,
+                source_filter=list(source_filter) if source_filter else None,
+                feature_budgets=dict(selection.feature_budgets),
             )
+            if inspect.isawaitable(raw):
+                raw = await raw
+            return dict(raw or {})
         except Exception as exc:
             logger.warning("L3 temporal summary features builder failed: %s", exc)
             return {}

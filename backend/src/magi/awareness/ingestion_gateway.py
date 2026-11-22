@@ -77,14 +77,13 @@ class SourceIngestionGateway:
     ) -> SourceIngestionResult:
         captured_boundary = boundary or await self.capture_ingestion_boundary()
         event_id = str(ULID())
-        payload = self._build_source_event_payload(
+        payload = await self._build_source_event_payload(
             source=source,
             output=output,
             metadata=metadata,
             allowed_edge_whitelist=allowed_edge_whitelist,
+            host_idempotency_key=host_idempotency_key,
         )
-        if host_idempotency_key is not None:
-            payload = replace(payload, idempotency_key=host_idempotency_key)
         event = Event(
             type=EventTypes.SOURCE_EVENT_EMITTED,
             data=payload,
@@ -121,20 +120,63 @@ class SourceIngestionGateway:
             stats=stats,
         )
 
-    def _build_source_event_payload(
+    async def _build_source_event_payload(
         self,
         *,
         source: Source,
         output: SourceOutput,
         metadata: SourceOutputMetadata | None,
         allowed_edge_whitelist: list[str] | None,
+        host_idempotency_key: str | None = None,
     ) -> SourceEventEmitted:
         owner_user_id = self._resolve_memory_owner_user_id(output)
-        projection = build_source_projection(source, output, metadata)
+        output_dict = output.to_dict()
+        need_source_idempotency_key = host_idempotency_key is None
+        async_preparer = getattr(source, "prepare_ingestion_metadata_async", None)
+        if callable(async_preparer):
+            prepared = await async_preparer(
+                output,
+                include_idempotency_key=need_source_idempotency_key,
+            )
+            display_labels = (
+                prepared.get("display_labels")
+                if isinstance(prepared, dict)
+                else None
+            )
+            projection = build_source_projection(
+                source,
+                output,
+                metadata,
+                display_labels=display_labels if isinstance(display_labels, dict) else None,
+            )
+            source_fingerprint = (
+                prepared.get("source_fingerprint")
+                if isinstance(prepared, dict)
+                else None
+            )
+            idempotency_key = (
+                host_idempotency_key
+                if host_idempotency_key is not None
+                else (prepared.get("idempotency_key") if isinstance(prepared, dict) else None)
+            )
+            l2_batch_policy_dict = (
+                prepared.get("l2_batch_policy")
+                if isinstance(prepared, dict)
+                else None
+            )
+        else:
+            projection = build_source_projection(source, output, metadata)
+            source_fingerprint = source.source_item_version_fingerprint(output_dict)
+            idempotency_key = (
+                host_idempotency_key
+                if host_idempotency_key is not None
+                else source.idempotency_key(output)
+            )
+            l2_batch_policy_dict = self._l2_batch_policy_dict(source, output)
         return SourceEventEmitted(
             source_name=source.source_id,
-            payload=output.to_dict(),
-            output_dict=output.to_dict(),
+            payload=output_dict,
+            output_dict=output_dict,
             context=TaskContext(
                 session_id=None,
                 turn_id=None,
@@ -149,10 +191,10 @@ class SourceIngestionGateway:
             owner_user_id=owner_user_id,
             relation_candidates=self._relation_candidates(metadata),
             allowed_edge_whitelist=tuple(allowed_edge_whitelist or ()),
-            source_fingerprint=source.source_item_version_fingerprint(output.to_dict()),
-            idempotency_key=source.idempotency_key(output),
+            source_fingerprint=source_fingerprint,
+            idempotency_key=idempotency_key,
             memory_event_type=str(getattr(source, "memory_event_type", "SOURCE_EVENT")),
-            l2_batch_policy_dict=self._l2_batch_policy_dict(source, output),
+            l2_batch_policy_dict=l2_batch_policy_dict,
         )
 
     @staticmethod
