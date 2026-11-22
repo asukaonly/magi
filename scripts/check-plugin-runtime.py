@@ -254,7 +254,7 @@ async def check_chrome_history_promotion(sources: SourceRegistry, connection_id:
             "visit_id": visit, "url": url, "canonical_url": url, "domain": domain,
             "title": "Test visit", "visit_time": 1_710_000_000 + visit,
         })
-        payload = gateway._build_source_event_payload(
+        payload = await gateway._build_source_event_payload(
             source=source, output=output, metadata=None, allowed_edge_whitelist=None,
         )
         event = build_source_memory_event(payload, event_id=f"visit-{visit}")
