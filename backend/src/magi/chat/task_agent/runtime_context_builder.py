@@ -19,6 +19,7 @@ from magi.context import (
 )
 from magi.config.models import LLMScenario
 from magi.llm.model_context import ModelContextProfile, unknown_model_context
+from magi.context.recent_life_brief import RecentLifeBriefService
 from magi.context.user_profile_service import UserProfileService
 
 from .runtime_contracts import (
@@ -57,6 +58,7 @@ def build_chat_context_runtime_parts(
             unified_memory=config.unified_memory,
             repositories=config.user_projection_repositories,
         ),
+        recent_life_brief_service=RecentLifeBriefService(config.unified_memory),
     )
     prompt_context_renderer = PromptContextRenderer()
     context_retrieval_service = ContextRetrievalService(

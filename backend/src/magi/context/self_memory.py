@@ -10,6 +10,7 @@ from ..personality.turn_planner import (
     PersonaTurnPlan,
     PersonaTurnPlanner,
 )
+from .recent_life_brief import RecentLifeBriefService
 from .schema import (
     ProfileMemoryContext,
     RetrievalMemoryContext,
@@ -23,6 +24,7 @@ class PromptSelfMemoryMixin:
 
     persona_journal_service_factory: Any
     user_profile_service: UserProfileService | None
+    recent_life_brief_service: RecentLifeBriefService | None = None
 
     async def _build_self_memory_context(
         self,
@@ -36,6 +38,7 @@ class PromptSelfMemoryMixin:
         retrieved_memory_payload: Optional[Dict[str, Any]],
         persona_turn_plan: "Optional[PersonaTurnPlan]" = None,
         persona_name: str,
+        allow_implicit_memory: bool = True,
     ) -> SelfMemoryContext:
         payload = retrieved_memory_payload or {}
         preference_memory = payload.get("preference_memory", {})
@@ -51,6 +54,18 @@ class PromptSelfMemoryMixin:
             l4_procedural_memory=list(payload.get("l4_procedural_memory", [])),
             preference_memory=preference_memory,
         )
+
+        recent_life_brief_entries: List[str] = []
+        recent_user_context_cue: str | None = None
+        brief_service = getattr(self, "recent_life_brief_service", None)
+        if allow_implicit_memory and brief_service is not None and user_id:
+            try:
+                brief = await brief_service.build_brief(user_id=user_id)
+                recent_life_brief_entries = list(brief.entries)
+                recent_user_context_cue = brief.recent_user_context_cue
+            except Exception:
+                recent_life_brief_entries = []
+                recent_user_context_cue = None
 
         journal_entries: List[Dict[str, Any]] = []
         service = self.persona_journal_service_factory() if self.persona_journal_service_factory else None
@@ -71,12 +86,14 @@ class PromptSelfMemoryMixin:
                 task_category=task_category,
                 scenario=scenario,
                 selected_tools=selected_tools,
+                recent_user_context_cue=recent_user_context_cue,
             )
 
         return SelfMemoryContext(
             retrieval_memory=retrieval_memory,
             persona_turn_plan=persona_turn_plan,
             persona_journal_entries=journal_entries,
+            recent_life_brief=recent_life_brief_entries,
         )
 
     async def _build_persona_turn_plan(
@@ -88,6 +105,7 @@ class PromptSelfMemoryMixin:
         task_category: str,
         scenario: str,
         selected_tools: List[str],
+        recent_user_context_cue: str | None = None,
     ) -> PersonaTurnPlan:
         config = PersonalityConfig()
         emotional_state = None
@@ -114,6 +132,7 @@ class PromptSelfMemoryMixin:
             relationship=relationship,
             emotional_state=emotional_state,
             milestones=milestones,
+            recent_user_context_cue=recent_user_context_cue,
         )
 
         return plan

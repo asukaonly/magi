@@ -85,6 +85,8 @@ class _L3SummaryPersistenceHostProtocol(Protocol):
 
     async def _schedule_summary_embedding(self, summary: Dict[str, Any]) -> None: ...
 
+    def _bump_mutation_version(self) -> None: ...
+
 
 def _summary_from_new_candidate(
     candidate: L3Candidate,
@@ -258,6 +260,8 @@ class L3SummaryPersistenceMixin:
                     except Exception:
                         await db.rollback()
                         raise
+        if summaries:
+            host._bump_mutation_version()
         return len(summaries)
 
     async def count_summaries(
@@ -468,9 +472,11 @@ class L3SummaryPersistenceMixin:
             deleted_count = int(cursor.rowcount or 0)
             await db.commit()
 
-        if deleted_count > 0 and host._vector_index is not None:
-            for chunk_id in chunk_ids:
-                await host._vector_index.delete_entity(entity_id=chunk_id)
+        if deleted_count > 0:
+            if host._vector_index is not None:
+                for chunk_id in chunk_ids:
+                    await host._vector_index.delete_entity(entity_id=chunk_id)
+            host._bump_mutation_version()
         return deleted_count > 0
 
     async def clear(self) -> int:
@@ -494,6 +500,7 @@ class L3SummaryPersistenceMixin:
                 await host._vector_index.clear()
                 if host._embedding_service is None:
                     await host._vector_index.close()
+        host._bump_mutation_version()
         return count
 
     async def upsert_candidate(
@@ -999,6 +1006,7 @@ class L3SummaryPersistenceMixin:
             "INSERT INTO l3_summaries_fts(summary_id, content) VALUES (?, ?)",
             (summary["summary_id"], tokenized),
         )
+        cast(_L3SummaryPersistenceHostProtocol, self)._bump_mutation_version()
 
     async def _replace_summary_event_links(self, summary_id: str, event_ids: list[str]) -> None:
         host = cast(_L3SummaryPersistenceHostProtocol, self)

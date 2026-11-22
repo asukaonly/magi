@@ -64,4 +64,6 @@ def test_legacy_flat_l0_summary_is_not_rendered() -> None:
     rendered = "\n".join(PromptContextRenderer()._render_memory_library(retrieval))
 
     assert "Current goal: help the user" not in rendered
-    assert "## Short-Term Attention (L0)\n* (empty)" in rendered
+    assert rendered == ""
+    assert "* (empty)" not in rendered
+    assert "* (no preferences recorded)" not in rendered

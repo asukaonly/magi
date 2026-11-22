@@ -135,6 +135,7 @@ class PersonaTurnPlan:
     layer_modifiers: dict[str, Any] = field(default_factory=dict)
     dynamic_modulations: dict[str, Any] = field(default_factory=dict)
     selected_examples: list[str] = field(default_factory=list)
+    recent_user_context_cue: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -284,6 +285,7 @@ class PersonaTurnPlanner:
         relationship: dict[str, Any] | None = None,
         emotional_state: Any | None = None,
         milestones: list[dict[str, Any]] | None = None,
+        recent_user_context_cue: str | None = None,
     ) -> PersonaTurnPlan:
         """Build a per-turn persona behavior plan."""
         turn = _turn_planning_context(
@@ -307,7 +309,10 @@ class PersonaTurnPlanner:
             task_category=task_category,
             emotional_state=emotional_state,
         )
-        return self._assemble_turn_plan(turn, state)
+        plan = self._assemble_turn_plan(turn, state)
+        normalized_cue = str(recent_user_context_cue or "").strip() or None
+        plan.recent_user_context_cue = normalized_cue
+        return plan
 
     def _assemble_turn_plan(
         self,

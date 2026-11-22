@@ -468,7 +468,8 @@ async def test_locale_preset_reaches_normal_prompt_assembly(tmp_path, monkeypatc
         assert "# Persona Runtime Plan" in package.system_prompt
         assert "# Persona Turn Steer" not in package.system_prompt
         assert "# Persona Turn Steer" in package.working_context
-        assert "# Memory Library" in package.working_context
+        assert "# Memory Library" not in package.working_context
+        assert "* (empty)" not in package.working_context
         assert "# Tool Use Guidance" not in package.working_context
 
 

@@ -8,6 +8,7 @@ from magi.context.schema import (
     IdentityConstraintContext,
     ProfileMemoryContext,
     PromptAssemblyContext,
+    RetrievalMemoryContext,
     RuntimeSystemContext,
     SelfMemoryContext,
     ToolCatalogContext,
@@ -42,6 +43,9 @@ class TestPersonaJournalRendering:
                     register="chat",
                 ),
                 persona_journal_entries=entries,
+                retrieval_memory=RetrievalMemoryContext(
+                    l2_entity_cards=[{"title": "Active Context Card"}]
+                ),
             ),
             profile_memory=ProfileMemoryContext(user_id="u1"),
             runtime_system=RuntimeSystemContext(

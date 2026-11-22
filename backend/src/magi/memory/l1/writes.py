@@ -83,6 +83,8 @@ class L1EventWriteHostProtocol(Protocol):
 
     def embedding_mutation_guard(self) -> Any: ...
 
+    def _bump_mutation_version(self) -> None: ...
+
 @dataclass(slots=True)
 class L1EvidenceBackfillResult:
     """Summary returned by L1 evidence annotation backfill."""
@@ -140,6 +142,7 @@ class L1EventWriteMixin:
         if not result.inserted:
             self._log_duplicate_event(event)
             return result.event_id
+        host._bump_mutation_version()
         self._log_store_success(event)
         await host._schedule_event_embedding(event)
         return result.event_id
@@ -180,11 +183,11 @@ class L1EventWriteMixin:
                 logger.info(
                     "L1EventStore storing calendar event | "
                     "event_id=%s event_type=%s content_chars=%d "
-                    "metadata_chars=%d",
+                    "metadata_fields=%d",
                     event.event_id,
                     event.event_type,
-                    len(event.content),
-                    len(event.metadata_json),
+                    len(event.content or ""),
+                    len(event.metadata_json or {}),
                 )
         if event.event_type in L1_STORE_DIAGNOSTIC_EVENT_TYPES:
             logger.info(
@@ -340,6 +343,7 @@ class L1EventWriteMixin:
             if host._vector_index is not None:
                 await host._vector_index.clear()
         await host.initialize(start_workers=restart_workers)
+        host._bump_mutation_version()
         logger.info("L1 events cleared | removed=%d", count)
         return count
 
@@ -367,9 +371,12 @@ class L1EventWriteMixin:
             if not plan.event_ids:
                 return 0
             await _delete_chunk_vectors(host, list(plan.chunk_ids))
-            return await host.event_repository.soft_delete_events(
+            deleted = await host.event_repository.soft_delete_events(
                 list(plan.event_ids), deleted_at=deleted_timestamp,
             )
+            if deleted > 0:
+                host._bump_mutation_version()
+            return deleted
 
     async def purge_deleted_events(self, event_ids: list[str]) -> int:
         """Physically remove a bounded set of already-forgotten L1 events.
@@ -391,7 +398,10 @@ class L1EventWriteMixin:
             if not plan.event_ids:
                 return 0
             await _delete_chunk_vectors(host, list(plan.chunk_ids))
-            return await host.event_repository.purge_deleted_events(list(plan.event_ids))
+            purged = await host.event_repository.purge_deleted_events(list(plan.event_ids))
+            if purged > 0:
+                host._bump_mutation_version()
+            return purged
 
     async def list_active_event_ids_by_entity(
         self,

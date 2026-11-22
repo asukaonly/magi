@@ -10,6 +10,7 @@ from .schema import (
     PromptAssemblyContext,
     ToolCatalogContext,
 )
+from .recent_life_brief import RecentLifeBriefService
 from .renderer import PromptContextRenderer as PromptContextRenderer
 from .runtime_world_state import build_runtime_system_context
 from .self_memory import PromptSelfMemoryMixin
@@ -50,9 +51,15 @@ BOUNDARY_TEMPLATE = "\n".join(
 class PromptContextAssembler(PromptSelfMemoryMixin):
     """Builds reusable modular prompt contexts."""
 
-    def __init__(self, persona_journal_service_factory=None, user_profile_service=None):
+    def __init__(
+        self,
+        persona_journal_service_factory=None,
+        user_profile_service=None,
+        recent_life_brief_service: RecentLifeBriefService | None = None,
+    ):
         self.persona_journal_service_factory = persona_journal_service_factory
         self.user_profile_service: UserProfileService | None = user_profile_service
+        self.recent_life_brief_service: RecentLifeBriefService | None = recent_life_brief_service
 
     async def assemble(
         self,
@@ -70,6 +77,7 @@ class PromptContextAssembler(PromptSelfMemoryMixin):
         user_message: str = "",
         workspace_path: str | None = None,
         attachments: Optional[List[Dict[str, Any]]] = None,
+        allow_implicit_memory: bool = True,
     ) -> PromptAssemblyContext:
         identity = self._build_identity_constraints()
         self_mem = await self._build_self_memory_context(
@@ -81,6 +89,7 @@ class PromptContextAssembler(PromptSelfMemoryMixin):
             selected_tools=[str(tool) for tool in (persona_action_tools or []) if tool],
             retrieved_memory_payload=retrieved_memory_payload,
             persona_name=persona_name,
+            allow_implicit_memory=allow_implicit_memory,
         )
         profile = await self._build_profile_memory_context(
             self_memory=self_memory,

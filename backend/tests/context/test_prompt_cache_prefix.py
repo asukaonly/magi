@@ -21,6 +21,7 @@ from magi.context.schema import (
     IdentityConstraintContext,
     ProfileMemoryContext,
     PromptAssemblyContext,
+    RetrievalMemoryContext,
     RuntimeSystemContext,
     SelfMemoryContext,
     ToolCatalogContext,
@@ -60,7 +61,11 @@ def _assembly_context(selected_tools: list[str]) -> PromptAssemblyContext:
 
 
 def test_static_and_dynamic_blocks_render_in_separate_layers() -> None:
-    layers = PromptContextRenderer().render_prompt_layers(_assembly_context(["alpha_tool"]))
+    ctx = _assembly_context(["alpha_tool"])
+    ctx.self_memory.retrieval_memory = RetrievalMemoryContext(
+        l2_entity_cards=[{"title": "Project Magi"}]
+    )
+    layers = PromptContextRenderer().render_prompt_layers(ctx)
 
     assert layers.system_prompt.index("# System Definition") < layers.system_prompt.index(
         "# Persona Runtime Plan"
@@ -73,6 +78,7 @@ def test_static_and_dynamic_blocks_render_in_separate_layers() -> None:
         "# Memory Library"
     )
     assert "# Runtime World State" in layers.runtime_world_state
+    assert "* (empty)" not in layers.working_context
 
     assert layers.system_prompt.index("# Persona Runtime Plan") < layers.system_prompt.index(
         SYSTEM_PROMPT_CACHE_BOUNDARY

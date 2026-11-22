@@ -30,6 +30,14 @@ DEFAULT_DERIVATION_MAX_ATTEMPTS = 5
 DEFAULT_DERIVATION_STALE_RUNNING_SECONDS = 300.0
 
 
+_SUBJECT_REVISION_GENERATION = 0
+
+
+def get_subject_revision_generation() -> int:
+    """Return a monotonic in-process counter bumped on subject revision updates."""
+    return _SUBJECT_REVISION_GENERATION
+
+
 class MemoryCorrectionRepository:
     """Persist correction governance inside the shared memory transaction."""
 
@@ -492,6 +500,8 @@ class MemoryCorrectionRepository:
         ) as cursor:
             row = await cursor.fetchone()
         assert row is not None
+        global _SUBJECT_REVISION_GENERATION
+        _SUBJECT_REVISION_GENERATION += 1
         return int(row[0])
 
     async def activate_due_situation_changes(

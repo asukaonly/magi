@@ -158,6 +158,7 @@ class ContextAssemblyService:
             user_message=user_message,
             workspace_path=resolved_workspace_path,
             attachments=list(attachments or []),
+            allow_implicit_memory=allow_implicit_memory,
         )
         if resolved_persona_id:
             prompt_context.metadata["persona_id"] = resolved_persona_id

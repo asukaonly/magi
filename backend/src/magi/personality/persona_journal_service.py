@@ -5,9 +5,16 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import re
 import time
 from collections.abc import Awaitable, Callable
+from typing import Any
+
+try:
+    import jieba
+except ImportError:  # pragma: no cover - optional fallback
+    jieba = None  # type: ignore[assignment]
 
 from ..config import get_config
 from ..config.models import LLMScenario
@@ -20,6 +27,43 @@ from .reflection_models import ReflectionBatch, ReflectionDetail, ReflectionEvid
 from .reflection_store import ReflectionStore
 
 _VOICE_DRIFT_HIT_THRESHOLD = 2
+_REFLECTION_SEMANTIC_THRESHOLD = 0.32
+_REFLECTION_EMBEDDING_CACHE_LIMIT = 128
+_REFLECTION_TEXT_BUILDER_VERSION = "persona_reflection_v1"
+_LATIN_TOKEN_RE = re.compile(r"[a-z0-9_]{2,}")
+_CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]{2,}")
+
+
+def _tokenize_reflection_text(text: str) -> set[str]:
+    """Extract normalized Latin and Chinese lexical tokens for reflection matching."""
+    normalized = str(text or "").lower().strip()
+    if not normalized:
+        return set()
+    tokens: set[str] = set(_LATIN_TOKEN_RE.findall(normalized))
+    cjk_runs = _CJK_RUN_RE.findall(normalized)
+    for run in cjk_runs:
+        if jieba is not None:
+            for seg in jieba.cut_for_search(run):
+                cleaned = seg.strip()
+                if len(cleaned) >= 2:
+                    tokens.add(cleaned)
+        # Always add overlapping 2-grams so short CJK substrings still match
+        # even when segmentation boundaries differ.
+        if len(run) <= 12:
+            for idx in range(len(run) - 1):
+                tokens.add(run[idx : idx + 2])
+    return tokens
+
+
+def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
+    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+        return 0.0
+    dot = sum(a * b for a, b in zip(vec_a, vec_b))
+    norm_a = math.sqrt(sum(a * a for a in vec_a))
+    norm_b = math.sqrt(sum(b * b for b in vec_b))
+    if norm_a <= 0.0 or norm_b <= 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
 def _detect_voice_drift(
     text: str,
@@ -90,6 +134,7 @@ class PersonaJournalService:
         self._generate = generate or self._call_llm
         self._verify = verify or self._verify_llm
         self._lock = asyncio.Lock()
+        self._reflection_embedding_cache: dict[tuple[str, str, str], list[float]] = {}
 
     async def _valid_rows(self, user_id: str, persona_id: str) -> list[dict]:
         persona = await self.personas.get(persona_id)
@@ -143,17 +188,127 @@ class PersonaJournalService:
                 if not any(row["id"] == identity and row["status"] == "dismissed" for row in rows):
                     raise KeyError("Thought not found")
 
+    def _resolve_embedding_service(self) -> Any | None:
+        memory = getattr(self.evidence, "memory", None)
+        if memory is None:
+            return None
+        for candidate in (
+            getattr(memory, "embedding_service", None),
+            getattr(getattr(memory, "l1", None), "_embedding_service", None),
+            getattr(getattr(memory, "l2_entity_catalog", None), "embedding_service", None),
+        ):
+            if candidate is not None and (
+                hasattr(candidate, "embed_text") or hasattr(candidate, "embed_texts")
+            ):
+                return candidate
+        return None
+
+    async def _compute_semantic_scores(
+        self,
+        query: str,
+        items: list[Any],
+    ) -> dict[str, float]:
+        embedding_service = self._resolve_embedding_service()
+        if embedding_service is None or not query.strip() or not items:
+            return {}
+        profile_key = "default"
+        profile_getter = getattr(embedding_service, "get_active_profile", None)
+        if callable(profile_getter):
+            try:
+                profile = profile_getter(text_builder_version=_REFLECTION_TEXT_BUILDER_VERSION)
+            except Exception:
+                return {}
+            if profile is None:
+                return {}
+            profile_key = str(getattr(profile, "profile_id", None) or getattr(profile, "model_name", "active"))
+
+        try:
+            query_result = await embedding_service.embed_text(query)
+        except Exception:
+            return {}
+        query_vec = getattr(query_result, "vector", None) if query_result is not None else None
+        if not isinstance(query_vec, list) or not query_vec:
+            return {}
+
+        missing_items: list[tuple[Any, tuple[str, str, str], str]] = []
+        vectors_by_id: dict[str, list[float]] = {}
+        for item in items:
+            text = f"{item.topic}\n{item.applicability}\n{item.content}".strip()
+            digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+            cache_key = (profile_key, str(item.id), digest)
+            cached = self._reflection_embedding_cache.get(cache_key)
+            if cached is not None:
+                vectors_by_id[str(item.id)] = cached
+            else:
+                missing_items.append((item, cache_key, text))
+
+        if missing_items:
+            try:
+                if hasattr(embedding_service, "embed_texts"):
+                    results = await embedding_service.embed_texts(
+                        [text for _, _, text in missing_items]
+                    )
+                else:
+                    results = [
+                        await embedding_service.embed_text(text)
+                        for _, _, text in missing_items
+                    ]
+            except Exception:
+                return {}
+            for (item, cache_key, _text), result in zip(missing_items, results or []):
+                vec = getattr(result, "vector", None) if result is not None else None
+                if isinstance(vec, list) and vec:
+                    if len(self._reflection_embedding_cache) >= _REFLECTION_EMBEDDING_CACHE_LIMIT:
+                        self._reflection_embedding_cache.clear()
+                    self._reflection_embedding_cache[cache_key] = vec
+                    vectors_by_id[str(item.id)] = vec
+
+        scores: dict[str, float] = {}
+        for item in items:
+            vec = vectors_by_id.get(str(item.id))
+            if vec:
+                scores[str(item.id)] = _cosine_similarity(query_vec, vec)
+        return scores
+
     async def relevant(self, *, user_id: str, persona_name: str, query: str) -> list[dict]:
         if not get_config().agent.personality.enable_state_memory:
             return []
         persona = await self.personas.get_by_slug(persona_name)
         page = await self.page(user_id, persona.persona_id)
-        tokens = set(re.findall(r"[a-z0-9_]{3,}|[\u4e00-\u9fff]{2}", query.lower()))
-        scored = [(sum(token in (item.topic + item.applicability + item.content).lower() for token in tokens), item)
-                  for item in page.items]
-        scored.sort(key=lambda pair: pair[0], reverse=True)
-        return [{"content": item.content + "\nApplicable when: " + item.applicability,
-                 "timestamp": item.created_at} for score, item in scored[:2] if score > 0]
+        if not page.items:
+            return []
+
+        query_tokens = _tokenize_reflection_text(query)
+        semantic_scores = await self._compute_semantic_scores(query, page.items)
+        scored: list[tuple[float, Any]] = []
+        for item in page.items:
+            haystack = f"{item.topic} {item.applicability} {item.content}"
+            item_tokens = _tokenize_reflection_text(haystack)
+            if query_tokens and item_tokens:
+                overlap = len(query_tokens & item_tokens)
+                lexical = overlap / max(1, min(len(query_tokens), 6))
+                lexical = min(1.0, lexical)
+            else:
+                lexical = 0.0
+            semantic = max(0.0, float(semantic_scores.get(str(item.id), 0.0)))
+            if semantic_scores:
+                if semantic < _REFLECTION_SEMANTIC_THRESHOLD and lexical <= 0.0:
+                    continue
+                combined = 0.65 * semantic + 0.35 * lexical
+            else:
+                if lexical <= 0.0:
+                    continue
+                combined = lexical
+            scored.append((combined, item))
+
+        scored.sort(key=lambda pair: (pair[0], pair[1].created_at), reverse=True)
+        return [
+            {
+                "content": item.content + "\nApplicable when: " + item.applicability,
+                "timestamp": item.created_at,
+            }
+            for _score, item in scored[:2]
+        ]
 
     async def reflect(self, user_id: str, persona_id: str) -> str:
         settings = get_config().agent.personality

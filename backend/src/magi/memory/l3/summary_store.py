@@ -436,7 +436,16 @@ class L3SummaryStore(
         self._embedding_batch_wait_seconds = 1.0
         self._embedding_mutation_lock = asyncio.Lock()
         self._operation_guard_factory: Callable[[], Any] | None = None
+        self._mutation_version = 0
         self._initialized = False
+
+    @property
+    def mutation_version(self) -> int:
+        """Return a monotonic in-process counter bumped on L3 summary mutations."""
+        return self._mutation_version
+
+    def _bump_mutation_version(self) -> None:
+        self._mutation_version += 1
 
     async def resolve_evidence_timestamps(
         self,
