@@ -34,6 +34,16 @@ from magi.utils.runtime import RuntimePaths
 
 
 @pytest.fixture(autouse=True)
+def _isolate_redaction_secrets(monkeypatch):
+    """Keep credentials registered by one test out of the next test's redactor."""
+    from magi.mcp import log_security
+    from magi.utils import log_redaction
+
+    monkeypatch.setattr(log_security, "_MCP_SECRET_VALUES", ())
+    monkeypatch.setattr(log_redaction, "_KNOWN_SECRET_VALUES", ())
+
+
+@pytest.fixture(autouse=True)
 def _hermetic_runtime_paths(monkeypatch, tmp_path_factory):
     """Keep all implicit runtime paths away from the developer's installation."""
     import magi.utils.runtime as runtime
