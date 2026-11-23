@@ -2471,7 +2471,7 @@ dependencies = [
 
 [[package]]
 name = "magi-desktop"
-version = "0.1.36"
+version = "0.1.37"
 dependencies = [
  "base64 0.22.1",
  "libc",
@@ -2543,7 +2543,7 @@ dependencies = [
 
 [[package]]
 name = "magi-server"
-version = "0.1.36"
+version = "0.1.37"
 dependencies = [
  "clap",
  "cliclack",
