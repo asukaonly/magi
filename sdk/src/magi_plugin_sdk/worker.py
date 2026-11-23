@@ -583,10 +583,32 @@ def _configure_background_process() -> None:
         "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
     )
     process_serial_number = ctypes.c_uint32 * 2
+    current_process = process_serial_number(0, 2)  # kCurrentProcess
+    # Standalone Python already registers as BackgroundOnly. Launch Services
+    # rejects a second transformation with paramErr, even though it is healthy.
+    cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    pointer = ctypes.c_void_p
+    copy_info = ctypes.CFUNCTYPE(pointer, ctypes.POINTER(process_serial_number), ctypes.c_uint32)(
+        ("ProcessInformationCopyDictionary", services)
+    )
+    create_key = ctypes.CFUNCTYPE(pointer, pointer, ctypes.c_char_p, ctypes.c_uint32)(
+        ("CFStringCreateWithCString", cf)
+    )
+    lookup = ctypes.CFUNCTYPE(pointer, pointer, pointer)(("CFDictionaryGetValue", cf))
+    release = ctypes.CFUNCTYPE(None, pointer)(("CFRelease", cf))
+    info = copy_info(ctypes.byref(current_process), 0xFFFFFFFF)
+    key = create_key(None, b"LSBackgroundOnly", 0x08000100)  # kCFStringEncodingUTF8
+    try:
+        if info and key and lookup(info, key) == pointer.in_dll(cf, "kCFBooleanTrue").value:
+            return
+    finally:
+        if key:
+            release(key)
+        if info:
+            release(info)
     transform = services.TransformProcessType
     transform.argtypes = [ctypes.POINTER(process_serial_number), ctypes.c_uint32]
     transform.restype = ctypes.c_int32
-    current_process = process_serial_number(0, 2)  # kCurrentProcess
     status = transform(ctypes.byref(current_process), 2)  # kProcessTransformToBackgroundApplication
     if status != 0:
         raise OSError(status, "Could not configure macOS plugin worker as background-only")

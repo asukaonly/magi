@@ -117,8 +117,9 @@ def main() -> None:
         assert code == 401, code
         # Isolated plugin startup must use the shipped SDK, without sitecustomize or a checkout.
         python = bundle / ("plugin-python/python.exe" if os.name == "nt" else "plugin-python/bin/python")
-        probe = "import sys,sysconfig;sys.path[:0]=list(dict.fromkeys([sysconfig.get_path('purelib'),sysconfig.get_path('platlib')]));from magi_plugin_sdk.worker import main;from magi_plugin_sdk.runtime import SDK_VERSION;print(SDK_VERSION)"
-        subprocess.run(prefix + [str(python), "-I", "-S", "-c", probe], check=True, cwd=root, env=environment, timeout=15)
+        probe = Path(__file__).with_name("smoke-packaged-plugin.py").read_bytes()
+        subprocess.run(prefix + [str(python), "-I", "-S", "-B", "-"], input=probe, check=True,
+                       cwd=root, env=environment, timeout=30)
         print(json.dumps({"result": "passed", "data_root": str(root), "source_access_denied": bool(args.deny_checkout), "server_id": credentials["server_id"]}), flush=True)
     finally:
         if process.poll() is None:
