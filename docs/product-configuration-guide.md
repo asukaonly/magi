@@ -969,6 +969,7 @@ Current product expectations:
 - background model work requires a normal API-backed provider instance; Settings and onboarding should prevent plan-only providers from being assigned to those scenarios and explain the boundary before save
 - The Alibaba Cloud Token Plan uses its Beijing Token Plan endpoint and a dedicated subscription key. Its interactive chat presets include Qwen3.7 Plus, Qwen3.8 Flash and Qwen4 Max. The older Coding Plan recommends Qwen3.7 Plus. [Official endpoint and key configuration](https://help.aliyun.com/zh/model-studio/use-chat-client-or-development-tool/)
 - provider image generation services should remain disabled by default until the user enables them
+- The Anthropic SDK appends `/v1/messages` to its base URL. The official provider defaults to `https://api.anthropic.com`.
 - service-specific API credentials and custom Base URLs are optional overrides; blank service fields inherit the provider-level defaults
 - OpenAI speech includes `gpt-realtime-2.1-mini` through Realtime WebSocket sessions with bounded PCM output, cancellation, and the configured HTTP/SOCKS proxy; existing selections of the older Speech API models remain usable until their announced shutdown on 2027-01-06
 - Qwen Audio 3.1 TTS uses `/services/audio/tts/SpeechSynthesizer`, supports speed and speaking instructions, and requires a service Base URL of `https://<workspace-id>.<region>.maas.aliyuncs.com/api/v1` (`cn-beijing` or `ap-southeast-1`); existing Qwen3 TTS models retain their provider-native endpoint

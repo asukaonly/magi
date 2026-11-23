@@ -179,3 +179,26 @@ async def test_anthropic_refusal_terminates_without_executing_partial_tools(tool
         assert "declined" in result.content
         assert result.tool_calls == []
         assert result.metadata["finish_reason"] == "refusal"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("base,path", [
+    ("https://api.anthropic.com", "/v1/messages"),
+    ("https://api.anthropic.com/v1/", "/v1/messages"),
+    ("https://gateway.test/apps/anthropic", "/apps/anthropic/v1/messages"),
+])
+async def test_anthropic_adapter_sends_single_versioned_messages_path(monkeypatch, base, path):
+    paths = []
+    def handler(request):
+        paths.append(request.url.path)
+        return httpx.Response(200, json={"id": "msg", "role": "assistant", "type": "message",
+            "model": "claude-fable-5-2", "content": [{"type": "text", "text": "ok"}],
+            "stop_reason": "end_turn", "usage": {"input_tokens": 1, "output_tokens": 1}})
+    monkeypatch.setattr("magi.llm.anthropic.DefaultAsyncHttpxClient",
+                        lambda **_: httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    adapter = AnthropicAdapter(api_key="fixture", model="claude-fable-5-2", base_url=base)
+    try:
+        assert await adapter.generate("hi", max_tokens=32) == "ok"
+        assert paths == [path]
+    finally:
+        await adapter._client.close()

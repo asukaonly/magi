@@ -50,7 +50,10 @@ class AnthropicAdapter(LLMAdapter):
         self._provider_plan = provider_plan
         self._provider_instance_id = provider_instance_id
 
-        api_endpoint = base_url
+        # The Messages SDK adds /v1 to the API root itself.
+        api_endpoint = base_url.rstrip("/") if base_url else None
+        if api_endpoint == "https://api.anthropic.com/v1":
+            api_endpoint = "https://api.anthropic.com"
         self._base_url = api_endpoint
 
         # Always ignore system proxy; use explicit proxy_url when configured.
