@@ -77,7 +77,7 @@ def main() -> None:
             finally:
                 connection.close()
 
-        deadline = time.monotonic() + 100
+        deadline = time.monotonic() + json.loads(config.read_text())["startup_timeout_secs"] + 5
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 raise RuntimeError("Packaged service exited during startup")
@@ -91,6 +91,11 @@ def main() -> None:
                 break
             time.sleep(0.5)
         else:
+            for path in (root / "service.log", root / "data/logs/backend.log"):
+                if path.is_file():
+                    with path.open("rb") as diagnostic:
+                        diagnostic.seek(max(0, path.stat().st_size - 8192))
+                        print(f"{path.name}:\n{diagnostic.read().decode(errors='replace')}", file=sys.stderr)
             raise RuntimeError(f"Packaged runtime never became ready: {status.get('supervisor')}")
         if owner_token:
             code, response = call("POST", "/api/server/pairing-grants", token=owner_token)
