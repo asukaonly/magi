@@ -115,6 +115,7 @@ def build_provider_catalog(
                 allowed.add(settings.custom_default_model)
         entry.resolved_chat_models = [model for model in entry.resolved_chat_models if model.id in allowed]
         entry.resolved_embedding_models = [model for model in entry.resolved_embedding_models if model.id in allowed]
+        entry.image_generation_models = [model for model in entry.image_generation_models if model.id in allowed]
         entry.resolved_image_generation_models = [
             model for model in entry.resolved_image_generation_models if model.id in allowed
         ]

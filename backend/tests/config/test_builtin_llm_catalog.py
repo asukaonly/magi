@@ -229,6 +229,8 @@ def test_recommendations_preserve_metadata_and_scope_saved_selections():
     assert sum(len(e.resolved_chat_models) for e in entries.values()) == 26
     assert sum(len(e.resolved_embedding_models) for e in entries.values()) == 7
     assert sum(len(e.resolved_image_generation_models) for e in entries.values()) == 7
+    for entry in entries.values():
+        assert {m.id for m in entry.image_generation_models} == {m.id for m in entry.resolved_image_generation_models}
     assert {m.id for m in entries["dashscope"].plans[0].chat_models} == {"qwen3.7-plus"}
     assert entries["dashscope"].plans[0].default_classify_model == "qwen3.7-plus"
     tokenplan = next(plan for plan in entries["dashscope"].plans if plan.id == "tokenplan")
