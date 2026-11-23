@@ -160,6 +160,7 @@ class LLMResolvedImageGenerationModelMetaModel(LLMResolvedModelMetaModel):
 
 class LLMProviderMetaModel(BaseModel):
     id: str
+    recommended_models: list[str] | None = Field(default=None, exclude=True)
     display_name: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
     icon: Optional[str] = Field(default=None)

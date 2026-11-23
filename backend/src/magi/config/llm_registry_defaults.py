@@ -33,7 +33,7 @@ def _default_openai_provider_meta() -> LLMProviderMetaModel:
         display_name="OpenAI",
         description="General purpose, strongest ecosystem",
         icon="openai",
-        default_model="gpt-6.1-sol",
+        default_model="gpt-6.2-sol",
         default_classify_model="gpt-6-luna",
         default_base_url="https://api.openai.com/v1",
         chat_models=_default_openai_chat_models(),
@@ -60,7 +60,8 @@ def _default_openai_chat_models() -> list[LLMModelMetaModel]:
                 max_output_tokens=128000,
             ),
         )
-        for model_id, label in [("gpt-6.1-sol", "GPT-6.1 Sol"), ("gpt-6-luna", "GPT-6 Luna")]
+        for model_id, label in [("gpt-6.2-sol", "GPT-6.2 Sol"), ("gpt-6.2-astra", "GPT-6.2 Astra"),
+                                ("gpt-6.1-terra", "GPT-6.1 Terra"), ("gpt-6-luna", "GPT-6 Luna")]
     ]
 
 
@@ -89,8 +90,6 @@ def _default_openai_image_generation_models() -> list[LLMImageGenerationModelMet
 def _default_openai_audio_generation_models() -> list[LLMAudioGenerationModelMetaModel]:
     return [
         LLMAudioGenerationModelMetaModel(id="gpt-realtime-2.1-mini", label="GPT Realtime 2.1 Mini"),
-        LLMAudioGenerationModelMetaModel(id="tts-1", label="TTS 1"),
-        LLMAudioGenerationModelMetaModel(id="tts-1-hd", label="TTS 1 HD"),
     ]
 
 

@@ -144,3 +144,15 @@ def test_thinking_condition_does_not_guess_a_mode():
 def test_peak_calendar_rejects_invalid_intervals():
     with pytest.raises(ValidationError):
         LLMPeakPricing(utc_windows=[(100, 0)], multiplier=2, calendar_years=[2026], holidays=[], sources=[])
+
+
+def test_refreshed_model_rates_use_published_tiers_and_dates():
+    before = timestamp("2027-03-01T07:59:59Z")
+    after = timestamp("2027-03-01T08:00:00Z")
+    for at, factor in [(before, 3), (after, 6)]:
+        assert price("openai", "gpt-6.2-astra", 300000, 1000, requested_at=at,
+                     service_tier="ultrafast")[0] == pytest.approx((300000 * 16 + 1000 * 60) * factor / 1e6)
+    assert price("gemini", "gemini-4-hydrogen", service_tier="flex")[0] == pytest.approx(.001125)
+    assert price("dashscope", "qwen4-max", cache_read_tokens=150) == (None, None)
+    assert price("dashscope", "qwen4-max", endpoint_host="work.ap-southeast-1.maas.aliyuncs.com")[0] == pytest.approx(.0142193)
+    assert price("dashscope", "qwen4-max", provider_plan="tokenplan") == (None, None)

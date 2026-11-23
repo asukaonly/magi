@@ -29,6 +29,9 @@ def remote_config(protocol, model, voice):
 def test_catalog_and_validation_agree_on_model_specific_capabilities(tmp_path):
     config = remote_config("dashscope", "qwen3-tts-flash", "Cherry")
     catalog = choices(config, TTSModelStore(tmp_path))
+    assert {item.model_id for item in catalog if item.engine == "remote"} == {
+        "qwen-audio-3.1-tts-flash", "qwen-audio-3.1-tts-plus", "qwen3-tts-flash"
+    }
     melo = next(item for item in catalog if item.model_id == MELO_ID)
     assert len(melo.voices) == 1 and melo.download_bytes == 177481452
     assert all(item.speed_min is None for item in catalog if item.engine == "remote" and item.model_id.startswith("qwen3-tts"))

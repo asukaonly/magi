@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from .models import LLMProvider, LLMProviderSettings
+from .models import LLMProvider, LLMProviderSettings, LLMSelectionSettings
 from .llm_registry_model_resolution import (
     resolve_provider_model_catalog,
     resolve_provider_plan_meta,
@@ -86,14 +86,39 @@ def _build_builtin_template_entry(
 def build_provider_catalog(
     registry: LLMProviderRegistryModel,
     provider_settings_by_id: Optional[Dict[str, LLMProviderSettings]] = None,
+    *,
+    selections: dict[str, LLMSelectionSettings] | None = None,
 ) -> list[LLMProviderCatalogEntryModel]:
     """Build a full provider catalog for builtin and saved custom providers."""
 
     provider_settings_by_id = provider_settings_by_id or {}
-    return [
+    entries = [
         *_build_builtin_catalog_entries(registry, provider_settings_by_id),
         *_build_saved_provider_catalog_entries(registry, provider_settings_by_id),
     ]
+    presets = {provider.id: provider.recommended_models for provider in registry.providers}
+    for entry in entries:
+        recommended = presets.get(entry.provider_type)
+        if recommended is None:
+            continue
+        allowed = set(recommended)
+        for plan in entry.plans:
+            if plan.chat_models is not None:
+                plan.chat_models = [model for model in plan.chat_models if model.id in allowed]
+        allowed.update(selection.model for selection in (selections or {}).values()
+                       if selection.provider_id == entry.id)
+        settings = provider_settings_by_id.get(entry.id)
+        if settings is not None:
+            allowed.update(settings.custom_models)
+            allowed.update(settings.model_metadata_overrides)
+            if settings.custom_default_model:
+                allowed.add(settings.custom_default_model)
+        entry.resolved_chat_models = [model for model in entry.resolved_chat_models if model.id in allowed]
+        entry.resolved_embedding_models = [model for model in entry.resolved_embedding_models if model.id in allowed]
+        entry.resolved_image_generation_models = [
+            model for model in entry.resolved_image_generation_models if model.id in allowed
+        ]
+    return entries
 
 
 def _build_builtin_catalog_entries(

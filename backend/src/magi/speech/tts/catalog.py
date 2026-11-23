@@ -2,6 +2,8 @@
 
 from urllib.parse import urlsplit
 
+from magi.config.loader import get_llm_provider_registry_file
+from magi.config.llm_registry import build_default_llm_provider_registry, load_llm_provider_registry
 from magi.config.models import AppConfig, LLMProviderSettings
 
 from .contracts import TTSModelChoice, VoiceInfo
@@ -66,9 +68,19 @@ def choices(config: AppConfig, models: TTSModelStore) -> list[TTSModelChoice]:
                             download_bytes=sum(item["size"] for item in models.get(model_id).manifest()["files"]),
                             status=models.get(model_id).snapshot())
               for model_id, name in MODEL_NAMES.items()]
-    for provider_id, provider in config.llm.providers.items():
-        if provider.enabled and provider.services.tts.enabled:
-            result.extend(provider_models(provider_id, provider))
+    remote = [(key, provider) for key, provider in config.llm.providers.items()
+              if provider.enabled and provider.services.tts.enabled]
+    if remote:
+        registry = load_llm_provider_registry(get_llm_provider_registry_file(), fallback=build_default_llm_provider_registry())
+        presets = {provider.id: {model.id for model in provider.audio_generation_models
+                                 if provider.recommended_models is None or model.id in provider.recommended_models}
+                   for provider in registry.providers}
+        selection = config.speech.tts
+        for key, provider in remote:
+            allowed = presets.get(provider.services.tts.protocol, set())
+            result.extend(model for model in provider_models(key, provider)
+                          if model.custom_model or model.model_id in allowed or
+                          (key == selection.provider_id and model.model_id == selection.remote_model))
     return result
 
 

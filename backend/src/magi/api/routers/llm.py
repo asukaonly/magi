@@ -97,6 +97,7 @@ async def get_llm_provider_catalog():
     catalog = build_provider_catalog(
         registry,
         provider_settings_by_id=dict(getattr(runtime_config.llm, "providers", {}) or {}),
+        selections=runtime_config.llm.selections,
     )
     return LLMProviderCatalogResponseModel(
         success=True,
@@ -117,6 +118,7 @@ async def resolve_llm_provider_catalog(payload: LLMProviderCatalogResolveRequest
     catalog = build_provider_catalog(
         registry,
         provider_settings_by_id=provider_settings_by_id,
+        selections=get_config().llm.selections,
     )
     return LLMProviderCatalogResponseModel(
         success=True,

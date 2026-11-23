@@ -74,10 +74,10 @@ def test_llm_provider_catalog_returns_builtin_and_saved_custom_providers() -> No
     assert foo_vision["label"] == "Foo Vision"
     assert foo_vision["capabilities"]["vision"] is True
 
-    gpt_52 = next(model for model in openai_provider["resolved_chat_models"] if model["id"] == "gpt-5.2")
-    assert gpt_52["cost"]["currency"] == "USD"
-    assert gpt_52["cost"]["input_per_million_tokens"] == 1.75
-    assert gpt_52["cost"]["output_per_million_tokens"] == 14.0
+    gpt_sol = next(model for model in openai_provider["resolved_chat_models"] if model["id"] == "gpt-6.2-sol")
+    assert gpt_sol["cost"]["currency"] == "USD"
+    assert gpt_sol["cost"]["input_per_million_tokens"] == 2.0
+    assert gpt_sol["cost"]["output_per_million_tokens"] == 10.0
 
     grok_provider = next(provider for provider in providers if provider["id"] == "grok")
     assert "grok-4.20-multi-agent-0309" not in {model["id"] for model in grok_provider["resolved_chat_models"]}

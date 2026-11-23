@@ -193,8 +193,8 @@ def test_same_provider_accounts_resolve_distinct_credentials_and_cached_adapters
 def test_current_catalog_has_live_defaults_and_provider_plan_boundaries():
     providers = {p.id: p for p in _load_registry().providers}
     expected = {
-        "openai": "gpt-6.1-sol", "anthropic": "claude-sonnet-5-5", "glm": "glm-5.3",
-        "gemini": "gemini-3.8-flash", "grok": "grok-4.7", "deepseek": "deepseek-flash",
+        "openai": "gpt-6.2-sol", "anthropic": "claude-sonnet-5-5", "glm": "glm-5.3",
+        "gemini": "gemini-4-hydrogen", "grok": "grok-4.7", "deepseek": "deepseek-flash",
         "dashscope": "qwen3.7-plus", "kimi": "kimi-k3.1-pro", "minimax": "MiniMax-M3.1-Flash",
         "xiaomimimo": "mimo-v2.6-pro",
     }
@@ -219,5 +219,30 @@ def test_minimal_registry_keeps_all_default_references_resolvable():
     provider = build_default_llm_provider_registry().providers[0]
     models = {model.id for model in provider.chat_models}
     assert {provider.default_model, provider.default_classify_model} <= models
-    assert provider.default_model == "gpt-6.1-sol"
+    assert provider.default_model == "gpt-6.2-sol"
     assert provider.image_generation_models[0].id == "gpt-image-2.6-sunburst"
+
+def test_recommendations_preserve_metadata_and_scope_saved_selections():
+    from magi.config.llm_registry import build_provider_catalog
+    registry = _load_registry()
+    entries = {e.id: e for e in build_provider_catalog(registry)}
+    assert sum(len(e.resolved_chat_models) for e in entries.values()) == 26
+    assert sum(len(e.resolved_embedding_models) for e in entries.values()) == 7
+    assert sum(len(e.resolved_image_generation_models) for e in entries.values()) == 7
+    assert {m.id for m in entries["dashscope"].plans[0].chat_models} == {"qwen3.7-plus"}
+    assert entries["dashscope"].plans[0].default_classify_model == "qwen3.7-plus"
+    tokenplan = next(plan for plan in entries["dashscope"].plans if plan.id == "tokenplan")
+    assert tokenplan.default_base_url == "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+    assert {m.id for m in tokenplan.chat_models} == {"qwen3.7-plus", "qwen3.8-flash", "qwen4-max"}
+    assert all(m.cost.input_per_million_tokens is None for m in tokenplan.chat_models)
+    assert all(e.default_model in {m.id for m in e.resolved_chat_models} for e in entries.values())
+    for provider in registry.providers:
+        ids = {m.id for models in (provider.chat_models, provider.embedding_models, provider.image_generation_models,
+                                   provider.audio_generation_models) for m in models}
+        assert set(provider.recommended_models or ()) <= ids
+    assert "gpt-5.2" not in {m.id for m in entries["openai"].resolved_chat_models}
+    saved = build_provider_catalog(registry, {"work": LLMProviderSettings(provider_type="openai")},
+                                  selections={"core": LLMSelectionSettings(provider_id="work", model="gpt-5.2")})
+    old = next(m for e in saved if e.id == "work" for m in e.resolved_chat_models if m.id == "gpt-5.2")
+    assert old.cost.input_per_million_tokens == 1.75 and old.capabilities.tool_calling
+    assert "gpt-5.2" not in {m.id for m in saved[0].resolved_chat_models}

@@ -1,12 +1,116 @@
-# Provider catalog verified against official documentation on 2026-11-07.
+# Recommended models reviewed on 2026-11-23. Other entries retain runtime metadata for saved selections.
 providers:
   - id: openai
+    recommended_models:
+      - gpt-6.2-sol
+      - gpt-6.2-astra
+      - gpt-6.1-terra
+      - gpt-6-luna
+      - text-embedding-3-small
+      - text-embedding-3-large
+      - gpt-image-2.6-sunburst
+      - gpt-image-2.6-flare
+      - gpt-realtime-2.1-mini
     display_name: OpenAI
     icon: openai
-    default_model: gpt-6.1-sol
+    default_model: gpt-6.2-sol
     default_classify_model: gpt-6-luna
     default_base_url: https://api.openai.com/v1
     chat_models:
+      - id: gpt-6.2-sol
+        label: GPT-6.2 Sol
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1050000
+          max_output_tokens: 128000
+        cost:
+          currency: USD
+          input_per_million_tokens: 2
+          output_per_million_tokens: 10
+          cached_input_per_million_tokens: 0.1
+          cache_write_per_million_tokens: 2.5
+          cache_write_12h_per_million_tokens: 5.0
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-23'
+          endpoint_hosts:
+          - api.openai.com
+          - us.api.openai.com
+          - eu.api.openai.com
+          rules:
+          - min_input_tokens: 272001
+            rates:
+              input_per_million_tokens: 4
+              output_per_million_tokens: 15.0
+              cached_input_per_million_tokens: 0.2
+              cache_write_per_million_tokens: 5.0
+              cache_write_12h_per_million_tokens: 10.0
+          - service_tiers:
+            - priority
+            - fast
+            multiplier: 2
+          - service_tiers:
+            - ultrafast
+            ends_at: '2027-03-01T08:00:00Z'
+            multiplier: 3
+          - service_tiers:
+            - ultrafast
+            starts_at: '2027-03-01T08:00:00Z'
+            multiplier: 6
+          - endpoint_hosts:
+            - us.api.openai.com
+            - eu.api.openai.com
+            multiplier: 1.1
+      - id: gpt-6.2-astra
+        label: GPT-6.2 Astra
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1050000
+          max_output_tokens: 128000
+        cost:
+          currency: USD
+          input_per_million_tokens: 8
+          output_per_million_tokens: 40
+          cached_input_per_million_tokens: 0.4
+          cache_write_per_million_tokens: 10.0
+          cache_write_12h_per_million_tokens: 20.0
+          source: https://developers.openai.com/api/docs/pricing
+          verified_on: '2026-11-23'
+          endpoint_hosts:
+          - api.openai.com
+          - us.api.openai.com
+          - eu.api.openai.com
+          rules:
+          - min_input_tokens: 272001
+            rates:
+              input_per_million_tokens: 16
+              output_per_million_tokens: 60.0
+              cached_input_per_million_tokens: 0.8
+              cache_write_per_million_tokens: 20.0
+              cache_write_12h_per_million_tokens: 40.0
+          - service_tiers:
+            - priority
+            - fast
+            multiplier: 2
+          - service_tiers:
+            - ultrafast
+            ends_at: '2027-03-01T08:00:00Z'
+            multiplier: 3
+          - service_tiers:
+            - ultrafast
+            starts_at: '2027-03-01T08:00:00Z'
+            multiplier: 6
+          - endpoint_hosts:
+            - us.api.openai.com
+            - eu.api.openai.com
+            multiplier: 1.1
       - id: gpt-6.1-sol
         label: GPT-6.1 Sol
         capabilities:
@@ -683,6 +787,11 @@ providers:
         required: false
 
   - id: anthropic
+    recommended_models:
+      - claude-sonnet-5-5
+      - claude-haiku-5-5
+      - claude-opus-5-5
+      - claude-fable-5-2
     display_name: Anthropic
     icon: anthropic
     default_model: claude-sonnet-5-5
@@ -763,6 +872,33 @@ providers:
           cache_write_1h_per_million_tokens: 8
           source: https://platform.claude.com/docs/en/about-claude/pricing
           verified_on: '2026-11-07'
+          endpoint_hosts:
+          - api.anthropic.com
+          rules:
+          - multiplier: 2
+            service_tiers:
+            - fast
+          - multiplier: 1.1
+            inference_geo: us
+      - id: claude-fable-5-2
+        label: Claude Fable 5.2
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1048576
+          max_output_tokens: 131072
+        cost:
+          currency: USD
+          input_per_million_tokens: 8
+          output_per_million_tokens: 40
+          cached_input_per_million_tokens: 0.2
+          cache_write_per_million_tokens: 10
+          cache_write_1h_per_million_tokens: 16
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          verified_on: '2026-11-23'
           endpoint_hosts:
           - api.anthropic.com
           rules:
@@ -927,6 +1063,12 @@ providers:
         required: false
 
   - id: glm
+    recommended_models:
+      - glm-5.3
+      - glm-5.3-flash
+      - glm-5.3-flashx
+      - embedding-3
+      - glm-image
     display_name: Z.ai
     icon: zai
     default_model: glm-5.3
@@ -1331,12 +1473,71 @@ providers:
         required: false
 
   - id: gemini
+    recommended_models:
+      - gemini-4-hydrogen
+      - gemini-4-neon
+      - gemini-3.5-flash-lite
+      - gemini-embedding-2
+      - gemini-nano-banana-2.1
+      - gemini-3-pro-image
     display_name: Google Gemini
     icon: gemini
-    default_model: gemini-3.8-flash
+    default_model: gemini-4-hydrogen
     default_classify_model: gemini-3.5-flash-lite
     default_base_url: https://generativelanguage.googleapis.com/v1beta/openai
     chat_models:
+      - id: gemini-4-hydrogen
+        label: Gemini 4 Hydrogen
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1048576
+          max_output_tokens: 65536
+        cost:
+          currency: USD
+          input_per_million_tokens: 1.5
+          output_per_million_tokens: 7.5
+          cached_input_per_million_tokens: 0.075
+          source: https://aistudio.google.com/docs/pricing
+          verified_on: '2026-11-23'
+          endpoint_hosts:
+          - generativelanguage.googleapis.com
+          rules:
+          - service_tiers:
+            - priority
+            multiplier: 1.8
+          - service_tiers:
+            - flex
+            multiplier: 0.5
+      - id: gemini-4-neon
+        label: Gemini 4 Neon
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1048576
+          max_output_tokens: 65536
+        cost:
+          currency: USD
+          input_per_million_tokens: 3
+          output_per_million_tokens: 15
+          cached_input_per_million_tokens: 0.15
+          source: https://aistudio.google.com/docs/pricing
+          verified_on: '2026-11-23'
+          endpoint_hosts:
+          - generativelanguage.googleapis.com
+          rules:
+          - service_tiers:
+            - priority
+            multiplier: 1.8
+          - service_tiers:
+            - flex
+            multiplier: 0.5
       - id: gemini-3.8-flash
         label: Gemini 3.8 Flash
         capabilities:
@@ -1524,10 +1725,13 @@ providers:
         required: false
 
   - id: grok
+    recommended_models:
+      - grok-4.7
+      - grok-4.3
     display_name: xAI Grok
     icon: grok
     default_model: grok-4.7
-    default_classify_model: grok-4.7
+    default_classify_model: grok-4.3
     default_base_url: https://api.x.ai/v1
     chat_models:
       - id: grok-4.7
@@ -1681,6 +1885,8 @@ providers:
         required: false
 
   - id: deepseek
+    recommended_models:
+      - deepseek-flash
     display_name: DeepSeek
     icon: deepseek
     default_model: deepseek-flash
@@ -1825,6 +2031,16 @@ providers:
         required: false
 
   - id: dashscope
+    recommended_models:
+      - qwen3.7-plus
+      - qwen3.8-flash
+      - qwen4-max
+      - qwen3.7-text-embedding
+      - qwen3.7-text-embedding-flash
+      - text-embedding-v4
+      - qwen-image-3.0-pro
+      - qwen-audio-3.1-tts-flash
+      - qwen-audio-3.1-tts-plus
     display_name: 阿里云百炼
     icon: bailian
     default_model: qwen3.7-plus
@@ -1902,6 +2118,35 @@ providers:
             - dashscope.aliyuncs.com
             - dashscope-intl.aliyuncs.com
     chat_models:
+      - id: qwen4-max
+        label: Qwen4 Max
+        capabilities:
+          vision: true
+          image_output: false
+          tool_calling: true
+          reasoning: true
+        limits:
+          context_window: 1000000
+          max_output_tokens: 262144
+        cost:
+          currency: CNY
+          input_per_million_tokens: 10
+          output_per_million_tokens: 30
+          source: https://help.aliyun.com/zh/model-studio/qwen4-max
+          verified_on: '2026-11-23'
+          endpoint_hosts:
+          - dashscope.aliyuncs.com
+          - dashscope-intl.aliyuncs.com
+          - '*.cn-beijing.maas.aliyuncs.com'
+          - '*.ap-southeast-1.maas.aliyuncs.com'
+          rules:
+          - endpoint_hosts:
+            - dashscope-intl.aliyuncs.com
+            - '*.ap-southeast-1.maas.aliyuncs.com'
+            rates:
+              input_per_million_tokens: 10.938
+              output_per_million_tokens: 32.813
+          source_note: Cache prices are account-console rates and remain unknown.
       - id: qwen3.8-max
         label: Qwen3.8 Max
         capabilities:
@@ -2444,7 +2689,7 @@ providers:
       - id: codeplan
         display_name: Alibaba Cloud Coding Plan
         default_model: qwen3.7-plus
-        default_classify_model: qwen3.6-plus
+        default_classify_model: qwen3.7-plus
         default_base_url: https://coding.dashscope.aliyuncs.com/v1
         allowed_scenarios:
           - context_compact
@@ -2557,6 +2802,76 @@ providers:
             visible: true
             required: false
             placeholder: https://coding.dashscope.aliyuncs.com/v1
+      - id: tokenplan
+        display_name: Alibaba Cloud Token Plan
+        default_model: qwen3.7-plus
+        default_classify_model: qwen3.8-flash
+        default_base_url: https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+        allowed_scenarios:
+        - context_compact
+        - auxiliary
+        - core
+        endpoints:
+        - id: beijing
+          label: Beijing
+          country: China
+          base_url: https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+          api_format: openai
+        embedding_models: []
+        image_generation_models: []
+        audio_generation_models: []
+        chat_models:
+        - id: qwen3.7-plus
+          label: qwen3.7-plus
+          capabilities:
+            vision: true
+            image_output: false
+            tool_calling: true
+            reasoning: true
+          limits:
+            context_window: 1000000
+            max_output_tokens: 128000
+          cost:
+            currency: CNY
+            source: https://help.aliyun.com/zh/model-studio/token-plan-personal-overview
+            source_note: Subscription credits. Pay-as-you-go token rates do not apply.
+        - id: qwen3.8-flash
+          label: Qwen3.8 Flash
+          capabilities:
+            vision: true
+            image_output: false
+            tool_calling: true
+            reasoning: true
+          limits:
+            context_window: 1000000
+            max_output_tokens: 128000
+          cost:
+            currency: CNY
+            source: https://help.aliyun.com/zh/model-studio/token-plan-personal-overview
+            source_note: Subscription credits. Pay-as-you-go token rates do not apply.
+        - id: qwen4-max
+          label: Qwen4 Max
+          capabilities:
+            vision: true
+            image_output: false
+            tool_calling: true
+            reasoning: true
+          limits:
+            context_window: 1000000
+            max_output_tokens: 262144
+          cost:
+            currency: CNY
+            source: https://help.aliyun.com/zh/model-studio/token-plan-personal-overview
+            source_note: Subscription credits. Pay-as-you-go token rates do not apply.
+        fields:
+          api_key:
+            visible: true
+            required: true
+            placeholder: sk-sp-...
+          base_url:
+            visible: true
+            required: false
+            placeholder: https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
     fields:
       model:
         visible: true
@@ -2632,6 +2947,11 @@ providers:
         required: false
 
   - id: minimax
+    recommended_models:
+      - MiniMax-M3.1-Flash
+      - MiniMax-H3-Image
+      - speech-2.8-hd
+      - speech-2.8-turbo
     display_name: MiniMax
     icon: minimax
     default_model: MiniMax-M3.1-Flash
@@ -2787,6 +3107,36 @@ providers:
           source_note: Official international PAYG prices; China prices require an account override until verified.
     embedding_models: []
     image_generation_models:
+      - id: MiniMax-H3-Image
+        label: MiniMax H3 Image
+        supported_sizes:
+        - 1024x1024
+        - 1536x1024
+        - 1024x1536
+        - 2048x2048
+        supported_qualities:
+        - auto
+        supports_reference: true
+        max_n: 1
+        native_protocol: minimax_image
+        cost:
+          currency: CNY
+          input_per_million_tokens: 15
+          image_input_per_million_tokens: 10
+          image_output_per_million_tokens: 25
+          source: https://platform.minimax.cn/docs/pricing/overview
+          verified_on: '2026-11-23'
+          endpoint_hosts:
+          - api.minimaxi.com
+          - api.minimax.io
+          rules:
+          - endpoint_hosts:
+            - api.minimax.io
+            rates:
+              currency: USD
+              input_per_million_tokens: 2.3
+              image_input_per_million_tokens: 1.5
+              image_output_per_million_tokens: 3.8
       - id: image-01
         label: Image 01
         supported_sizes: [1024x1024, 1792x1024, 1024x1792, 1024x768, 768x1024]
