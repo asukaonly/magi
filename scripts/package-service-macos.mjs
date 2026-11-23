@@ -59,7 +59,9 @@ try {
       run('/usr/bin/codesign', ['--force', '--options', 'runtime', '--sign', identity, '--timestamp', path.join(payload, 'magi-server')]);
     }
     // Verify all code, including embedded Python libraries, before distribution.
-    run('/bin/bash', ['-c', 'while IFS= read -r -d "" item; do if /usr/bin/file "$item" | /usr/bin/grep -q "Mach-O"; then /usr/bin/codesign --verify --strict "$item" || exit 1; fi; done < <(/usr/bin/find "$1" -type f -print0)', 'verify-service', payload]);
+    run('/bin/bash', ['-o', 'pipefail', '-c',
+      '"$1" "$2" | /usr/bin/xargs -0 /usr/bin/codesign --verify --strict',
+      'verify-service', path.join(root, 'scripts/list-macho-macos.sh'), payload]);
   }
   run('/usr/bin/hdiutil', ['create', '-volname', 'Magi Server', '-srcfolder', staging, '-ov', '-format', 'UDZO', image]);
   if (identity) run('/usr/bin/codesign', ['--force', '--sign', identity, '--timestamp', image]);

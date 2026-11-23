@@ -156,26 +156,13 @@ find "${RUNTIME_ROOT}" -maxdepth 4 2>/dev/null | head -80 || true
 echo "---"
 
 echo "==> Collecting Mach-O files in ${LABEL} ..."
-ALL_MACHO=()
+inventory="$(mktemp)"
+trap 'rm -f "$inventory"' EXIT
+"$(dirname "$0")/list-macho-macos.sh" "${RUNTIME_ROOT}" > "$inventory"
+TOTAL=0
 while IFS= read -r -d '' f; do
-  [[ -L "$f" ]] && continue
-  if file "$f" | grep -q "Mach-O"; then
-    ALL_MACHO+=("$f")
-  fi
-done < <(find "${RUNTIME_ROOT}" -type f -print0)
-
-IFS=$'\n' SORTED=($(printf '%s\n' "${ALL_MACHO[@]}" \
-  | awk -F/ '{print NF, $0}' | sort -rn | cut -d' ' -f2-))
-unset IFS
-
-TOTAL=${#SORTED[@]}
-echo "==> Signing ${TOTAL} Mach-O files in ${LABEL} ..."
-
-COUNT=0
-for f in "${SORTED[@]}"; do
-  COUNT=$((COUNT + 1))
-  echo "  [${COUNT}/${TOTAL}] $(rel_path "$f")"
-
+  TOTAL=$((TOTAL + 1))
+  echo "  signing: $(rel_path "$f")"
   case "$f" in
     *.so|*.dylib)
       codesign --force --options runtime \
@@ -187,17 +174,17 @@ for f in "${SORTED[@]}"; do
         --entitlements "${ENTITLEMENTS}" --timestamp "$f"
       ;;
   esac
-done
+done < "$inventory"
 
 echo "==> Verifying ${LABEL} signatures ..."
 FAIL=0
-for f in "${SORTED[@]}"; do
+while IFS= read -r -d '' f; do
   if ! codesign --verify --strict "$f" 2>/dev/null; then
     echo "  FAIL: $(rel_path "$f")"
     codesign -dvvv "$f" 2>&1 | head -5 || true
     FAIL=$((FAIL + 1))
   fi
-done
+done < "$inventory"
 
 if [[ $FAIL -gt 0 ]]; then
   echo "ERROR: ${FAIL} ${LABEL} file(s) failed signature verification!"
