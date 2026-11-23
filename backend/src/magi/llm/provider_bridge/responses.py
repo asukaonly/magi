@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..anthropic import refusal_notice
 from ..output_limit import OutputLimitReached
 
 import json
@@ -338,6 +339,10 @@ class ProviderBridgeResponseMixin:
                     }
                 )
 
+        if getattr(response, "stop_reason", None) == "refusal":
+            text = "".join(content_text_parts)
+            return ProviderResponse(content=text + refusal_notice(bool(text)), metadata={"finish_reason": "refusal"},
+                                    usage=self._extract_anthropic_usage(response))
         if tool_calls:
             return ProviderResponse(
                 tool_calls=tool_calls,

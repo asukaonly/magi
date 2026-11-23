@@ -6,6 +6,7 @@ import time
 from contextlib import aclosing
 
 from ..openai_transport import create_completion
+from ..anthropic import refusal_notice
 from ..output_limit import OutputLimitReached
 from ..stream_errors import IncompleteStreamError
 from types import SimpleNamespace
@@ -182,6 +183,12 @@ class ProviderBridgeChatStreamingMixin:
             raise OutputLimitReached(state.usage_for_trace)
         if not state.message_stopped or state.stop_reason is None:
             raise IncompleteStreamError("Anthropic stream ended before completion")
+        if state.stop_reason == "refusal":
+            notice = refusal_notice(bool(state.response_preview_parts))
+            state.response_preview_parts.append(notice)
+            event = LLMStreamEvent(kind="text_delta", text=notice)
+            await emit_stream_event(event)
+            yield event
         state.usage_payload = host._anthropic_usage_to_wire(state.usage_data)
         if state.usage_payload is not None:
             usage_event = LLMStreamEvent(kind="usage", usage=state.usage_payload)

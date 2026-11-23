@@ -6,6 +6,7 @@ import json
 from contextlib import aclosing
 
 from ..openai_transport import create_completion
+from ..anthropic import refusal_notice
 from ..output_limit import OutputLimitReached
 from ..stream_errors import IncompleteStreamError
 from types import SimpleNamespace
@@ -374,6 +375,17 @@ class ProviderBridgeToolStreamingMixin:
             raise OutputLimitReached(usage)
         if not state.message_stopped or state.stop_reason is None:
             raise IncompleteStreamError("Anthropic stream ended before completion")
+        if state.stop_reason == "refusal":
+            notice = refusal_notice(bool(content_text))
+            visible = notice if state.chunks_emitted else content_text + notice
+            await emit_stream_event(LLMStreamEvent(kind="text_delta", text=visible))
+            usage_payload = host._anthropic_usage_to_wire(state.usage_data)
+            if usage_payload is not None:
+                await emit_stream_event(LLMStreamEvent(kind="usage", usage=usage_payload))
+            return ToolStreamResult(
+                ProviderResponse(content=content_text + notice, metadata={"finish_reason": "refusal"}, usage=usage),
+                text_chunks_emitted=state.chunks_emitted + 1,
+            )
         for call in state.tool_calls:
             await emit_stream_event(LLMStreamEvent(
                 kind="tool_call_end", tool_call_id=call.id,

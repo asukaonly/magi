@@ -155,3 +155,27 @@ async def test_openai_preserves_refusal_as_response_text(tools, streaming):
     else:
         assert result.content == refusal
         assert not result.tool_calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tools", [False, True])
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_anthropic_refusal_terminates_without_executing_partial_tools(tools, streaming):
+    block = {"type": "tool_use", "id": "partial", "name": "lookup", "input": {}}
+    payload = ([
+        {"type": "content_block_start", "index": 0, "content_block": block},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "message_delta", "delta": {"stop_reason": "refusal"}, "usage": {"output_tokens": 5}},
+        {"type": "message_stop"},
+    ] if streaming else {
+        "id": "msg", "model": "claude-fable-5-2", "role": "assistant", "type": "message",
+        "content": [block], "stop_reason": "refusal", "usage": {"input_tokens": 1, "output_tokens": 5},
+    })
+    async with _client("anthropic", payload) as client:
+        result = await _invoke(_bridge(client, "anthropic"), streaming=streaming, tools=tools)
+    if streaming and not tools:
+        assert "declined" in "".join(event.text or "" for event in result)
+    else:
+        assert "declined" in result.content
+        assert result.tool_calls == []
+        assert result.metadata["finish_reason"] == "refusal"

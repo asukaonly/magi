@@ -11,6 +11,10 @@ from .base import LLMAdapter
 from .model_context import automatic_output_reserve, unknown_model_context
 
 
+def refusal_notice(has_text: bool) -> str:
+    return ("\n\n" if has_text else "") + "The model provider declined to complete this request."
+
+
 class AnthropicAdapter(LLMAdapter):
     """
     Anthropic Claude API Adapter
@@ -106,7 +110,10 @@ class AnthropicAdapter(LLMAdapter):
             **kwargs,
         )
 
-        return "".join(block.text for block in response.content if block.type == "text")
+        text = "".join(block.text for block in response.content if block.type == "text")
+        if getattr(response, "stop_reason", None) == "refusal":
+            text += refusal_notice(bool(text))
+        return text
 
     async def chat_stream(
         self,
@@ -138,10 +145,14 @@ class AnthropicAdapter(LLMAdapter):
             **kwargs,
         )
 
+        has_text = False
         try:
             async for event in stream:
                 if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                    has_text = has_text or bool(event.delta.text)
                     yield event.delta.text
+                elif event.type == "message_delta" and getattr(event.delta, "stop_reason", None) == "refusal":
+                    yield refusal_notice(has_text)
         finally:
             await stream.close()
 
