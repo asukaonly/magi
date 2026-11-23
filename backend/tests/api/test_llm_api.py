@@ -173,3 +173,55 @@ def test_llm_custom_provider_template_returns_template_defaults() -> None:
     assert payload["data"]["defaults"]["api_format"] == "openai"
     assert payload["data"]["defaults"]["custom_models"] == []
     assert payload["data"]["template"]["fields"]["custom_name"]["required"] is True
+
+
+def test_all_recommended_connections_use_the_expected_wire_protocol(monkeypatch):
+    import json
+    import httpx
+
+    sent = []
+    async def respond(_transport, request):
+        payload = json.loads(request.content)
+        sent.append((str(request.url), payload))
+        model = payload["model"]
+        if request.url.path.endswith("/responses"):
+            body = {"id": "resp", "model": model, "object": "response", "created_at": 1, "status": "completed",
+                    "output": [{"id": "msg", "role": "assistant", "type": "message", "status": "completed",
+                                "content": [{"type": "output_text", "text": "ok", "annotations": []}]}]}
+        elif request.url.path.endswith("/messages"):
+            body = {"id": "msg", "model": model, "role": "assistant", "type": "message", "stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": "ok"}], "usage": {"input_tokens": 3, "output_tokens": 1}}
+        else:
+            body = {"id": "cmpl", "model": model, "object": "chat.completion", "created": 1, "choices": [
+                {"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}]}
+        return httpx.Response(200, json=body)
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)
+    with _build_client() as client:
+        providers = client.get("/api/llm/providers/catalog").json()["data"]["providers"]
+        for provider in providers:
+            provider_id = provider["id"]
+            for template in [provider, *provider["plans"]]:
+                plan = None if template is provider else template["id"]
+                models = template["resolved_chat_models"] if plan is None else template["chat_models"]
+                for model in models:
+                    model_id = model["id"]
+                    response = client.post("/api/llm/providers/test", json={
+                        "provider_id": provider_id, "model": model_id, "provider": {
+                            "provider_type": provider_id, "provider_plan": plan, "api_key": "fixture",
+                        },
+                    })
+                    assert response.status_code == 200 and response.json()["data"]["preview"] == "ok", model_id
+                    url, payload = sent[-1]
+                    assert payload["model"] == model_id
+                    if provider_id == "anthropic":
+                        assert url == "https://api.anthropic.com/v1/messages"
+                        cap = "max_tokens"
+                    elif provider_id == "openai":
+                        assert url == "https://api.openai.com/v1/responses"
+                        cap = "max_output_tokens"
+                    else:
+                        assert url == template["default_base_url"].rstrip("/") + "/chat/completions"
+                        cap = ("max_completion_tokens" if provider_id in {"kimi", "minimax", "xiaomimimo", "grok"}
+                               or model_id == "qwen4-max" else "max_tokens")
+                    assert set(payload) & {"max_output_tokens", "max_completion_tokens", "max_tokens"} == {cap}, model_id
