@@ -737,10 +737,12 @@ def test_builtin_catalog_preserves_provider_and_model_contracts():
         assert entry.default_model == provider.default_model
         assert entry.default_classify_model == provider.default_classify_model
         assert entry.default_base_url == provider.default_base_url
-        assert [model.id for model in entry.resolved_chat_models] == [
-            model.id for model in provider.chat_models
+        expected_models = [
+            model for model in provider.chat_models
+            if provider.recommended_models is None or model.id in provider.recommended_models
         ]
-        for source, result in zip(provider.chat_models, entry.resolved_chat_models, strict=True):
+        assert [model.id for model in entry.resolved_chat_models] == [model.id for model in expected_models]
+        for source, result in zip(expected_models, entry.resolved_chat_models, strict=True):
             assert result.capabilities.tool_calling == source.capabilities.tool_calling
             assert result.limits == source.limits
         for model in [*entry.resolved_chat_models, *entry.resolved_embedding_models]:
@@ -862,9 +864,19 @@ def test_selected_plan_drives_resolver_catalog_defaults_and_pricing(provider_id,
     )
 
     assert [model.id for model in resolved.chat_models] == [model.id for model in plan.chat_models]
-    assert entry.resolved_chat_models == resolved.chat_models
+    recommended = metadata.recommended_models
+    assert entry.resolved_chat_models == [
+        model for model in resolved.chat_models if recommended is None or model.id in recommended
+    ]
     assert entry.provider_plan == plan_id
-    assert entry.plans == metadata.plans
+    for visible, source_plan in zip(entry.plans, metadata.plans, strict=True):
+        assert visible.model_dump(exclude={"chat_models"}) == source_plan.model_dump(exclude={"chat_models"})
+        if source_plan.chat_models is None:
+            assert visible.chat_models is None
+        else:
+            assert visible.chat_models == [
+                model for model in source_plan.chat_models if recommended is None or model.id in recommended
+            ]
     assert entry.default_base_url == plan.default_base_url
     assert entry.default_model == plan.default_model
     assert entry.default_classify_model == plan.default_classify_model
