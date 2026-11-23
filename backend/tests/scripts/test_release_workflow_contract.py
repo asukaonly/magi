@@ -434,7 +434,7 @@ console.log(JSON.stringify(calls));
 
 
 def test_workflow_wires_draft_desktop_and_signed_standalone_candidates():
-    """Check declared release ownership; platform acceptance remains manual."""
+    """Both platform uploads and the asset check must succeed before publication."""
     jobs = _workflow_jobs()
     steps = jobs["publish-tauri"]["steps"]
     builds = [step for step in steps if step.get("uses", "").startswith("tauri-apps/tauri-action@")]
@@ -449,6 +449,43 @@ def test_workflow_wires_draft_desktop_and_signed_standalone_candidates():
     assert "Magi.app/Contents/Resources/server-dist" in packages[0]["run"]
     assert "--signed-source" in packages[0]["run"]
     assert packages[0]["env"]["MAGI_REQUIRE_SERVICE_NOTARIZATION"] == "1"
+    publish = jobs["publish-release"]
+    assert publish["needs"] == "publish-tauri"
+    check, promote = publish["steps"][-2:]
+    assert "scripts/check-release-assets.py" in check["run"]
+    assert "--draft=false" in promote["run"]
+    assert not any("if" in item or "continue-on-error" in item for item in (publish, check, promote))
+
+
+@pytest.mark.parametrize("defect", [None, "empty installer", "missing service", "missing platform", "wrong tag", "wrong URL", "wrong signature"])
+def test_publication_checks_uploaded_assets_and_updater(tmp_path, defect):
+    mac = "Magi_aarch64.app.tar.gz"
+    win = "Magi_1.2.3_x64-setup.exe"
+    service = "MagiServer_1.2.3_aarch64-apple-darwin.dmg"
+    files = [win, mac, mac + ".sig", win + ".sig", "Magi_1.2.3_aarch64.dmg",
+             service, service + ".json", service + ".sha256", "latest.json"]
+    assets = [{"name": name, "size": 1, "state": "uploaded"} for name in files]
+    platforms = {}
+    for platform, bundle in [("darwin-aarch64", mac), ("windows-x86_64", win)]:
+        (tmp_path / (bundle + ".sig")).write_text(platform + "\n")
+        platforms[platform] = {"signature": platform, "url": f"https://github.com/org/repo/releases/download/v1.2.3/{bundle}"}
+    if defect == "empty installer":
+        assets[0]["size"] = 0
+    if defect == "missing service":
+        assets = [asset for asset in assets if asset["name"] != service]
+    if defect == "missing platform":
+        del platforms["windows-x86_64"]
+    if defect == "wrong URL":
+        platforms["darwin-aarch64"]["url"] += ".old"
+    if defect == "wrong signature":
+        platforms["darwin-aarch64"]["signature"] = "other"
+    (tmp_path / "assets.json").write_text(json.dumps({"assets": assets}))
+    (tmp_path / "latest.json").write_text(json.dumps({
+        "version": "1.2.2" if defect == "wrong tag" else "1.2.3", "platforms": platforms,
+    }))
+    result = subprocess.run([sys.executable, REPO_ROOT / "scripts/check-release-assets.py",
+                             tmp_path, "org/repo", "v1.2.3"], capture_output=True)
+    assert (result.returncode == 0) == (defect is None), result.stderr
 
 
 @pytest.mark.parametrize(

@@ -148,11 +148,6 @@ jobs:
           {
             echo "title=Magi ${current_tag}"
             echo "body<<EOF"
-            echo "## Candidate validation"
-            echo
-            echo "This release stays in draft until packaged desktop validation is recorded for every supported platform."
-            echo "Record the commit, OS/architecture, artifact checksum, startup, native interaction, persistence and failure-recovery results before publishing. See docs/project-overview.md."
-            echo
             echo "## Download"
             echo
             echo "| Platform | File |"
@@ -223,3 +218,24 @@ jobs:
             build/packages/MagiServer_*_${{ matrix.target }}.dmg.sha256 \
             build/packages/MagiServer_*_${{ matrix.target }}.dmg.json \
             --clobber
+
+  publish-release:
+    name: Verify assets and publish release
+    needs: publish-tauri
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Check installers, signatures and updater feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --json assets > "$RUNNER_TEMP/assets.json"
+          gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP" --pattern latest.json --pattern '*.sig'
+          python3 scripts/check-release-assets.py "$RUNNER_TEMP" "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
+      - name: Publish the complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --verify-tag --draft=false

@@ -33,7 +33,7 @@ Current release expectations are:
 - the desktop CI matrix pins Rust and stages the upstream ripgrep executable for each platform after verifying its digest
 - release builds use the digest-verified standalone CPython archive for both the freezer virtual environment and plugin runtime. The target-specific files in `scripts/release-requirements/` pin the freezer, its hooks and Python dependencies. To refresh a platform lock, run `uv pip compile scripts/release-requirements/build.in --upgrade --python-version 3.13.18 --python-platform "$target" --no-emit-package magi --no-emit-package magi-plugin-sdk --no-header --no-annotate -o "scripts/release-requirements/$target.txt"` from the repository root and validate both packages
 - standalone Mac package metadata reads the service protocol from the bundled executable and rejects an executable whose version differs from the release version
-- release jobs attach installers to a draft GitHub Release (`releaseDraft: true`); successful builds do not publish an unvalidated candidate or advance the public updater feed
+- starting with v0.1.37, release jobs upload assets to a draft. After both platform jobs succeed, the final job checks all desktop and standalone assets and verifies that both updater entries reference the tagged downloads and uploaded signatures. It then publishes that draft automatically. A failed job leaves the draft unpublished
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
 - if installation fails after the desktop disconnects its service, recovery goes through the app bootstrap to replace runtime credentials, API clients and event streams; remote services are never stopped by a desktop update
 - the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration, startup runs a delayed background check, and packaged builds reuse the app-level network proxy for updater requests when configured
@@ -160,14 +160,14 @@ prove that already distributed installers or installed applications were updated
 
 ### Candidate acceptance
 
-Before publishing the draft, a maintainer records the release commit, artifact
-checksum, OS version, architecture, executed cases and results in the draft's
-validation section. Each supported target (macOS Apple Silicon and Windows x64)
-needs actual installation/launch evidence for its own artifact.
+Full CI records packaged service checks for macOS Apple Silicon and Windows x64.
+The release workflow records signing, notarization where applicable, and asset
+verification. For hands-on desktop acceptance, record the release commit, artifact
+checksum, OS version, architecture, executed cases and results for each target.
 An unsigned local build proves local behavior only; it does not prove signing,
 notarization, installer behavior, updates or another target's runtime.
 
-| Area | Required candidate evidence |
+| Area | Hands-on candidate checks |
 | --- | --- |
 | Startup and native runtime | Launch outside the source checkout with a fresh isolated data root; bundled gateway, worker and plugin Python start without the development environment; native file selection and private resources work. |
 | Configuration | Missing settings lead to onboarding; rejected connections remain editable; changing connection parameters invalidates verification; confirmed settings survive a full quit and relaunch. |
@@ -177,10 +177,8 @@ notarization, installer behavior, updates or another target's runtime.
 
 Existing component/contract tests supply detailed branch coverage; the record
 identifies which cases were also executed through the actual packaged WebView,
-gateway and worker. Missing platform or critical-flow evidence keeps the release
-in draft. After acceptance, the maintainer replaces the pending validation text
-with results and explicitly publishes that same draft. Code or artifact changes
-invalidate the affected results and require a new candidate validation.
+gateway and worker. These manual checks complement the automated publication
+gate. Repeat affected checks when code or artifacts change.
 
 ## Core Goals
 
@@ -1133,9 +1131,8 @@ Mac release CI builds the standalone disk image from the same signed service
 component inside the desktop candidate. The standalone image requires an accepted
 notarization result, stapled ticket, SHA-256 checksum, and status manifest.
 Both products share the release version and protocol, while protocol negotiation
-controls whether a client may connect. Candidates stay in draft until packaged
-center startup, proxy/SSE/file transfer, plugin permissions, upgrade, and recovery
-validation has been recorded; successful source tests do not establish that evidence.
+controls whether a client may connect. Hands-on service acceptance covers packaged
+center startup, proxy/SSE/file transfer, plugin permissions, upgrade, and recovery.
 
 Reopening a local desktop window reuses its running `magi-server` process and
 refreshes the center identity and data epoch from the service before returning

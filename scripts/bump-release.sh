@@ -181,4 +181,4 @@ git push origin "${TAG}"
 
 echo ">>> Prepared candidate ${TAG}: pushed ${BRANCH} and ${TAG}."
 echo ">>> release.yml will finalize the tested desktop bundles (macOS/Windows)."
-echo ">>> Validate the packaged candidates on every supported platform before publishing the draft release."
+echo ">>> The release workflow publishes automatically after verifying both platforms and the updater feed."
