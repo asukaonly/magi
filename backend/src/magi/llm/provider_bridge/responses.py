@@ -20,6 +20,13 @@ from ...config.models import ThinkingDepth
 logger = logging.getLogger(__name__)
 
 
+def google_tool_signature(call: Any) -> dict[str, Any]:
+    extra = getattr(call, "extra_content", None)
+    google = extra.get("google") if isinstance(extra, dict) else None
+    signature = google.get("thought_signature") if isinstance(google, dict) else None
+    return {"extra_content": {"google": {"thought_signature": signature}}} if signature else {}
+
+
 def _usage_value(obj: Any, key: str) -> Any:
     return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
 
@@ -366,6 +373,7 @@ class ProviderBridgeResponseMixin:
                 )
                 raw_tool_calls.append(
                     {
+                        **google_tool_signature(tool_call),
                         "id": tool_call.id,
                         "type": "function",
                         "function": {

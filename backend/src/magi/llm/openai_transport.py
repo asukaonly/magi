@@ -257,7 +257,7 @@ async def create_completion(client: Any, **kwargs: Any) -> Any:
     else:
         reasoning_chat = _OPENAI_REASONING_CHAT.match(model)
         if "max_tokens" in kwargs and (
-            reasoning_chat or model.startswith(("mimo-v2.6", "kimi-k3.1", "minimax-m3", "grok-4"))
+            reasoning_chat or model == "qwen4-max" or model.startswith(("mimo-v2.6", "kimi-k3.1", "minimax-m3", "grok-4"))
         ):
             kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
         if reasoning_chat:

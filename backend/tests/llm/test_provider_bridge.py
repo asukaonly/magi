@@ -937,3 +937,48 @@ async def test_current_mimo_uses_supported_thinking_and_output_limit(depth, disa
     assert (client.kwargs.get("extra_body", {}).get("thinking", {}).get("type") == "disabled") is disabled
     assert ("temperature" in client.kwargs) is disabled
     assert bridge.resolve_effective_reasoning_depth(depth) == depth
+
+
+@pytest.mark.parametrize("model,provider,depth,effort", [
+    ("gemini-4-neon", "gemini", ThinkingDepth.MAX, "xhigh"),
+    ("gemini-4-hydrogen", "gemini", ThinkingDepth.NONE, "low"),
+    ("gemini-3.5-flash-lite", "gemini", ThinkingDepth.NONE, "minimal"),
+    ("qwen4-max", "dashscope", ThinkingDepth.MEDIUM, "high"),
+    ("qwen4-max", "dashscope", ThinkingDepth.MAX, "xhigh"),
+    ("qwen4-max", "dashscope", ThinkingDepth.NONE, None),
+])
+def test_model_specific_reasoning_options(model, provider, depth, effort):
+    bridge = LLMProviderBridge(DummyLLMAdapter(model=model, provider=provider))
+    options = bridge._operations._apply_provider_options({"max_tokens": 32}, depth)
+    assert options.get("reasoning_effort") == effort
+    if provider == "dashscope":
+        assert options["extra_body"]["enable_thinking"] is (effort is not None)
+    elif depth is ThinkingDepth.NONE:
+        assert options["max_tokens"] > 32
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [True, False])
+async def test_tool_signature_survives_followup_request(stream):
+    from magi.llm.provider_bridge.tool_streaming import _OpenAIToolStreamState
+
+    extra = {"google": {"thought_signature": "signed-call"}}
+    calls = [SimpleNamespace(index=i, id=f"call_{i}", function=SimpleNamespace(name="lookup", arguments="{}"))
+             for i in range(2)]
+    bridge = LLMProviderBridge(DummyLLMAdapter(provider="gemini"))
+    ops = bridge._operations
+    if stream:
+        state = _OpenAIToolStreamState()
+        await ops._handle_openai_tool_call_deltas(calls, state)
+        await ops._handle_openai_tool_call_deltas([
+            SimpleNamespace(index=1, id=None, function=None, extra_content=extra)
+        ], state)
+        result = (await ops._build_openai_tool_stream_result(ops, state)).provider_response
+    else:
+        calls[1].extra_content = extra
+        result = ops._parse_openai_response(SimpleNamespace(choices=[SimpleNamespace(
+            finish_reason="tool_calls", message=SimpleNamespace(content=None, tool_calls=calls)
+        )]))
+    outbound = ops._convert_messages_to_openai([result.assistant_message])[0]["tool_calls"]
+    assert "extra_content" not in outbound[0]
+    assert outbound[1]["extra_content"] == extra

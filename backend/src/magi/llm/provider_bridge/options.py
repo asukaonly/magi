@@ -158,6 +158,14 @@ class ProviderBridgeOptionsMixin:
             if requested in {ThinkingDepth.NONE, ThinkingDepth.LOW}:
                 return ThinkingDepth.LOW
             return ThinkingDepth.MAX if requested is ThinkingDepth.MAX else ThinkingDepth.HIGH
+        if model_id.startswith(("gemini-3.", "gemini-4-")):
+            if requested is ThinkingDepth.NONE:
+                return ThinkingDepth.LOW
+            if requested is ThinkingDepth.MAX and model_id not in {"gemini-4-neon", "gemini-4-hydrogen"}:
+                return ThinkingDepth.HIGH
+            return requested
+        if model_id == "qwen4-max":
+            return ThinkingDepth.HIGH if requested is ThinkingDepth.MEDIUM else requested
         if model_id.startswith("minimax-m3.1-flash") or model_id == "grok-4.7":
             return ThinkingDepth.LOW if requested is ThinkingDepth.NONE else requested
         if dialect is ReasoningDialect.NONE:
@@ -264,6 +272,21 @@ class ProviderBridgeOptionsMixin:
         if dialect == ReasoningDialect.ANTHROPIC_BUDGET:
             return self._apply_anthropic_thinking_options(kwargs, thinking_depth)
 
+        model_id = self.llm.model_name.lower()
+        if model_id.startswith(("gemini-3.", "gemini-4-")) or model_id == "qwen4-max":
+            depth = self.resolve_effective_reasoning_depth(thinking_depth)
+            if model_id == "qwen4-max":
+                kwargs = merge_payload(kwargs, {"_extra_body": {"enable_thinking": depth is not ThinkingDepth.NONE}})
+                if depth is ThinkingDepth.NONE:
+                    if "max_tokens" in kwargs:
+                        kwargs["max_tokens"] = min(kwargs["max_tokens"], 131_072)
+                    return kwargs
+            effort = "xhigh" if depth is ThinkingDepth.MAX else depth.value
+            if thinking_depth is ThinkingDepth.NONE and model_id.startswith("gemini-3.") and "flash" in model_id:
+                effort = "minimal"
+            kwargs["reasoning_effort"] = effort
+            return kwargs
+
         # Relays may expose a known OpenAI model without a local catalog entry.
         if dialect is ReasoningDialect.OPENAI_EFFORT:
             effort = openai_reasoning_effort(self.llm.model_name, thinking_depth.value)
@@ -273,7 +296,6 @@ class ProviderBridgeOptionsMixin:
             if not self._model_supports_reasoning():
                 return kwargs
 
-        model_id = self.llm.model_name.lower()
         if model_id.startswith(("kimi-k3.1", "minimax-m3.1-flash")) or model_id == "grok-4.7":
             depth = self.resolve_effective_reasoning_depth(thinking_depth)
             kwargs["reasoning_effort"] = "xhigh" if model_id == "grok-4.7" and depth is ThinkingDepth.MAX else depth.value

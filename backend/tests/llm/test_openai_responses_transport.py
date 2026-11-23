@@ -61,6 +61,7 @@ def bridge_for(client, model="gpt-6.1-sol"):
 @pytest.mark.parametrize("model,depth,effort", [
     ("gpt-6.1-sol", ThinkingDepth.NONE, "low"),
     ("gpt-6.2-astra", ThinkingDepth.NONE, "low"),
+    ("gpt-6.2-sol", ThinkingDepth.NONE, "low"),
     ("gpt-5.6-terra", ThinkingDepth.MAX, "max"),
 ])
 async def test_native_tool_roundtrip_retains_reasoning_and_usage(stream, model, depth, effort):

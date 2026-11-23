@@ -17,6 +17,7 @@ from ..streaming_events import LLMStreamEvent, emit_stream_event
 from .models import ProviderResponse, ProviderToolCall, ToolStreamResult
 from .billing import capture_billing_context
 from .logging import RawProviderResponseLogger
+from .responses import google_tool_signature
 from .streaming_core import ProviderBridgeStreamingHostProtocol, ThinkTagScrubber
 from ...config.models import ThinkingDepth
 
@@ -499,6 +500,7 @@ class ProviderBridgeToolStreamingMixin:
         state.has_tool_calls = True
         for tc_delta in tool_call_deltas:
             entry = self._openai_tool_call_entry(tc_delta, state)
+            entry.update(google_tool_signature(tc_delta))
             if tc_delta.id:
                 entry["id"] = tc_delta.id
             if hasattr(tc_delta, "function") and tc_delta.function:
@@ -638,6 +640,7 @@ class ProviderBridgeToolStreamingMixin:
             )
             raw_tool_calls.append(
                 {
+                    **({"extra_content": entry["extra_content"]} if "extra_content" in entry else {}),
                     "id": entry["id"],
                     "type": "function",
                     "function": {
