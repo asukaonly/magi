@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+from io import BytesIO
 from typing import Any
+
+from PIL import Image, UnidentifiedImageError
+
+from magi.runtime_trace.media_usage import openai_media_usage
 
 import httpx
 
@@ -54,8 +60,10 @@ class MiniMaxImageAdapter(ImageGenerationAdapter):
         self._timeout = timeout
         self._base_url = str(base_url or MINIMAX_DEFAULT_BASE_URL).rstrip("/")
         self.capability = capability or ImageGenerationCapability(
-            supported_sizes=list(MINIMAX_SUPPORTED_SIZES),
-            supported_qualities=list(MINIMAX_SUPPORTED_QUALITIES),
+            supported_sizes=(["1024x1024", "1536x1024", "1024x1536", "2048x2048"] if model == "MiniMax-H3-Image"
+                             else list(MINIMAX_SUPPORTED_SIZES)),
+            supported_qualities=["auto"] if model == "MiniMax-H3-Image" else list(MINIMAX_SUPPORTED_QUALITIES),
+            supports_reference=model == "MiniMax-H3-Image",
             max_n=1,
         )
         self._client = httpx.AsyncClient(
@@ -71,6 +79,16 @@ class MiniMaxImageAdapter(ImageGenerationAdapter):
         self.validate_request(req)
         size = self.normalize_size(req.size)
         self.normalize_quality(req.quality)
+        if (req.model or self._model) == "MiniMax-H3-Image":
+            payload = {"model": req.model or self._model, "prompt": req.prompt, "size": size,
+                       "n": req.n, "output_format": "png", "response_format": "b64_json"}
+            if req.reference_images:
+                if len(req.reference_images) > 16:
+                    raise ImageGenInvalidParameterError("At most 16 reference images are supported.", field="reference_images")
+                if sum(len(image) for image in req.reference_images) > 47 * 1024 * 1024:
+                    raise ImageGenInvalidParameterError("Reference images exceed the upload limit.", field="reference_images")
+                payload["images"] = [{"image_url": _reference_uri(image)} for image in req.reference_images]
+            return payload
         return {
             "model": req.model or self._model,
             "prompt": req.prompt,
@@ -80,7 +98,11 @@ class MiniMaxImageAdapter(ImageGenerationAdapter):
 
     async def generate(self, req: ImageGenerationRequest) -> ImageGenerationResponse:
         payload = self._build_request_payload(req)
-        endpoint = join_url(self._base_url, "image_generation")
+        h3 = payload["model"] == "MiniMax-H3-Image"
+        path = "image_generation"
+        if h3:
+            path = "images/edits" if req.reference_images else "images/generations"
+        endpoint = join_url(self._base_url, path)
         try:
             response = await self._client.post(
                 endpoint,
@@ -108,6 +130,18 @@ class MiniMaxImageAdapter(ImageGenerationAdapter):
                 )
 
         data = body.get("data")
+        if h3:
+            images = []
+            for item in data if isinstance(data, list) else []:
+                if isinstance(item, dict) and item.get("error"):
+                    raise provider_error_from_body(item, status_code=200, provider_id=self.provider_id)
+                if isinstance(item, dict) and isinstance(item.get("b64_json"), str) and item["b64_json"]:
+                    images.append(ImageArtifact(b64=item["b64_json"], mime="image/png"))
+            if not images:
+                raise ImageGenInvalidParameterError("No image data returned.", field="data", provider_id=self.provider_id)
+            return ImageGenerationResponse(images=images, model=payload["model"], raw_metadata={
+                "provider_id": self.provider_id, "usage": openai_media_usage(body.get("usage"), output_modality="image")
+            })
         image_values = _coerce_image_base64_values(
             data.get("image_base64") if isinstance(data, dict) else None
         )
@@ -127,6 +161,17 @@ class MiniMaxImageAdapter(ImageGenerationAdapter):
             model=str(payload.get("model") or self._model),
             raw_metadata={"provider_id": self.provider_id, "request": payload, "response": body},
         )
+
+
+def _reference_uri(image: bytes) -> str:
+    try:
+        with Image.open(BytesIO(image)) as reference:
+            mime = Image.MIME.get(reference.format)
+            if mime not in {"image/png", "image/jpeg", "image/webp", "image/heif", "image/heic"}:
+                raise ValueError("Unsupported reference image format.")
+    except (UnidentifiedImageError, ValueError, OSError) as exc:
+        raise ImageGenInvalidParameterError("Unsupported reference image.", field="reference_images") from exc
+    return f"data:{mime};base64," + base64.b64encode(image).decode("ascii")
 
 
 def _coerce_image_base64_values(value: Any) -> list[str]:

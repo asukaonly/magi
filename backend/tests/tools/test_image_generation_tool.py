@@ -314,3 +314,26 @@ async def test_image_generation_tool_maps_rate_limit(
     assert result.metadata["status_code"] == 429
     assert len(fake_adapter.requests) == 2
     assert fake_adapter.closed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owned", [False, True])
+async def test_edits_use_only_current_chat_image_attachments(tmp_path, monkeypatch, owned):
+    reference = tmp_path / "source.png"
+    reference.write_bytes(b"source")
+    adapter = _FakeAdapter(response=ImageGenerationResponse(images=[ImageArtifact(b64="cG5n")], model="MiniMax-H3-Image"))
+    chat = _FakeChatPort()
+    def resolve(user_id, session_id, attachment_id):
+        assert session_id == "session-1" and attachment_id == "ref"
+        return {"kind": "image", "storage_path": str(reference)} if owned else None
+    monkeypatch.setattr(chat, "get_attachment_payload", resolve)
+    caps = ToolCapabilities(chat=chat, image_gen=_FakeImageGenPort(adapter))
+    result = await ImageGenerationTool().execute(
+        {"prompt": "Edit", "reference_attachment_ids": ["ref"]}, _context(tmp_path, capabilities=caps)
+    )
+    if owned:
+        assert result.success
+        assert adapter.requests[0].reference_images == [b"source"]
+    else:
+        assert not adapter.requests and not result.success
+    assert adapter.closed

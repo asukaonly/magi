@@ -34,6 +34,7 @@ from ..schema import (
     ParameterType,
     ToolErrorCode,
 )
+from ...identity import CANONICAL_LOCAL_USER
 from ...config import get_config, reload_config
 from ...config.loader import get_llm_provider_registry_file
 from ...config.llm_registry import LLMProviderRegistryModel, load_llm_provider_registry
@@ -53,6 +54,7 @@ class _ImageGenerationInputs:
     prompt: str
     size: str
     quality: str
+    reference_attachment_ids: list[str]
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,12 @@ class ImageGenerationTool(Tool):
                     type=ParameterType.STRING,
                     description="A detailed text description of the image to generate.",
                     required=True,
+                ),
+                ToolParameter(
+                    name="reference_attachment_ids",
+                    type=ParameterType.ARRAY,
+                    array_item_type=ParameterType.STRING,
+                    description="Current chat image attachment IDs to edit, in reference order.",
                 ),
                 ToolParameter(
                     name="size",
@@ -182,6 +190,10 @@ class ImageGenerationTool(Tool):
     ) -> ToolResult:
         """Execute image generation."""
         start = time.time()
+        ids = parameters.get("reference_attachment_ids", [])
+        if not isinstance(ids, list) or len(ids) > 16 or not all(isinstance(key, str) and key.strip() for key in ids):
+            return self._failure_result(start, error="Expected up to 16 image attachment IDs.",
+                                        error_code=ToolErrorCode.INVALID_PARAMETERS.value)
         inputs = self._parse_inputs(parameters)
         if not inputs.prompt:
             return self._failure_result(
@@ -224,7 +236,7 @@ class ImageGenerationTool(Tool):
             return failure
         assert execution is not None
 
-        result = await self._generate_images(execution, inputs)
+        result = await self._generate_images(execution, inputs, context)
         if not result.images:
             return self._failure_result(
                 start,
@@ -245,6 +257,7 @@ class ImageGenerationTool(Tool):
             prompt=str(parameters.get("prompt") or "").strip(),
             size=str(parameters.get("size") or "").strip(),
             quality=str(parameters.get("quality") or "auto").strip(),
+            reference_attachment_ids=parameters.get("reference_attachment_ids", []),
         )
 
     def _prepare_execution(
@@ -375,12 +388,34 @@ class ImageGenerationTool(Tool):
             proxy_url=proxy_url,
         )
 
+    @staticmethod
+    async def _load_reference_images(attachment_ids: list[str], context: ToolExecutionContext) -> list[bytes]:
+        references = []
+        remaining = 47 * 1024 * 1024  # Base64 plus request metadata must fit the provider's 64 MiB body.
+        for attachment_id in attachment_ids:
+            chat = context.capabilities.chat if context.capabilities else None
+            session = context.env_vars.get("session_id")
+            attachment = chat.get_attachment_payload(
+                context.env_vars.get("user_id") or CANONICAL_LOCAL_USER, session, attachment_id
+            ) if chat and session else None
+            if not attachment or attachment.get("kind") != "image":
+                raise ImageGenInvalidParameterError("Image attachment not found in this chat.", field="reference_attachment_ids")
+            path = Path(attachment["storage_path"])
+            if path.stat().st_size > min(remaining, MAX_IMAGE_ATTACHMENT_BYTES):
+                raise ImageGenInvalidParameterError("Reference images exceed the upload limit.", field="reference_attachment_ids")
+            image = await asyncio.to_thread(path.read_bytes)
+            references.append(image)
+            remaining -= len(image)
+        return references
+
     async def _generate_images(
         self,
         execution: _ImageGenerationExecution,
         inputs: _ImageGenerationInputs,
+        context: ToolExecutionContext,
     ):
         try:
+            references = await self._load_reference_images(inputs.reference_attachment_ids, context)
             return await self._generate_with_transient_retry(
                 execution.adapter,
                 ImageGenerationRequest(
@@ -388,6 +423,7 @@ class ImageGenerationTool(Tool):
                     model=execution.selection.model,
                     size=execution.request_size,
                     quality=inputs.quality,
+                    reference_images=references or None,
                     n=1,
                 ),
                 image_gen=execution.image_gen,
@@ -515,7 +551,7 @@ class ImageGenerationTool(Tool):
             error=error,
             error_code=error_code,
             execution_time=time.time() - start,
-            metadata=metadata,
+            metadata=metadata or {},
         )
 
     async def _generate_with_transient_retry(
@@ -552,7 +588,9 @@ class ImageGenerationTool(Tool):
                     return result
                 except (ImageGenRateLimitError, ImageGenTimeoutError) as exc:
                     last_error = exc
-                    if attempt >= TRANSIENT_IMAGE_GENERATION_RETRIES:
+                    if attempt >= TRANSIENT_IMAGE_GENERATION_RETRIES or (
+                        request.model == "MiniMax-H3-Image" and isinstance(exc, ImageGenTimeoutError)
+                    ):
                         raise
                     await asyncio.sleep(1.0 * (attempt + 1))
             assert last_error is not None

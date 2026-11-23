@@ -237,3 +237,31 @@ async def test_gemini_rejects_missing_or_failed_image_output(body):
     adapter._client = _FakeHttpClient(body)
     with pytest.raises(ImageGenInvalidParameterError):
         await adapter.generate(ImageGenerationRequest(prompt="draw", model="gemini-nano-banana-2.1"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("edit", [False, True])
+async def test_minimax_h3_generation_and_edit(edit):
+    from io import BytesIO
+    from PIL import Image
+
+    reference = BytesIO()
+    Image.new("RGB", (128, 128)).save(reference, format="PNG")
+    adapter = MiniMaxImageAdapter(provider_id="minimax", api_key="fixture", model="MiniMax-H3-Image")
+    await adapter.aclose()
+    client = _FakeHttpClient({"data": [{"b64_json": "cG5n"}], "usage": {
+        "input_tokens": 9, "input_tokens_details": {"text_tokens": 5, "image_tokens": 4},
+        "output_tokens": 15,
+    }})
+    adapter._client = client
+    result = await adapter.generate(ImageGenerationRequest(
+        prompt="Draw a moon", model="MiniMax-H3-Image", reference_images=[reference.getvalue()] if edit else None
+    ))
+    assert client.url.endswith("/images/edits" if edit else "/images/generations")
+    assert ("images" in client.payload) is edit
+    if edit:
+        assert client.payload["images"][0]["image_url"].startswith("data:image/png;base64,")
+    assert client.payload["response_format"] == "b64_json"
+    assert result.images[0].b64 == "cG5n"
+    assert result.raw_metadata["usage"]["image_input_tokens"] == 4
+    assert "request" not in result.raw_metadata
