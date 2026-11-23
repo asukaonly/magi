@@ -1,0 +1,6 @@
+./sdk
+./backend[storage-chroma]
+pyinstaller
+pip
+setuptools>=83
+wheel
