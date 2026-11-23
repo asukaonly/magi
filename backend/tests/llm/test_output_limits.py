@@ -102,6 +102,9 @@ async def test_required_and_explicit_limits_never_exceed_model_capacity(requeste
 @pytest.mark.parametrize("model,capacity,expected", [
     ("gpt-6.1-sol", 384_000, 16_384),
     ("gpt-6.1-sol", 8_000, 8_000),
+    ("gpt-5-mini", 128_000, 16_384),
+    ("o3-mini", 128_000, 16_384),
+    ("gpt-5.6-terra", 128_000, 256),
     ("deepseek-flash", 384_000, 256),
 ])
 def test_short_auxiliary_calls_allow_required_reasoning(model, capacity, expected):
@@ -134,3 +137,23 @@ def test_reasoning_floor_keeps_small_context_headroom():
     bridge.llm.model_context = ModelContextProfile("openai", "gpt-6.1-sol", 8_000, None)
     options = bridge._operations._apply_provider_options({"max_tokens": 256}, ThinkingDepth.NONE)
     assert options["max_tokens"] == 2_000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider,model,key", [
+    ("kimi", "kimi-k3.1-pro", "max_completion_tokens"),
+    ("minimax", "MiniMax-M3.1-Flash", "max_completion_tokens"),
+    ("grok", "grok-4.7", "max_completion_tokens"),
+    ("deepseek", "deepseek-flash", "max_tokens"),
+    ("dashscope", "qwen3.8-max", "max_tokens"),
+    ("glm", "glm-5.3", "max_tokens"),
+    ("gemini", "gemini-3.8-flash", "max_tokens"),
+])
+async def test_compatible_providers_keep_their_output_limit_field(provider, model, key):
+    message = NS(role="assistant", content="ok", tool_calls=[])
+    bridge, create = bridge_for(provider, NS(choices=[NS(message=message, finish_reason="stop")]))
+    bridge.llm._model = model
+    await invoke(bridge, False, False, max_tokens=32_768)
+    payload = create.await_args.kwargs
+    assert {"max_tokens", "max_completion_tokens", "max_output_tokens"}.intersection(payload) == {key}
+    assert payload[key] == 32_768

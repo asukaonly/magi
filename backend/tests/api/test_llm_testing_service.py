@@ -10,6 +10,7 @@ from aiohttp import web
 from httpx import ASGITransport, AsyncClient
 
 from magi.api.routers.llm import llm_router
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.config.models import LLMProvider, LLMProviderSettings
 from magi.llm.draft import build_adapter_from_provider
 
@@ -38,7 +39,13 @@ def _provider(
 
 
 @pytest.mark.asyncio
-async def test_keyless_custom_openai_provider_calls_local_endpoint() -> None:
+@pytest.mark.parametrize("provider_type,model,cap", [
+    (LLMProvider.CUSTOM, "local-model", "max_tokens"),
+    (LLMProvider.OPENAI, "gpt-5.6-terra", "max_completion_tokens"),
+])
+async def test_provider_connection_sends_supported_parameters(
+    provider_type: LLMProvider, model: str, cap: str,
+) -> None:
     captured: dict[str, Any] = {}
 
     async def handle_chat(request: web.Request) -> web.Response:
@@ -49,7 +56,7 @@ async def test_keyless_custom_openai_provider_calls_local_endpoint() -> None:
                 "id": "chatcmpl-local",
                 "object": "chat.completion",
                 "created": 1,
-                "model": "local-model",
+                "model": model,
                 "choices": [
                     {
                         "index": 0,
@@ -72,9 +79,12 @@ async def test_keyless_custom_openai_provider_calls_local_endpoint() -> None:
 
     try:
         api = FastAPI()
-        api.include_router(llm_router, prefix="/llm")
+        api.include_router(
+            _build_public_router(llm_router, _PUBLIC_ROUTE_METHODS["llm"]), prefix="/api/llm"
+        )
         provider = _provider(
-            LLMProvider.CUSTOM,
+            provider_type,
+            api_key="test-key" if provider_type == LLMProvider.OPENAI else "",
             base_url=f"http://127.0.0.1:{port}/v1",
             api_format="openai",
         )
@@ -83,11 +93,11 @@ async def test_keyless_custom_openai_provider_calls_local_endpoint() -> None:
             base_url="http://test",
         ) as client:
             response = await client.post(
-                "/llm/providers/test",
+                "/api/llm/providers/test",
                 json={
-                    "provider_id": "custom",
+                    "provider_id": provider_type.value,
                     "provider": provider.model_dump(mode="json"),
-                    "model": "local-model",
+                    "model": model,
                 },
             )
     finally:
@@ -95,8 +105,16 @@ async def test_keyless_custom_openai_provider_calls_local_endpoint() -> None:
 
     assert response.status_code == 200
     assert response.json()["data"]["preview"] == "local ready"
-    assert captured["authorization"] is None
-    assert captured["payload"]["model"] == "local-model"
+    payload = captured["payload"]
+    assert payload["model"] == model
+    cap_keys = {"max_tokens", "max_completion_tokens", "max_output_tokens"}
+    assert cap_keys.intersection(payload) == {cap}
+    assert payload[cap] == 32
+    if provider_type == LLMProvider.OPENAI:
+        assert payload["reasoning_effort"] == "none"
+    else:
+        assert captured["authorization"] is None
+        assert "reasoning_effort" not in payload
 
 
 def test_builtin_provider_still_requires_api_key() -> None:

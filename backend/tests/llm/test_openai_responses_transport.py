@@ -45,9 +45,9 @@ def client_for(payloads, requests):
     return AsyncOpenAI(api_key="test", http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
 
 
-def bridge_for(client):
+def bridge_for(client, model="gpt-6.1-sol"):
     adapter = OpenAIAdapter.__new__(OpenAIAdapter)
-    adapter._model = "gpt-6.1-sol"
+    adapter._model = model
     adapter._provider = "openai"
     adapter._provider_plan = None
     adapter._provider_instance_id = None
@@ -58,14 +58,19 @@ def bridge_for(client):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stream", [False, True])
-async def test_native_tool_roundtrip_retains_reasoning_and_usage(stream):
+@pytest.mark.parametrize("model,depth,effort", [
+    ("gpt-6.1-sol", ThinkingDepth.NONE, "low"),
+    ("gpt-6.2-astra", ThinkingDepth.NONE, "low"),
+    ("gpt-5.6-terra", ThinkingDepth.MAX, "max"),
+])
+async def test_native_tool_roundtrip_retains_reasoning_and_usage(stream, model, depth, effort):
     requests = []
     payload = list(events(tools=True)) if stream else response(tools=True)
     async with client_for([payload, response()], requests) as client:
-        bridge = bridge_for(client)
+        bridge = bridge_for(client, model)
         params = dict(system_prompt="sys", messages=[{"role": "user", "content": "find"}],
                       tools=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object", "properties": {"q": {"type": "string"}}}}}],
-                      thinking_depth=ThinkingDepth.NONE)
+                      thinking_depth=depth, max_tokens=8192)
         if stream:
             result = (await bridge.chat_with_tools_stream(**params)).provider_response
         else:
@@ -73,12 +78,14 @@ async def test_native_tool_roundtrip_retains_reasoning_and_usage(stream):
         assert result.tool_calls[0].arguments == {"q": "hello"}
         assert result.usage.cache_read_tokens == 5
         assert result.usage.reasoning_tokens == 2
-        assert result.metadata["trace_metrics"]["thinking_depth"] == "low"
+        assert result.metadata["trace_metrics"]["thinking_depth"] == effort
         await bridge.chat_response("sys", [params["messages"][0], result.assistant_message,
                                            {"role": "tool", "tool_call_id": "call_1", "content": "found"}])
     path, request = requests[0]
     assert path == "/v1/responses"
-    assert request["reasoning"]["effort"] == "low"
+    assert request["reasoning"]["effort"] == effort
+    assert request["max_output_tokens"] == 8192
+    assert "max_completion_tokens" not in request
     assert request["store"] is False
     assert "temperature" not in request and "max_tokens" not in request
     assert request["tools"][0]["name"] == "lookup"
@@ -86,6 +93,32 @@ async def test_native_tool_roundtrip_retains_reasoning_and_usage(stream):
     continuation = requests[1][1]["input"]
     assert any(item.get("encrypted_content") == "opaque" for item in continuation)
     assert any(item.get("type") == "function_call_output" and item["call_id"] == "call_1" for item in continuation)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model,effort,cap,temperature", [
+    ("gpt-5.6-terra", None, 32, None),
+    ("gpt-5.6-luna", "none", None, 0.1),
+    ("gpt-5.5", "high", 256, None),
+    ("gpt-5.4-mini", None, 32, 0.1),
+    ("gpt-5.2-2025-12-11", "high", None, None),
+    ("o3-mini", "low", 1024, None),
+])
+async def test_reasoning_chat_parameters_on_the_wire(model, effort, cap, temperature):
+    requests = []
+    completion = {"id": "c1", "object": "chat.completion", "created": 1, "model": model,
+                  "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}]}
+    options = {"reasoning_effort": effort} if effort else {}
+    if effort == "none":
+        options["tools"] = [{"type": "function", "function": {"name": "lookup"}}]
+    async with client_for([completion], requests) as client:
+        await create_completion(client, model=model, messages=[], max_tokens=cap, temperature=0.1, **options)
+    path, payload = requests[0]
+    assert path == "/v1/chat/completions"
+    assert "max_tokens" not in payload and "max_output_tokens" not in payload
+    assert ("max_completion_tokens" in payload) == (cap is not None)
+    assert payload.get("max_completion_tokens") == cap
+    assert payload.get("temperature") == temperature
 
 
 @pytest.mark.asyncio

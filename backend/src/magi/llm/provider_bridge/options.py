@@ -7,7 +7,7 @@ from functools import lru_cache
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, TypeVar, cast
 
 from ..anthropic import AnthropicAdapter
-from ..openai_transport import uses_responses_api, responses_effort
+from ..openai_transport import openai_reasoning_effort
 from ..base import LLMAdapter
 from ..model_context import automatic_output_reserve, unknown_model_context
 from ..cache_observability import build_cache_observation
@@ -160,11 +160,12 @@ class ProviderBridgeOptionsMixin:
             return ThinkingDepth.MAX if requested is ThinkingDepth.MAX else ThinkingDepth.HIGH
         if model_id.startswith("minimax-m3.1-flash") or model_id == "grok-4.7":
             return ThinkingDepth.LOW if requested is ThinkingDepth.NONE else requested
-        if dialect is ReasoningDialect.OPENAI_EFFORT and uses_responses_api(model_id):
-            return ThinkingDepth(responses_effort(model_id, requested.value))
         if dialect is ReasoningDialect.NONE:
             return ThinkingDepth.NONE
         if dialect is ReasoningDialect.OPENAI_EFFORT:
+            effort = openai_reasoning_effort(model_id, requested.value)
+            if effort is not None:
+                return ThinkingDepth(effort)
             if not self._model_supports_reasoning():
                 return ThinkingDepth.NONE
             return ThinkingDepth.HIGH if requested is ThinkingDepth.MAX else requested
@@ -263,15 +264,14 @@ class ProviderBridgeOptionsMixin:
         if dialect == ReasoningDialect.ANTHROPIC_BUDGET:
             return self._apply_anthropic_thinking_options(kwargs, thinking_depth)
 
-        # OpenAI-effort dialects only fire when the model itself advertises
-        # reasoning capability. Other dialects (DashScope toggle, GLM
-        # toggle) are always meaningful when the user asks for a thinking
-        # depth, so we don't gate them on capability.
-        if dialect is ReasoningDialect.OPENAI_EFFORT and uses_responses_api(self.llm.model_name):
-            kwargs["reasoning_effort"] = responses_effort(self.llm.model_name, thinking_depth.value)
-            return kwargs
-        if dialect == ReasoningDialect.OPENAI_EFFORT and not self._model_supports_reasoning():
-            return kwargs
+        # Relays may expose a known OpenAI model without a local catalog entry.
+        if dialect is ReasoningDialect.OPENAI_EFFORT:
+            effort = openai_reasoning_effort(self.llm.model_name, thinking_depth.value)
+            if effort is not None:
+                kwargs["reasoning_effort"] = effort
+                return kwargs
+            if not self._model_supports_reasoning():
+                return kwargs
 
         model_id = self.llm.model_name.lower()
         if model_id.startswith(("kimi-k3.1", "minimax-m3.1-flash")) or model_id == "grok-4.7":

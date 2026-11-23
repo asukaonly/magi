@@ -13,15 +13,42 @@ from .stream_errors import IncompleteStreamError
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
 
-def uses_responses_api(model: str) -> bool:
-    """GPT-6 tool calls with reasoning require the Responses API."""
-    return bool(re.match(r"^gpt-6(?:\.1)?-(?:astra|sol|terra|luna)(?:-|$)", model))
+_GPT_6 = re.compile(r"gpt-6(?:\.[12])?-(?:astra|sol|terra|luna)(?:-|$)")
+_GPT_5_6 = {"gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
+_DEFAULT_EFFORT_NONE = {"gpt-5.1", "gpt-5.2", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"}
+_OPENAI_REASONING_CHAT = re.compile(r"(?:gpt-5|o[134])(?:[.-]|$)")
 
 
-def responses_effort(model: str, effort: str) -> str:
-    if effort == "none" and model.startswith(("gpt-6-astra", "gpt-6.1-sol")):
-        return "low"
-    return effort
+def _model_family(model: str) -> str:
+    return re.sub(r"-\d{4}-\d{2}-\d{2}$", "", model.lower())
+
+
+def openai_reasoning_effort(model: str, effort: str) -> str | None:
+    """Resolve effort for recognized OpenAI models, including dated snapshots."""
+    model = _model_family(model)
+    if _GPT_6.match(model):
+        if effort == "none" and model.startswith(
+            ("gpt-6-astra", "gpt-6.1-sol", "gpt-6.2-astra", "gpt-6.2-sol")
+        ):
+            return "low"
+        return effort
+    if model in _GPT_5_6:
+        return effort
+    if model in _DEFAULT_EFFORT_NONE or model == "gpt-5.5":
+        return "high" if effort == "max" else effort
+    if model in {"gpt-5", "gpt-5-mini", "gpt-5-nano", "o1", "o3", "o3-mini", "o4-mini"}:
+        return {"none": "low", "max": "high"}.get(effort, effort)
+    return None
+
+
+def _requires_responses(model: str, kwargs: dict[str, Any]) -> bool:
+    if _GPT_6.match(model):
+        return True
+    if model not in _GPT_5_6:
+        return False
+    if kwargs.get("tools") and kwargs.get("reasoning_effort") != "none":
+        return True
+    return any(message.get("responses_reasoning") for message in kwargs["messages"])
 
 
 def _responses_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -58,7 +85,8 @@ def _responses_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     tokens = result.pop("max_tokens", None)
     if tokens is not None:
         result["max_output_tokens"] = tokens
-    effort = responses_effort(result["model"], result.pop("reasoning_effort", "medium"))
+    effort = result.pop("reasoning_effort", "medium")
+    effort = openai_reasoning_effort(result["model"], effort) or effort
     result["reasoning"] = {**result.get("reasoning", {}), "effort": effort}
     if effort != "none":
         for key in ("temperature", "top_p", "top_logprobs"):
@@ -215,21 +243,28 @@ async def create_completion(client: Any, **kwargs: Any) -> Any:
     """Select the native endpoint and keep one internal completion shape."""
     if kwargs.get("max_tokens") is None:
         kwargs.pop("max_tokens", None)
-    model = kwargs["model"].lower()
+    model = _model_family(kwargs["model"])
     if model.startswith(("kimi-k3.1", "minimax-m3.1-flash")):
         for key in ("temperature", "top_p", "n", "presence_penalty", "frequency_penalty"):
             kwargs.pop(key, None)
     if model.startswith("mimo-v2.6"):
-        tokens = kwargs.pop("max_tokens", None)
-        if tokens is not None:
-            kwargs["max_completion_tokens"] = tokens
         if kwargs.get("extra_body", {}).get("thinking", {}).get("type") != "disabled":
             kwargs.pop("temperature", None)
             kwargs.pop("top_p", None)
-    responses = uses_responses_api(kwargs["model"])
+    responses = _requires_responses(model, kwargs)
     if responses:
         result = await client.responses.create(**_responses_kwargs(kwargs))
     else:
+        reasoning_chat = _OPENAI_REASONING_CHAT.match(model)
+        if "max_tokens" in kwargs and (
+            reasoning_chat or model.startswith(("mimo-v2.6", "kimi-k3.1", "minimax-m3", "grok-4"))
+        ):
+            kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+        if reasoning_chat:
+            default_effort = "none" if model in _DEFAULT_EFFORT_NONE else "medium"
+            if kwargs.get("reasoning_effort", default_effort) != "none":
+                for key in ("temperature", "top_p", "logprobs", "top_logprobs"):
+                    kwargs.pop(key, None)
         kwargs["messages"] = [{k: v for k, v in message.items() if k != "responses_reasoning"}
                               for message in kwargs["messages"]]
         result = await client.chat.completions.create(**kwargs)
