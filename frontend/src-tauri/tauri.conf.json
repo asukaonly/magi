@@ -90,6 +90,7 @@
       "server-dist/"
     ],
     "macOS": {
+      "minimumSystemVersion": "15.0",
       "entitlements": "Entitlements.plist",
       "dmg": {
         "windowSize": {

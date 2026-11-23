@@ -21,7 +21,7 @@ The repository automation source of truth is `.github/workflows/release.yml`.
 Current release expectations are:
 
 - official desktop release targets are macOS Apple Silicon and Windows x64; standalone Mac service packages target Apple Silicon. Releases after v0.1.30 no longer build or officially validate Intel Mac packages. Existing release assets are retained; generic build tooling may still accept Intel targets for contributor builds
-- macOS candidate builds use the supported `macos-15` Apple Silicon runner image; retired runner labels must be updated before a release
+- macOS desktop and standalone packages require macOS 15 or later. Candidate builds use the supported `macos-15` Apple Silicon runner image; retired runner labels must be updated before a release
 - maintainers run `scripts/bump-release.sh` only from an up-to-date `main` branch; the script synchronizes version metadata, pushes `main`, and gates tag creation on a successful full `ci.yml` run for the exact release commit. If a resume commit has only scoped checks, the script dispatches and waits for a full run before tagging. It retries delayed registration and temporary GitHub API errors, then tags the verified commit even if the local branch has moved
 - `release.yml` independently requires the successful `Full validation` job for that exact commit before any platform build, so a scoped green run or a manually pushed tag cannot bypass the full validation gate
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
@@ -34,7 +34,7 @@ Current release expectations are:
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
 - if installation fails after the desktop disconnects its service, recovery goes through the app bootstrap to replace runtime credentials, API clients and event streams; remote services are never stopped by a desktop update
 - the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration, startup runs a delayed background check, and packaged builds reuse the app-level network proxy for updater requests when configured
-- macOS signing and notarization should be supplied through repository secrets before shipping public releases to end users
+- macOS finalization signs the embedded runtimes first. It signs the outer app with the desktop microphone entitlement, checks the signed entitlements, then notarizes and staples the app before creating the DMG and signed updater archive
 
 ### CI scope and schedules
 

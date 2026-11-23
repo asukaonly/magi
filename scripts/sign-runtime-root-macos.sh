@@ -40,7 +40,7 @@ while IFS= read -r -d '' f; do
     BROKEN=$((BROKEN + 1))
     echo "  broke: $(rel_path "$f") (was ${NLINKS} links)"
   fi
-done < <(find "${RUNTIME_ROOT}" -type f -print0)
+done < <(find "${RUNTIME_ROOT}" -type f -links +1 -print0)
 echo "    Broke ${BROKEN} hardlink(s)."
 
 echo "==> Defusing .framework directories in ${LABEL} ..."

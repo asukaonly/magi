@@ -252,7 +252,7 @@ jobs:
             echo "| macOS (Apple Silicon) | \`Magi_${current_tag#v}_aarch64.dmg\` |"
             echo "| Windows | \`Magi_${current_tag#v}_x64-setup.exe\` |"
             echo
-            echo "macOS desktop and standalone service packages require Apple Silicon. Intel Mac packages are no longer produced."
+            echo "macOS desktop and standalone service packages require Apple Silicon and macOS 15 or later. Intel Mac packages are no longer produced."
             echo
             echo "> Other assets (\`.app.tar.gz\`, \`.sig\`, \`.json\`) are for the built-in auto-updater. No manual download needed."
             echo

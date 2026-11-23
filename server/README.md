@@ -2,7 +2,7 @@
 
 Magi Server runs the Rust gateway and Python agent runtime without a desktop
 window. The desktop client can use a local instance or connect to a paired
-remote center. This release targets a logged-in, always-on Mac for deployment.
+remote center. This release targets a logged-in, always-on Apple Silicon Mac running macOS 15 or later for deployment.
 
 ## Install and start
 
