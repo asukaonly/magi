@@ -440,6 +440,9 @@ def test_workflow_wires_draft_desktop_and_signed_standalone_candidates():
     builds = [step for step in steps if step.get("uses", "").startswith("tauri-apps/tauri-action@")]
     assert len(builds) == 1
     assert builds[0]["with"]["releaseDraft"] is True
+    assert builds[0]["with"]["tagName"] == "${{ github.ref_name }}"
+    assert builds[0]["with"]["releaseCommitish"] == "${{ github.event.repository.default_branch }}"
+    assert any("check-release-tag.sh" in step.get("run", "") for step in steps[:steps.index(builds[0])])
     tauri_config = json.loads((REPO_ROOT / "frontend/src-tauri/tauri.conf.json").read_text())
     assert tauri_config["build"]["beforeBuildCommand"] == "node ../scripts/prepare-tauri-build.mjs"
     packages = [
@@ -455,7 +458,7 @@ def test_workflow_wires_draft_desktop_and_signed_standalone_candidates():
     assert "environment" not in publish
     check, promote = publish["steps"][-2:]
     assert "scripts/check-release-assets.py" in check["run"]
-    assert "--draft=false" in promote["run"]
+    assert promote["run"].index("check-release-tag.sh") < promote["run"].index("--draft=false")
     assert not any("if" in item or "continue-on-error" in item for item in (publish, check, promote))
 
 
