@@ -451,6 +451,8 @@ def test_workflow_wires_draft_desktop_and_signed_standalone_candidates():
     assert packages[0]["env"]["MAGI_REQUIRE_SERVICE_NOTARIZATION"] == "1"
     publish = jobs["publish-release"]
     assert publish["needs"] == "publish-tauri"
+    assert jobs["publish-tauri"]["environment"] == "release"
+    assert "environment" not in publish
     check, promote = publish["steps"][-2:]
     assert "scripts/check-release-assets.py" in check["run"]
     assert "--draft=false" in promote["run"]

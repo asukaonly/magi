@@ -223,7 +223,6 @@ jobs:
     name: Verify assets and publish release
     needs: publish-tauri
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: write
     steps:
