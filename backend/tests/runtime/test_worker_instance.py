@@ -37,7 +37,7 @@ def test_closing_owner_pipe_stops_worker_and_releases_lease(tmp_path: Path) -> N
         "import os,sys,time; from pathlib import Path; "
         "from magi.utils.worker_instance import WorkerInstance; "
         "guard=WorkerInstance(Path(sys.argv[1]), os.getppid()); "
-        "guard.__enter__(); print('ready',flush=True); time.sleep(60)"
+        "guard.__enter__(); import numpy; print('ready',flush=True); time.sleep(60)"
     )
     process = subprocess.Popen(
         [sys.executable, "-c", script, str(root)],
@@ -47,7 +47,7 @@ def test_closing_owner_pipe_stops_worker_and_releases_lease(tmp_path: Path) -> N
     lines: queue.Queue[str] = queue.Queue()
     threading.Thread(target=lambda: lines.put(process.stdout.readline()), daemon=True).start()
     try:
-        assert lines.get(timeout=5).strip() == "ready"
+        assert lines.get(timeout=15).strip() == "ready"
         with pytest.raises(RuntimeError, match="already owns"):
             with WorkerInstance(root):
                 pass
@@ -82,10 +82,12 @@ def test_worker_uses_supervisor_shutdown_budget(tmp_path, monkeypatch):
             return True
 
     worker._stop = Stop()
-    monkeypatch.setattr("magi.utils.worker_instance.os.read", lambda *_: b"")
     monkeypatch.setattr("magi.utils.worker_instance.os.kill", lambda *_: None)
-    monkeypatch.setattr("magi.utils.worker_instance.sys.stdin", type("Input", (), {"fileno": lambda _: 0})())
-    worker._watch_owner()
+    reader, writer = os.pipe()
+    os.close(writer)
+    with os.fdopen(reader, "rb") as owner_pipe:
+        monkeypatch.setattr("magi.utils.worker_instance.sys.stdin", owner_pipe)
+        worker._watch_owner()
     assert waits == [45]
     assert "MAGI_WORKER_SHUTDOWN_TIMEOUT_SECS" not in os.environ
 

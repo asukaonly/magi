@@ -227,7 +227,9 @@ store before binding; business database routes and background notification reads
 remain gated until Python finishes
 the audit and initializes storage. Runtime path construction reuses only that
 live audited lease and still validates named directory boundaries. Windows retains
-one native ACL audit plus Python boundary validation. Listener startup uses the
+one native ACL audit plus Python boundary validation. Its worker observes the
+owner pipe without a pending read so native libraries can initialize while the
+desktop is connected. Listener startup uses the
 configured startup budget plus any predecessor drain, independently of model setup.
 The standalone owner publishes its gateway phase, failure and retry deadline in
 an atomic private diagnostic snapshot. The snapshot is accepted only while the

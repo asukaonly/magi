@@ -104,7 +104,17 @@ class WorkerInstance:
     def _watch_owner(self) -> None:
         # Only the supervisor owns this inherited pipe. EOF also covers SIGKILL.
         try:
-            os.read(sys.stdin.fileno(), 1)
+            if sys.platform == "win32":
+                import _winapi
+                import msvcrt
+
+                # A pending synchronous stdin read blocks NumPy's native initialization on Windows.
+                handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+                while not _winapi.PeekNamedPipe(handle)[0]:
+                    if self._stop.wait(0.25):
+                        return
+            else:
+                os.read(sys.stdin.fileno(), 1)
         except OSError:
             pass
         if not self._stop.is_set():
