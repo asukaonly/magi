@@ -868,21 +868,26 @@ def test_current_glm_models_always_think(model, depth, effort):
 
 @pytest.mark.asyncio
 async def test_tool_roundtrip_preserves_provider_reasoning():
-    message = SimpleNamespace(content="", reasoning_content="provider reasoning", tool_calls=[
+    message = SimpleNamespace(content="", reasoning_content="provider reasoning", encrypted_content="opaque", tool_calls=[
         SimpleNamespace(id="call_1", function=SimpleNamespace(name="lookup", arguments='{"key":"value"}'))
     ])
     response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="tool_calls")])
     bridge = LLMProviderBridge(DummyLLMAdapter(provider="glm", client=DummyOpenAIClient(response=response)))
     result = await bridge.chat_with_tools("sys", [{"role": "user", "content": "hi"}], [])
     assert result.assistant_message["reasoning_content"] == "provider reasoning"
+    assert result.assistant_message["encrypted_content"] == "opaque"
     from magi.llm.provider_bridge.tool_streaming import _OpenAIToolStreamState
     state = _OpenAIToolStreamState()
     await bridge._operations._emit_openai_reasoning_delta(SimpleNamespace(reasoning_content="part 1"), state)
     await bridge._operations._emit_openai_reasoning_delta(SimpleNamespace(reasoning_content=" part 2"), state)
+    await bridge._operations._handle_openai_tool_stream_chunk(
+        SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(encrypted_content="whole-frame"))]), state
+    )
     state.tool_calls_by_index[0] = {"id": "call_1", "name": "lookup", "arguments_parts": ['{}']}
     state.has_tool_calls = True
     streamed = await bridge._operations._build_openai_tool_stream_result(bridge._operations, state)
     assert streamed.provider_response.assistant_message["reasoning_content"] == "part 1 part 2"
+    assert streamed.provider_response.assistant_message["encrypted_content"] == "whole-frame"
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("provider,model", [("kimi", "kimi-k3.1-pro"), ("minimax", "MiniMax-M3.1-Flash")])

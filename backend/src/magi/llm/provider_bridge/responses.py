@@ -397,6 +397,8 @@ class ProviderBridgeResponseMixin:
                     "tool_calls": raw_tool_calls,
                     **({"reasoning_content": message.reasoning_content}
                        if getattr(message, "reasoning_content", None) else {}),
+                    **({"encrypted_content": message.encrypted_content}
+                       if getattr(message, "encrypted_content", None) else {}),
                     **({"responses_reasoning": message.responses_reasoning}
                        if getattr(message, "responses_reasoning", None) else {}),
                 },
@@ -427,6 +429,7 @@ class ProviderBridgeResponseMixin:
             try:
                 dumped = message.model_dump()
                 dumped.pop("responses_reasoning", None)
+                dumped.pop("encrypted_content", None)
                 metadata["raw_message"] = dumped
             except Exception:
                 pass

@@ -281,6 +281,7 @@ class ProviderBridgeOptionsMixin:
                     if "max_tokens" in kwargs:
                         kwargs["max_tokens"] = min(kwargs["max_tokens"], 131_072)
                     return kwargs
+                kwargs["extra_body"].update(thinking_display="summarized", preserve_thinking=True)
             effort = "xhigh" if depth is ThinkingDepth.MAX else depth.value
             if thinking_depth is ThinkingDepth.NONE and model_id.startswith("gemini-3.") and "flash" in model_id:
                 effort = "minimal"

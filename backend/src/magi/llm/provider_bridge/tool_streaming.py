@@ -58,6 +58,7 @@ class _OpenAIToolStreamState:
     tool_calls_by_index: Dict[int, Dict[str, Any]] = field(default_factory=dict)
     content_parts: List[str] = field(default_factory=list)
     reasoning_parts: List[str] = field(default_factory=list)
+    encrypted_content: str | None = None
     responses_reasoning: List[Dict[str, Any]] = field(default_factory=list)
     has_tool_calls: bool = False
     chunks_emitted: int = 0
@@ -494,6 +495,8 @@ class ProviderBridgeToolStreamingMixin:
                 state.usage_data = chunk.usage
             return
         delta = chunk.choices[0].delta
+        if getattr(delta, "encrypted_content", None):
+            state.encrypted_content = delta.encrypted_content
         if getattr(delta, "responses_reasoning", None):
             state.responses_reasoning = delta.responses_reasoning
 
@@ -685,6 +688,7 @@ class ProviderBridgeToolStreamingMixin:
                     "tool_calls": raw_tool_calls,
                     **({"reasoning_content": "".join(state.reasoning_parts)}
                        if state.reasoning_parts else {}),
+                    **({"encrypted_content": state.encrypted_content} if state.encrypted_content else {}),
                     **({"responses_reasoning": state.responses_reasoning}
                        if state.responses_reasoning else {}),
                 },
