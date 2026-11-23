@@ -975,6 +975,7 @@ Current product expectations:
 - provider/model metadata should come from the backend registry rather than hardcoded frontend lists
 - the bundled catalog was verified against official provider documentation on 2026-11-07; refreshed templates prefer GPT-6.1 Sol / GPT-6 Luna, Sonnet / Haiku 5.5, GLM 5.3, Gemini 3.8 Flash / 3.5 Flash-Lite, Grok 4.7, DeepSeek Flash, Qwen3.7 Plus / Qwen3.8 Flash, Kimi K3.1 Pro, MiniMax M3.1 Flash, and MiMo V2.6
 - catalog refreshes update available models and template defaults, not saved selections; retired models must be reselected explicitly. Coding-plan catalogs are verified independently of their providers’ standard API catalogs
+- The built-in Grok chat catalog excludes the 4.20 Multi-Agent variant. It requires xAI's multi-agent Responses workflow and does not accept Magi's client-side tools. Existing selections of that ID need a standard Grok chat model. [xAI multi-agent limitations](https://docs.x.ai/developers/model-capabilities/text/multi-agent#limitations)
 - unverified or time-dependent prices remain unset with a source note; published base, regional, promotional, and long-context rates are estimates under the documented conditions, not provider invoices
 - each selected model can expose a capability profile such as vision, reasoning, tool calling, and embedding support
 - the editable maximum output value describes model capability (including reasoning tokens), not the token budget sent on every request; it does not force longer answers

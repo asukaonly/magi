@@ -80,6 +80,7 @@ def test_llm_provider_catalog_returns_builtin_and_saved_custom_providers() -> No
     assert gpt_52["cost"]["output_per_million_tokens"] == 14.0
 
     grok_provider = next(provider for provider in providers if provider["id"] == "grok")
+    assert "grok-4.20-multi-agent-0309" not in {model["id"] for model in grok_provider["resolved_chat_models"]}
     grok_43 = next(model for model in grok_provider["resolved_chat_models"] if model["id"] == "grok-4.3")
     assert grok_provider["default_base_url"] == "https://api.x.ai/v1"
     assert grok_43["cost"]["input_per_million_tokens"] == 1.25
