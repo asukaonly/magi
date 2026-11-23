@@ -213,7 +213,8 @@ def build_pyinstaller_command(
             command.extend(["--collect-data", package, "--collect-binaries", package])
         for model in ("voxcpm2", "qwen3_tts", "moss_tts_nano", "moss_tts"):
             command.extend(["--collect-submodules", f"mlx_audio.tts.models.{model}"])
-        for package in ("mlx_audio.codec", "mlx_audio.lm", "transformers"):
+        # mlx.core imports Python helpers such as mlx._reprlib_fix from native code.
+        for package in ("mlx", "mlx_audio.codec", "mlx_audio.lm", "transformers"):
             command.extend(["--collect-submodules", package])
         for package in ("mlx-audio", "mlx", "transformers", "huggingface-hub", "sentencepiece", "soundfile"):
             command.extend(["--copy-metadata", package])

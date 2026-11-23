@@ -73,6 +73,15 @@ def test_build_pyinstaller_command_includes_required_hidden_imports(tmp_path: Pa
     assert command[-1] == "run_server.py"
 
 
+def test_apple_silicon_bundle_collects_mlx_python_helpers(monkeypatch) -> None:
+    monkeypatch.setattr(sidecar_build, "validate_inference_runtime", lambda: None)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(sidecar_build.platform, "machine", lambda: "arm64")
+
+    command = build_pyinstaller_command()
+    assert ("--collect-submodules", "mlx") in zip(command, command[1:])
+
+
 def test_project_checker_is_included_in_desktop_resources() -> None:
     entries = build_packaged_data_entries()
     assert any(
