@@ -20,6 +20,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", required=True, type=Path)
     parser.add_argument("--deny-checkout", type=Path, help="On macOS, deny the service access to this source tree")
+    parser.add_argument("--require-chroma", action="store_true", help="Check the release worker's bundled Chroma client")
     args = parser.parse_args()
     root = Path(tempfile.mkdtemp(prefix="ms-bundle-", dir="/private/tmp" if sys.platform == "darwin" else None)).resolve()
     bundle = root / "relocated service"
@@ -35,6 +36,10 @@ def main() -> None:
         # json.dumps provides the quoted string syntax expected by Seatbelt.
         profile = f'(version 1)(allow default)(deny file-read* (subpath {json.dumps(str(checkout))})(subpath "/opt/homebrew"))'
         prefix = ["/usr/bin/sandbox-exec", "-p", profile]
+    worker = bundle / "sidecar-dist" / ("magi-backend.exe" if os.name == "nt" else "magi-backend")
+    subprocess.run(prefix + [str(worker), "--check-inference-runtime"], check=True, cwd=root, env=environment, timeout=120)
+    if args.require_chroma:
+        subprocess.run(prefix + [str(worker), "--check-storage-runtime", "chroma"], check=True, cwd=root, env=environment, timeout=120)
     log = (root / "service.log").open("w")
     process = subprocess.Popen(prefix + [str(executable), "run", "--shutdown-on-stdin-close", "--config", str(config)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, cwd=root, env=environment)
     try:

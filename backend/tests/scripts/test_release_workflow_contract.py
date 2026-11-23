@@ -416,9 +416,16 @@ console.log(JSON.stringify(calls));
         ["cargo", ["build", "--locked", "--release", "-p", "magi-server", "--target", target]],
         sidecar,
     ]
-    destination = tmp_path / (
-        "frontend/src-tauri/server-dist" if entry == "desktop" else "build/service"
-    )
+    destination = tmp_path / "build/service"
+    if entry == "desktop":
+        if platform == "darwin":
+            macos = json.loads((REPO_ROOT / "frontend/src-tauri/tauri.macos.conf.json").read_text())["bundle"]
+            assert macos["resources"] == []
+            source = macos["macOS"]["files"]["Resources/server-dist"]
+            assert (tmp_path / "frontend/src-tauri" / source).resolve() == destination
+            assert not (tmp_path / "frontend/src-tauri/server-dist").exists()
+        else:
+            destination = tmp_path / "frontend/src-tauri/server-dist"
     assert {path.name: path.read_bytes() for path in destination.iterdir()} == {
         binary: b"fixture service executable",
         "VERSION": b"1.2.3\n",

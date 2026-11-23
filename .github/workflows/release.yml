@@ -197,14 +197,6 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
-      - name: Validate relocated standalone service
-        if: matrix.os_family == 'macos'
-        shell: bash
-        run: |
-          python scripts/smoke-service-bundle.py \
-            --bundle "${GITHUB_WORKSPACE}/target/${{ matrix.target }}/release/bundle/macos/Magi.app/Contents/Resources/server-dist" \
-            --deny-checkout "${GITHUB_WORKSPACE}"
-
       - name: Package standalone Mac service candidate
         if: matrix.os_family == 'macos'
         shell: bash

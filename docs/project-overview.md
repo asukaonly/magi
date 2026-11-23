@@ -28,7 +28,7 @@ Current release expectations are:
 - the full frontend, backend, API-contract, Rust gateway, and desktop-shell validation suite belongs to `ci.yml`; release jobs consume that result instead of repeating the same checks on every platform
 - backend CI logs each test identity, reports the slowest tests and emits thread traces after two minutes in one test. Parallel scheduling limits queued batches to 16 tests so the first failure can finish promptly without draining hundreds of already assigned cases
 - frontend contributors and CI share `npm run check:full`: application and build/test configuration type checks, lint, import boundaries, generated contracts, translation keys/interpolation, component tests, and the production build; `npm run check` runs the static checks only. These checks do not replace a packaged desktop smoke test.
-- full CI builds the macOS app and Windows NSIS installer without release keys. It starts the relocated service from the app and from the silently installed Windows package, exercises pairing and authenticated requests, and imports the bundled plugin SDK. Main-branch runs retain these tested candidates for seven days
+- full CI builds the macOS app and Windows NSIS installer without release keys. It starts the relocated service from the app and from the silently installed Windows package, exercises pairing and authenticated requests, imports the bundled plugin SDK, and runs the packaged inference and Chroma probes. Main-branch runs retain these tested candidates for seven days
 - the release job downloads both candidates by platform from the verified run ID. A release resumed after the artifacts expire requests fresh full CI before tagging
 - the desktop CI matrix pins Rust and stages the upstream ripgrep executable for each platform after verifying its digest
 - release builds use the digest-verified standalone CPython archive for both the freezer virtual environment and plugin runtime. The target-specific files in `scripts/release-requirements/` pin the freezer, its hooks and Python dependencies. To refresh a platform lock, run `uv pip compile scripts/release-requirements/build.in --upgrade --python-version 3.13.18 --python-platform "$target" --no-emit-package magi --no-emit-package magi-plugin-sdk --no-header --no-annotate -o "scripts/release-requirements/$target.txt"` from the repository root and validate both packages
@@ -37,7 +37,7 @@ Current release expectations are:
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
 - if installation fails after the desktop disconnects its service, recovery goes through the app bootstrap to replace runtime credentials, API clients and event streams; remote services are never stopped by a desktop update
 - the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration, startup runs a delayed background check, and packaged builds reuse the app-level network proxy for updater requests when configured
-- macOS finalization signs the embedded runtimes first. It signs the outer app with the desktop microphone entitlement, checks the signed entitlements, then notarizes and staples the app before creating the DMG and signed updater archive
+- macOS finalization signs the embedded runtimes first. It signs the outer app with the desktop microphone entitlement, checks the signed entitlements and exercises the signed worker and service, then notarizes and staples the app before creating the DMG and signed updater archive
 
 ### CI scope and schedules
 
@@ -454,8 +454,9 @@ pairing flow. Once connected, persisted center onboarding status determines
 whether to enter the application or continue model setup, without another welcome.
 
 `prepare-service-bundle.mjs` stages the shared executable, Python worker, SDK and
-plugin Python under `build/service/`. Desktop builds copy this complete bundle
-to `frontend/src-tauri/server-dist/`; packaged startup has no source-tree fallback.
+plugin Python under `build/service/`. The macOS bundler copies this directory into the app through `bundle.macOS.files`
+so PyInstaller library symlinks and adjacent Metal shaders retain their layout. Other desktop
+targets stage it at `frontend/src-tauri/server-dist/`. Packaged startup uses the bundled service.
 `MAGI_BUILD_TARGET` selects an explicit release target. Development builds compile
 the same `magi-server` executable before opening Tauri. No development or installer
 helper may kill processes by executable name or arbitrary listening port.

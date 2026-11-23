@@ -28,9 +28,12 @@ if (process.platform === "win32") {
   run("npm", ["run", "build"], frontendDir);
 }
 
-const { prepareServiceBundle, serviceBundle } = await import('./prepare-service-bundle.mjs');
-prepareServiceBundle();
-const { cpSync, rmSync } = await import('node:fs');
-const destination = path.join(frontendDir, 'src-tauri/server-dist');
-rmSync(destination, { recursive: true, force: true });
-cpSync(serviceBundle, destination, { recursive: true, verbatimSymlinks: true });
+const { prepareServiceBundle } = await import('./prepare-service-bundle.mjs');
+const { target, directory } = prepareServiceBundle();
+// The macOS bundler copies the service directory directly to preserve native library symlinks.
+if (!target.endsWith('-apple-darwin')) {
+  const { cpSync, rmSync } = await import('node:fs');
+  const destination = path.join(frontendDir, 'src-tauri/server-dist');
+  rmSync(destination, { recursive: true, force: true });
+  cpSync(directory, destination, { recursive: true, verbatimSymlinks: true });
+}

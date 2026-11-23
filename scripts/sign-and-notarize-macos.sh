@@ -133,6 +133,9 @@ if plistlib.loads(sys.stdin.buffer.read()) != expected:
     sys.exit("Signed desktop entitlements differ from Entitlements.plist")
 ' "${desktop_entitlements}"
 
+python3 "${ROOT_DIR}/scripts/smoke-service-bundle.py" --require-chroma \
+  --bundle "${APP_PATH}/Contents/Resources/server-dist" --deny-checkout "${ROOT_DIR}"
+
 staging="$(mktemp -d "${RUNNER_TEMP:-/tmp}/magi-desktop.XXXXXX")"
 trap 'rm -rf "$staging"' EXIT
 ditto -c -k --keepParent "${APP_PATH}" "${staging}/notarize.zip"

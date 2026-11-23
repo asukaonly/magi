@@ -443,7 +443,7 @@ jobs:
         run: |
           app="target/${MAGI_BUILD_TARGET}/release/bundle/macos/Magi.app"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")" = 15.0
-          python scripts/smoke-service-bundle.py --bundle "$app/Contents/Resources/server-dist" --deny-checkout "$GITHUB_WORKSPACE"
+          python scripts/smoke-service-bundle.py --require-chroma --bundle "$app/Contents/Resources/server-dist" --deny-checkout "$GITHUB_WORKSPACE"
 
       - name: Install Windows candidate and validate bundled service
         if: needs.changes.outputs.full == 'true' && runner.os == 'Windows'
@@ -454,7 +454,7 @@ jobs:
           $install = Join-Path $env:RUNNER_TEMP 'Magi Candidate'
           $process = Start-Process -FilePath $setup -ArgumentList "/S /D=$install" -PassThru -Wait
           if ($process.ExitCode -ne 0) { throw "Installer exited with $($process.ExitCode)" }
-          python scripts/smoke-service-bundle.py --bundle "$install/server-dist"
+          python scripts/smoke-service-bundle.py --require-chroma --bundle "$install/server-dist"
 
       - name: Archive the checked candidate for release
         if: needs.changes.outputs.full == 'true' && github.ref == 'refs/heads/main'
