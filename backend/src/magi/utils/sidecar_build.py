@@ -196,6 +196,8 @@ def build_pyinstaller_command(
         "--noconfirm",
         "--clean",
         "--onedir",
+        "--additional-hooks-dir",
+        str(Path(__file__).resolve().parents[3] / "pyinstaller-hooks"),
         "--name",
         name,
     ]
@@ -214,12 +216,12 @@ def build_pyinstaller_command(
         for model in ("voxcpm2", "qwen3_tts", "moss_tts_nano", "moss_tts"):
             command.extend(["--collect-submodules", f"mlx_audio.tts.models.{model}"])
         # mlx.core imports Python helpers such as mlx._reprlib_fix from native code.
-        for package in ("mlx", "mlx_audio.codec", "mlx_audio.lm", "transformers"):
+        for package in ("mlx", "mlx_audio.codec", "mlx_audio.lm"):
             command.extend(["--collect-submodules", package])
         for package in ("mlx-audio", "mlx", "transformers", "huggingface-hub", "sentencepiece", "soundfile"):
             command.extend(["--copy-metadata", package])
     if "chroma" in storage_backends:
-        command.extend(["--collect-all", "chromadb"])
+        command.extend(["--hidden-import", "chromadb", "--exclude-module", "chromadb.test"])
     for package_name in COLLECT_SUBMODULE_PACKAGES:
         command.extend(["--collect-submodules", package_name])
     for package_name in COLLECT_BINARY_PACKAGES:
