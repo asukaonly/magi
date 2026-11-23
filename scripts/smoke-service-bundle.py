@@ -6,6 +6,7 @@ import argparse
 import http.client
 import json
 import os
+import secrets
 from pathlib import Path
 import shutil
 import subprocess
@@ -21,6 +22,7 @@ def main() -> None:
     parser.add_argument("--bundle", required=True, type=Path)
     parser.add_argument("--deny-checkout", type=Path, help="On macOS, deny the service access to this source tree")
     parser.add_argument("--require-chroma", action="store_true", help="Check the release worker's bundled Chroma client")
+    parser.add_argument("--desktop-owner", action="store_true", help="Use the desktop host's stdin bootstrap and authenticated gateway")
     args = parser.parse_args()
     root = Path(tempfile.mkdtemp(prefix="ms-bundle-", dir="/private/tmp" if sys.platform == "darwin" else None)).resolve()
     bundle = root / "relocated service"
@@ -28,6 +30,7 @@ def main() -> None:
     executable = bundle / ("magi-server.exe" if os.name == "nt" else "magi-server")
     config = root / "server.json"
     environment = {key: os.environ[key] for key in ("HOME", "USERPROFILE", "SYSTEMROOT", "LANG", "TMPDIR", "TMP", "TEMP") if key in os.environ}
+    environment["MAGI_HOME"] = str(root / "data")
     environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin" if os.name != "nt" else os.environ.get("SYSTEMROOT", r"C:\Windows") + r"\System32"
     subprocess.run([str(executable), "init", "--config", str(config), "--data-dir", str(root / "data"), "--port", "0"], check=True, cwd=root, env=environment)
     prefix: list[str] = []
@@ -41,8 +44,13 @@ def main() -> None:
     if args.require_chroma:
         subprocess.run(prefix + [str(worker), "--check-storage-runtime", "chroma"], check=True, cwd=root, env=environment, timeout=120)
     log = (root / "service.log").open("w")
-    process = subprocess.Popen(prefix + [str(executable), "run", "--shutdown-on-stdin-close", "--config", str(config)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, cwd=root, env=environment)
+    owner_token = secrets.token_urlsafe(32) if args.desktop_owner else None
+    launch_mode = "--bootstrap-stdin" if owner_token else "--shutdown-on-stdin-close"
+    process = subprocess.Popen(prefix + [str(executable), "run", launch_mode, "--config", str(config)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, cwd=root, env=environment)
     try:
+        if owner_token:
+            process.stdin.write(json.dumps({"session_token": owner_token}) + "\n")
+            process.stdin.flush()
         lines: Queue[str] = Queue()
         threading.Thread(target=lambda: lines.put(process.stdout.readline()), daemon=True).start()
         info = json.loads(lines.get(timeout=15))
@@ -51,18 +59,6 @@ def main() -> None:
         def operator(command: str) -> dict:
             result = subprocess.run([str(executable), command, "--config", str(config)], capture_output=True, text=True, env=environment, cwd=root, timeout=10, check=True)
             return json.loads(result.stdout)
-
-        deadline = time.monotonic() + 100
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise RuntimeError("Packaged service exited during startup")
-            status = operator("status")
-            if status.get("service_ready"):
-                break
-            time.sleep(0.5)
-        else:
-            raise RuntimeError("Packaged runtime never became ready")
-        grant = operator("pair")
 
         def call(method: str, path: str, payload: dict | None = None, token: str | None = None) -> tuple[int, dict]:
             connection = http.client.HTTPConnection(authority, timeout=10)
@@ -80,6 +76,28 @@ def main() -> None:
                 return response.status, value
             finally:
                 connection.close()
+
+        deadline = time.monotonic() + 100
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeError("Packaged service exited during startup")
+            if owner_token:
+                code, response = call("GET", "/api/server/info", token=owner_token)
+                assert code == 200, code
+                status = response["data"]
+            else:
+                status = operator("status")
+            if status.get("service_ready"):
+                break
+            time.sleep(0.5)
+        else:
+            raise RuntimeError(f"Packaged runtime never became ready: {status.get('supervisor')}")
+        if owner_token:
+            code, response = call("POST", "/api/server/pairing-grants", token=owner_token)
+            assert code == 200, code
+            grant = response["data"]
+        else:
+            grant = operator("pair")
 
         code, paired = call("POST", "/api/auth/pair", {"name": "Relocated bundle validation"}, token=grant["pairing_token"])
         assert code == 200, (code, paired)
