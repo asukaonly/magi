@@ -179,20 +179,27 @@ elif name == "gh":
     if args[:2] == ["run", "list"]:
         assert args[args.index("--workflow") + 1] == "ci.yml"
         expected_head = os.environ["EXPECTED_CI_HEAD"]
-        assert f'.headSha=="{expected_head}"' in args[args.index("-q") + 1], args
-        if "--event" in args:
+        assert args[args.index("--commit") + 1] == expected_head
+        ci = os.environ["FAKE_CI"]
+        if ci == "delayed" and not head_file.with_suffix(".registered").exists():
+            head_file.with_suffix(".registered").touch()
+        elif "--event" in args:
             assert args[args.index("--event") + 1] == "workflow_dispatch"
-            print("" if os.environ["FAKE_CI"] == "full_missing" else "124")
+            print("" if ci == "full_missing" else "124")
         else:
-            print("" if os.environ["FAKE_CI"] == "missing" else "123")
-    elif args[:2] == ["run", "watch"]:
-        assert args[2] in {"123", "124"} and args[3:] == ["--exit-status"]
-        failed = os.environ["FAKE_CI"] == "failure" or (args[2] == "124" and os.environ["FAKE_CI"] == "full_failure")
-        sys.exit(1 if failed else 0)
+            print("" if ci == "missing" else "123")
     elif args[:2] == ["run", "view"]:
-        assert '\"Full validation\"' in args[args.index("--jq") + 1]
-        partial = os.environ["FAKE_CI"] in {"partial", "full_failure", "full_missing", "full_unconfirmed"}
-        print("0" if (args[2] == "123" and partial) or os.environ["FAKE_CI"] == "full_unconfirmed" else "1")
+        assert '"Full validation"' in args[args.index("--jq") + 1]
+        ci = os.environ["FAKE_CI"]
+        head_file.write_text("new-local-commit")
+        if ci == "transient" and not head_file.with_suffix(".retried").exists():
+            head_file.with_suffix(".retried").touch()
+            sys.exit(1)
+        partial = ci in {"partial", "full_failure", "full_missing", "full_unconfirmed"}
+        if ci == "failure" or (args[2] == "124" and ci == "full_failure"):
+            print("failure")
+        else:
+            print("scoped" if (args[2] == "123" and partial) or ci == "full_unconfirmed" else "full")
     elif args[:2] == ["workflow", "run"]:
         assert args == ["workflow", "run", "ci.yml", "--ref", "main"]
     else:
@@ -277,7 +284,7 @@ def test_release_preflight_blocks_mutations_until_branch_policy_passes(
     else:
         version = "1.2.3" if mode == "resume" else "1.2.4"
         assert ["python", "scripts/release-version.py", "validate", "--version", version] in calls
-        assert ["git", "tag", "-a", f"v{version}", "-m", f"Release v{version}"] in calls
+        assert ["git", "tag", "-a", f"v{version}", "local-commit" if mode == "resume" else "release-commit", "-m", f"Release v{version}"] in calls
         assert ["git", "push", "origin", f"v{version}"] in calls
         sync_calls = [
             call for call in calls if call[:3] == ["python", "scripts/release-version.py", "sync"]
@@ -287,26 +294,26 @@ def test_release_preflight_blocks_mutations_until_branch_policy_passes(
         )
 
 
-@pytest.mark.parametrize("ci", ["success", "partial", "failure", "missing", "full_failure", "full_missing", "full_unconfirmed"])
+@pytest.mark.parametrize("ci", ["success", "partial", "delayed", "transient", "failure", "missing", "full_failure", "full_missing", "full_unconfirmed"])
 def test_release_creates_tag_only_after_successful_remote_ci(tmp_path, ci):
     result, calls = _run_release_script(tmp_path, state="aligned", ci=ci)
-    assert ["git", "push", "origin", "main"] in calls
+    assert ["git", "push", "origin", "release-commit:refs/heads/main"] in calls
     tag_calls = [call for call in calls if call[:2] == ["git", "tag"]]
-    if ci in {"success", "partial"}:
+    if ci in {"success", "partial", "delayed", "transient"}:
         assert result.returncode == 0, result.stdout + result.stderr
         assert len(tag_calls) == 1
-        assert calls.index(["gh", "run", "watch", "123", "--exit-status"]) < calls.index(tag_calls[0])
+        assert next(i for i, call in enumerate(calls) if call[:4] == ["gh", "run", "view", "123"]) < calls.index(tag_calls[0])
         dispatch = [call for call in calls if call[:2] == ["gh", "workflow"]]
         if ci == "partial":
             assert dispatch == [["gh", "workflow", "run", "ci.yml", "--ref", "main"]]
-            assert calls.index(["gh", "run", "watch", "124", "--exit-status"]) < calls.index(tag_calls[0])
+            assert next(i for i, call in enumerate(calls) if call[:4] == ["gh", "run", "view", "124"]) < calls.index(tag_calls[0])
         else:
             assert dispatch == []
     else:
         assert result.returncode != 0
         assert tag_calls == []
         assert [call for call in calls if call[:2] == ["git", "push"]] == [
-            ["git", "push", "origin", "main"]
+            ["git", "push", "origin", "release-commit:refs/heads/main"]
         ]
 
 

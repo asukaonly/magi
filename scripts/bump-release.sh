@@ -93,6 +93,8 @@ if [[ "$PART" != "resume" ]]; then
   git commit -m "chore(release): ${TAG}"
 fi
 
+HEAD_SHA="$(git rev-parse HEAD)"
+
 # --- local sanity (environment-independent: batch suite avoids fastapi) ---
 echo ">>> Local sanity: backend batch suite"
 if ! ( cd backend && python -m pytest tests/agent/batch -q ); then
@@ -104,52 +106,65 @@ fi
 
 # --- push branch, then gate on the remote CI run it triggers --------------
 echo ">>> Pushing ${BRANCH} (remote CI is the source of truth) ..."
-git push origin "${BRANCH}"
+git push origin "${HEAD_SHA}:refs/heads/${BRANCH}"
 
-echo ">>> Waiting for CI to register the run ..."
-sleep 8
-HEAD_SHA="$(git rev-parse HEAD)"
-RUN_ID="$(gh run list --branch "${BRANCH}" --workflow ci.yml --limit 20 \
-  --json databaseId,headSha -q "[.[] | select(.headSha==\"${HEAD_SHA}\")][0].databaseId")"
-if [[ -z "${RUN_ID}" ]]; then
-  echo "ERROR: no ci.yml run found for ${HEAD_SHA}." >&2
-  echo "       Check 'gh run list', then retry with: $0 resume" >&2
-  exit 1
-fi
+find_run() {
+  local run_id attempt
+  for attempt in {1..20}; do
+    if run_id="$(gh run list --workflow ci.yml --branch "${BRANCH}" --commit "${HEAD_SHA}" "$@" \
+        --limit 1 --json databaseId --jq '.[0].databaseId // empty')" && [[ -n "$run_id" ]]; then
+      echo "$run_id"
+      return
+    fi
+    sleep 6
+  done
+  echo "ERROR: CI registration unavailable for ${HEAD_SHA}. Retry with: $0 resume" >&2
+  return 1
+}
 
-echo ">>> Watching CI run ${RUN_ID} (this blocks until CI finishes) ..."
-if ! gh run watch "${RUN_ID}" --exit-status; then
-  echo "" >&2
-  echo ">>> CI FAILED. The commit is pushed on ${BRANCH}, but NO tag was created" >&2
-  echo ">>> (release.yml NOT triggered). Fix forward, then run: $0 resume" >&2
-  exit 1
-fi
+# Read status and the full-validation marker in one snapshot. A failed API
+# request says nothing about the tests and can be retried without a new run.
+wait_for_ci() {
+  local run_id="$1" snapshot failures=0
+  echo ">>> Waiting for CI run ${run_id} ..." >&2
+  while true; do
+    if snapshot="$(gh run view "$run_id" --json status,conclusion,jobs --jq '
+      if .status != "completed" then "pending"
+      elif .conclusion != "success" then .conclusion
+      elif any(.jobs[]; .name == "Full validation" and .conclusion == "success") then "full"
+      else "scoped" end')"; then
+      failures=0
+      case "$snapshot" in
+        full|scoped) echo "$snapshot"; return ;;
+        pending) ;;
+        *) echo "ERROR: CI run ${run_id} concluded ${snapshot}; no tag created." >&2; return 1 ;;
+      esac
+    else
+      failures=$((failures + 1))
+      if (( failures >= 10 )); then
+        echo "ERROR: Unable to read CI run ${run_id}. Retry with: $0 resume" >&2
+        return 1
+      fi
+    fi
+    sleep 20
+  done
+}
 
-# A resume commit can have only scoped push checks; releases still require all jobs.
-FULL_QUERY='[.jobs[] | select(.name == "Full validation" and .conclusion == "success")] | length'
-if [[ "$(gh run view "${RUN_ID}" --json jobs --jq "${FULL_QUERY}")" != "1" ]]; then
+RUN_ID="$(find_run)"
+RESULT="$(wait_for_ci "$RUN_ID")"
+if [[ "$RESULT" == "scoped" ]]; then
   echo ">>> Requesting full CI for release commit ${HEAD_SHA} ..."
   gh workflow run ci.yml --ref "${BRANCH}"
-  FULL_RUN_ID=""
-  for attempt in {1..30}; do
-    sleep 2
-    FULL_RUN_ID="$(gh run list --branch "${BRANCH}" --workflow ci.yml --event workflow_dispatch --limit 20 \
-      --json databaseId,headSha -q "[.[] | select(.headSha==\"${HEAD_SHA}\")][0].databaseId")"
-    [[ -n "${FULL_RUN_ID}" ]] && break
-  done
-  if [[ -z "${FULL_RUN_ID}" ]] || ! gh run watch "${FULL_RUN_ID}" --exit-status; then
-    echo "ERROR: full CI did not pass for ${HEAD_SHA}; no tag was created. Retry with: $0 resume" >&2
+  RUN_ID="$(find_run --event workflow_dispatch)"
+  [[ "$(wait_for_ci "$RUN_ID")" == "full" ]] || {
+    echo "ERROR: CI did not confirm full validation; no tag created." >&2
     exit 1
-  fi
-  if [[ "$(gh run view "${FULL_RUN_ID}" --json jobs --jq "${FULL_QUERY}")" != "1" ]]; then
-    echo "ERROR: CI did not confirm full validation; no tag was created." >&2
-    exit 1
-  fi
+  }
 fi
 
 # --- CI green -> tag + push tag (triggers release.yml) --------------------
 echo ">>> CI green. Tagging ${TAG} ..."
-git tag -a "${TAG}" -m "Release ${TAG}"
+git tag -a "${TAG}" "${HEAD_SHA}" -m "Release ${TAG}"
 git push origin "${TAG}"
 
 echo ">>> Prepared candidate ${TAG}: pushed ${BRANCH} and ${TAG}."
