@@ -8,7 +8,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
@@ -27,7 +26,7 @@ def main() -> None:
     shutil.copytree(args.bundle.resolve(), bundle, symlinks=True)
     executable = bundle / ("magi-server.exe" if os.name == "nt" else "magi-server")
     config = root / "server.json"
-    environment = {key: os.environ[key] for key in ("HOME", "USERPROFILE", "SYSTEMROOT", "LANG", "TMPDIR") if key in os.environ}
+    environment = {key: os.environ[key] for key in ("HOME", "USERPROFILE", "SYSTEMROOT", "LANG", "TMPDIR", "TMP", "TEMP") if key in os.environ}
     environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin" if os.name != "nt" else os.environ.get("SYSTEMROOT", r"C:\Windows") + r"\System32"
     subprocess.run([str(executable), "init", "--config", str(config), "--data-dir", str(root / "data"), "--port", "0"], check=True, cwd=root, env=environment)
     prefix: list[str] = []
@@ -37,7 +36,7 @@ def main() -> None:
         profile = f'(version 1)(allow default)(deny file-read* (subpath {json.dumps(str(checkout))})(subpath "/opt/homebrew"))'
         prefix = ["/usr/bin/sandbox-exec", "-p", profile]
     log = (root / "service.log").open("w")
-    process = subprocess.Popen(prefix + [str(executable), "run", "--config", str(config)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=log, text=True, cwd=root, env=environment)
+    process = subprocess.Popen(prefix + [str(executable), "run", "--shutdown-on-stdin-close", "--config", str(config)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, cwd=root, env=environment)
     try:
         lines: Queue[str] = Queue()
         threading.Thread(target=lambda: lines.put(process.stdout.readline()), daemon=True).start()
@@ -95,7 +94,7 @@ def main() -> None:
         print(json.dumps({"result": "passed", "data_root": str(root), "source_access_denied": bool(args.deny_checkout), "server_id": credentials["server_id"]}), flush=True)
     finally:
         if process.poll() is None:
-            process.send_signal(signal.SIGTERM)
+            process.stdin.close()
             try:
                 process.wait(timeout=20)
             except subprocess.TimeoutExpired:

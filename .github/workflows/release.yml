@@ -12,13 +12,18 @@ concurrency:
 jobs:
   verify-ci:
     name: Verify release commit CI
+    outputs:
+      run_id: ${{ steps.verify.outputs.run_id }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
 
     steps:
+      - name: Checkout release verifier
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Require successful CI for release commit
+        id: verify
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -26,17 +31,20 @@ jobs:
           run_ids="$(
             gh run list \
               --repo "${GITHUB_REPOSITORY}" \
-              --workflow ci.yml \
+              --workflow ci.yml --branch main \
               --commit "${GITHUB_SHA}" \
               --status success \
               --limit 20 \
-              --json databaseId,headSha \
-              --jq '.[] | select(.headSha == env.GITHUB_SHA) | .databaseId'
+              --json databaseId,headSha,event \
+              --jq '.[] | select(.headSha == env.GITHUB_SHA and (.event == "push" or .event == "workflow_dispatch" or .event == "schedule")) | .databaseId'
           )"
           for run_id in ${run_ids}; do
             full="$(gh run view "${run_id}" --repo "${GITHUB_REPOSITORY}" --json jobs \
               --jq '[.jobs[] | select(.name == "Full validation" and .conclusion == "success")] | length')"
-            if [ "${full}" = "1" ]; then
+            if [[ "$full" != 1 ]]; then continue; fi
+            availability="$(scripts/release-candidates.sh "$run_id")"
+            if [[ "$availability" == ready ]]; then
+              echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
               echo "Release commit ${GITHUB_SHA} passed full CI in run ${run_id}."
               exit 0
             fi
@@ -45,11 +53,12 @@ jobs:
           exit 1
 
   publish-tauri:
-    name: Build desktop candidate (${{ matrix.label }})
+    name: Finalize desktop candidate (${{ matrix.label }})
     needs: verify-ci
     runs-on: ${{ matrix.runner }}
     environment: release
     permissions:
+      actions: read
       contents: write
 
     strategy:
@@ -61,13 +70,11 @@ jobs:
             target: aarch64-apple-darwin
             os_family: macos
             bundles: app,dmg
-            python_sha256: 7a2384641584ab9984221fcb0fc9265df465922af71be71410529e2a9c3f0540
           - label: Windows
             runner: windows-latest
             target: x86_64-pc-windows-msvc
             os_family: windows
             bundles: nsis
-            python_sha256: 2e0fed09d48989f64c9305da9ff2d37a41c0d13ab2aa6283405b2b620dfbf805
 
     steps:
       - name: Checkout repository
@@ -85,100 +92,30 @@ jobs:
       - name: Use canonical npm
         run: npm install -g npm@11.16.0
 
-      - name: Set up packaging bootstrap Python
+      - name: Set up release verification Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13.5"
-          cache: pip
-          cache-dependency-path: scripts/release-requirements/${{ matrix.target }}.txt
-
-      - name: Download verified packaging and plugin Python
-        shell: bash
-        run: |
-          python scripts/prepare-plugin-python-runtime.py \
-            --target "${{ matrix.target }}" \
-            --asset-url "https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.13.18%2B20261110-${{ matrix.target }}-install_only_stripped.tar.gz" \
-            --asset-sha256 "${{ matrix.python_sha256 }}" \
-            --output "${RUNNER_TEMP}/magi-plugin-python" --github-env "${GITHUB_ENV}"
-
-      - name: Create isolated packaging interpreter
-        shell: python
-        env:
-          BUILD_TARGET: ${{ matrix.target }}
-        run: |
-          import os, subprocess
-          from pathlib import Path
-          windows = os.name == "nt"
-          runtime = Path(os.environ["MAGI_PLUGIN_PYTHON_SOURCE"])
-          python = runtime / ("python.exe" if windows else "bin/python3")
-          venv = Path(".venv-release").resolve()
-          subprocess.run([python, "-m", "venv", venv], check=True)
-          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as output:
-              print(venv / ("Scripts" if windows else "bin"), file=output)
-          pins = Path("scripts/release-requirements", os.environ["BUILD_TARGET"] + ".txt").resolve()
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
-              print(f"PIP_CONSTRAINT={pins}", f"PIP_BUILD_CONSTRAINT={pins}", sep="\n", file=output)
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Cache Rust build artifacts
-        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          workspaces: |
-            . -> target
 
       - name: Validate version metadata against release tag
         shell: bash
         run: |
           python scripts/release-version.py validate --tag "${GITHUB_REF_NAME}"
 
-      - name: Install locked freezer and runtime dependencies
+      - name: Restore the checked candidate from full CI
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          python -m pip install --no-deps -r "${PIP_CONSTRAINT}"
-          python -m pip install --no-deps --no-build-isolation -e ./sdk -e ./backend
-          python -m pip check
-
-      - name: Install ripgrep (macOS)
-        if: matrix.os_family == 'macos'
-        shell: bash
-        run: brew list ripgrep >/dev/null 2>&1 || brew install ripgrep
-
-      - name: Install ripgrep (Windows)
-        if: matrix.os_family == 'windows'
-        shell: pwsh
-        run: choco install ripgrep -y
+          gh run download "${{ needs.verify-ci.outputs.run_id }}" --name "desktop-${{ matrix.target }}" --dir candidate
+          bundle="target/${{ matrix.target }}/release/bundle"
+          mkdir -p "$bundle"
+          tar -xf candidate/desktop-candidate.tar -C "$bundle"
 
       - name: Install frontend dependencies
         working-directory: frontend
         shell: bash
         run: npm ci
-
-      - name: Export optional macOS signing secrets
-        if: matrix.os_family == 'macos'
-        shell: bash
-        run: |
-          if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ]; then
-            echo "APPLE_CERTIFICATE=${{ secrets.APPLE_CERTIFICATE }}" >> "$GITHUB_ENV"
-          fi
-          if [ -n "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" ]; then
-            echo "APPLE_CERTIFICATE_PASSWORD=${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" >> "$GITHUB_ENV"
-          fi
-          if [ -n "${{ secrets.APPLE_SIGNING_IDENTITY }}" ]; then
-            echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> "$GITHUB_ENV"
-          fi
-          if [ -n "${{ secrets.APPLE_ID }}" ]; then
-            echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> "$GITHUB_ENV"
-          fi
-          if [ -n "${{ secrets.APPLE_PASSWORD }}" ]; then
-            echo "APPLE_PASSWORD=${{ secrets.APPLE_PASSWORD }}" >> "$GITHUB_ENV"
-          fi
-          if [ -n "${{ secrets.APPLE_TEAM_ID }}" ]; then
-            echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
-          fi
 
       - name: Build release notes from commits
         id: release_notes
@@ -237,16 +174,22 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build candidate Tauri bundle
+      - name: Finalize and upload checked desktop candidate
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAGI_BUILD_TARGET: ${{ matrix.target }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.os_family == 'macos' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ matrix.os_family == 'macos' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ matrix.os_family == 'macos' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.os_family == 'macos' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_CERTIFICATE: ${{ matrix.os_family == 'macos' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ matrix.os_family == 'macos' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: frontend
-          tauriScript: ${{ matrix.os_family == 'macos' && '../scripts/tauri-build-macos.sh' || '' }}
+          tauriScript: bash ../scripts/finalize-desktop-release.sh
           tagName: ${{ github.ref_name }}
           releaseName: ${{ steps.release_notes.outputs.title }}
           releaseBody: ${{ steps.release_notes.outputs.body }}
@@ -267,6 +210,10 @@ jobs:
         shell: bash
         env:
           MAGI_REQUIRE_SERVICE_NOTARIZATION: "1"
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           node scripts/package-service-macos.mjs \
             --target "${{ matrix.target }}" \

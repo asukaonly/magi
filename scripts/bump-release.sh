@@ -109,10 +109,11 @@ echo ">>> Pushing ${BRANCH} (remote CI is the source of truth) ..."
 git push origin "${HEAD_SHA}:refs/heads/${BRANCH}"
 
 find_run() {
-  local run_id attempt
+  local run_id attempt after="$1"
+  shift
   for attempt in {1..20}; do
     if run_id="$(gh run list --workflow ci.yml --branch "${BRANCH}" --commit "${HEAD_SHA}" "$@" \
-        --limit 1 --json databaseId --jq '.[0].databaseId // empty')" && [[ -n "$run_id" ]]; then
+        --limit 20 --json databaseId,event --jq '[.[] | select(.event == "push" or .event == "workflow_dispatch" or .event == "schedule")][0].databaseId // empty')" && [[ "$run_id" =~ ^[0-9]+$ ]] && (( run_id > after )); then
       echo "$run_id"
       return
     fi
@@ -122,20 +123,31 @@ find_run() {
   return 1
 }
 
-# Read status and the full-validation marker in one snapshot. A failed API
-# request says nothing about the tests and can be retried without a new run.
+ci_state() {
+  local run_id="$1" state full
+  state="$(gh run view "$run_id" --json status,conclusion --jq '
+    if .status == "completed" then .conclusion else "pending" end')" || return 1
+  if [[ "$state" != success ]]; then
+    echo "$state"
+    return
+  fi
+  full="$(gh run view "$run_id" --json jobs --jq '
+    any(.jobs[]; .name == "Full validation" and .conclusion == "success")')" || return 1
+  if [[ "$full" == true ]]; then
+    scripts/release-candidates.sh "$run_id"
+  else
+    echo scoped
+  fi
+}
+
 wait_for_ci() {
   local run_id="$1" snapshot failures=0
   echo ">>> Waiting for CI run ${run_id} ..." >&2
   while true; do
-    if snapshot="$(gh run view "$run_id" --json status,conclusion,jobs --jq '
-      if .status != "completed" then "pending"
-      elif .conclusion != "success" then .conclusion
-      elif any(.jobs[]; .name == "Full validation" and .conclusion == "success") then "full"
-      else "scoped" end')"; then
+    if snapshot="$(ci_state "$run_id")"; then
       failures=0
       case "$snapshot" in
-        full|scoped) echo "$snapshot"; return ;;
+        ready|scoped|missing) echo "$snapshot"; return ;;
         pending) ;;
         *) echo "ERROR: CI run ${run_id} concluded ${snapshot}; no tag created." >&2; return 1 ;;
       esac
@@ -150,13 +162,13 @@ wait_for_ci() {
   done
 }
 
-RUN_ID="$(find_run)"
+RUN_ID="$(find_run 0)"
 RESULT="$(wait_for_ci "$RUN_ID")"
-if [[ "$RESULT" == "scoped" ]]; then
+if [[ "$RESULT" != "ready" ]]; then
   echo ">>> Requesting full CI for release commit ${HEAD_SHA} ..."
   gh workflow run ci.yml --ref "${BRANCH}"
-  RUN_ID="$(find_run --event workflow_dispatch)"
-  [[ "$(wait_for_ci "$RUN_ID")" == "full" ]] || {
+  RUN_ID="$(find_run "$RUN_ID" --event workflow_dispatch)"
+  [[ "$(wait_for_ci "$RUN_ID")" == "ready" ]] || {
     echo "ERROR: CI did not confirm full validation; no tag created." >&2
     exit 1
   }
@@ -168,5 +180,5 @@ git tag -a "${TAG}" "${HEAD_SHA}" -m "Release ${TAG}"
 git push origin "${TAG}"
 
 echo ">>> Prepared candidate ${TAG}: pushed ${BRANCH} and ${TAG}."
-echo ">>> release.yml will build draft desktop bundles (macOS/Windows)."
+echo ">>> release.yml will finalize the tested desktop bundles (macOS/Windows)."
 echo ">>> Validate the packaged candidates on every supported platform before publishing the draft release."

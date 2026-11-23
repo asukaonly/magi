@@ -69,6 +69,7 @@ class TestScope(unittest.TestCase):
     def test_shared_and_unknown_inputs_require_every_job(self):
         for paths in [None, ["sdk/src/magi_sdk/models.py"], ["contracts/api/gateway_routes.json"],
                       ["scripts/ci_scope.py"], [".github/workflows/ci.yml"], ["VERSION"],
+                      ["backend/pyinstaller-hooks/hook-chromadb.py"], ["frontend/src-tauri/tauri.conf.json"],
                       ["backend/pyproject.toml"], ["configs/config.yaml"], ["new-component/code.py"]]:
             with self.subTest(paths=paths):
                 plan = scope.select_scope(paths, ROOT)

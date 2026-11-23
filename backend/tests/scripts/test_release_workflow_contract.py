@@ -74,6 +74,9 @@ def _command_double(directory, name, source):
         ("wrong_commit", False),
         ("failed", False),
         ("different_workflow", False),
+        ("pull_request", False),
+        ("different_branch", False),
+        ("expired", False),
         ("missing", False),
     ],
 )
@@ -90,6 +93,8 @@ def test_release_ci_verifier_executes_exact_commit_policy(tmp_path, run_case, ac
         else [
             {
                 "databaseId": 123,
+                "event": "pull_request" if run_case == "pull_request" else "push",
+                "headBranch": "topic" if run_case == "different_branch" else "main",
                 "headSha": "another-commit" if run_case == "wrong_commit" else "release-commit",
                 "conclusion": "failure" if run_case == "failed" else "success",
                 "workflow": "unrelated.yml" if run_case == "different_workflow" else "ci.yml",
@@ -106,6 +111,13 @@ def test_release_ci_verifier_executes_exact_commit_policy(tmp_path, run_case, ac
         """
 import json, os, subprocess, sys
 args = sys.argv[1:]
+if args[0] == "api":
+    assert "/actions/runs/123/artifacts?" in args[1], args
+    assets = [{"name": "desktop-" + target, "expired": os.environ["RUN_CASE"] == "expired" and target.startswith("x86")}
+             for target in ("aarch64-apple-darwin", "x86_64-pc-windows-msvc")]
+    subprocess.run([os.environ["REAL_JQ"], "-r", args[args.index("--jq") + 1]],
+                   input=json.dumps({"artifacts": assets}), text=True, check=True)
+    sys.exit(0)
 assert args[args.index("--repo") + 1] == "owner/repo"
 if args[:2] == ["run", "view"]:
     assert '"Full validation"' in args[args.index("--jq") + 1]
@@ -113,7 +125,7 @@ if args[:2] == ["run", "view"]:
     sys.exit(0)
 assert args[:2] == ["run", "list"], args
 rows = json.loads(os.environ["FAKE_RUNS"])
-for flag, key in [("--workflow", "workflow"), ("--commit", "headSha"), ("--status", "conclusion")]:
+for flag, key in [("--workflow", "workflow"), ("--commit", "headSha"), ("--status", "conclusion"), ("--branch", "headBranch")]:
     if flag in args:
         rows = [row for row in rows if row[key] == args[args.index(flag) + 1]]
 if "--jq" in args:
@@ -125,8 +137,11 @@ else:
     print(json.dumps(rows))
 """,
     )
+    (tmp_path / "scripts").mkdir()
+    shutil.copy(REPO_ROOT / "scripts/release-candidates.sh", tmp_path / "scripts")
+    verify = next(step for step in jobs["verify-ci"]["steps"] if step.get("id") == "verify")
     result = subprocess.run(
-        [bash, "-euo", "pipefail", "-c", jobs["verify-ci"]["steps"][0]["run"]],
+        [bash, "-euo", "pipefail", "-c", verify["run"]],
         cwd=tmp_path,
         text=True,
         capture_output=True,
@@ -136,6 +151,7 @@ else:
             "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
             "GITHUB_REPOSITORY": "owner/repo",
             "GITHUB_SHA": "release-commit",
+            "GITHUB_OUTPUT": str(tmp_path / "output"),
             "FAKE_RUNS": json.dumps(rows),
             "REAL_JQ": jq,
             "RUN_CASE": run_case,
@@ -143,7 +159,7 @@ else:
     )
     assert (result.returncode == 0) is accepted, result.stdout + result.stderr
     if accepted:
-        assert "123" in result.stdout
+        assert (tmp_path / "output").read_text().strip() == "run_id=123"
     else:
         assert "No successful full ci.yml run" in result.stderr
 
@@ -176,7 +192,9 @@ if name == "git":
     elif args[:1] not in (["add"], ["push"], ["tag"]):
         raise AssertionError(args)
 elif name == "gh":
-    if args[:2] == ["run", "list"]:
+    if args[0] == "api":
+        print("missing" if os.environ["FAKE_CI"] == "expired" and "/123/" in args[1] else "ready")
+    elif args[:2] == ["run", "list"]:
         assert args[args.index("--workflow") + 1] == "ci.yml"
         expected_head = os.environ["EXPECTED_CI_HEAD"]
         assert args[args.index("--commit") + 1] == expected_head
@@ -185,21 +203,27 @@ elif name == "gh":
             head_file.with_suffix(".registered").touch()
         elif "--event" in args:
             assert args[args.index("--event") + 1] == "workflow_dispatch"
-            print("" if ci == "full_missing" else "124")
+            if ci == "stale_manual" and not head_file.with_suffix(".stale").exists():
+                head_file.with_suffix(".stale").touch()
+                print("123")
+            else:
+                print("" if ci == "full_missing" else "124")
         else:
             print("" if ci == "missing" else "123")
     elif args[:2] == ["run", "view"]:
-        assert '"Full validation"' in args[args.index("--jq") + 1]
         ci = os.environ["FAKE_CI"]
         head_file.write_text("new-local-commit")
-        if ci == "transient" and not head_file.with_suffix(".retried").exists():
+        if args[args.index("--json") + 1] == "jobs":
+            assert '"Full validation"' in args[args.index("--jq") + 1]
+            scoped = ci in {"partial", "stale_manual", "full_failure", "full_missing", "full_unconfirmed"}
+            print("false" if (args[2] == "123" and scoped) or ci == "full_unconfirmed" else "true")
+        elif ci == "transient" and not head_file.with_suffix(".retried").exists():
             head_file.with_suffix(".retried").touch()
             sys.exit(1)
-        partial = ci in {"partial", "full_failure", "full_missing", "full_unconfirmed"}
-        if ci == "failure" or (args[2] == "124" and ci == "full_failure"):
+        elif ci == "failure" or (args[2] == "124" and ci == "full_failure"):
             print("failure")
         else:
-            print("scoped" if (args[2] == "123" and partial) or ci == "full_unconfirmed" else "full")
+            print("success")
     elif args[:2] == ["workflow", "run"]:
         assert args == ["workflow", "run", "ci.yml", "--ref", "main"]
     else:
@@ -219,6 +243,7 @@ def _run_release_script(tmp_path, *, state, mode="patch", ci="success"):
     (root / "VERSION").write_text("1.2.3\n")
     script = root / "scripts/bump-release.sh"
     shutil.copyfile(REPO_ROOT / "scripts/bump-release.sh", script)
+    shutil.copy(REPO_ROOT / "scripts/release-candidates.sh", root / "scripts")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for command in ("git", "gh", "python", "sleep"):
@@ -294,17 +319,17 @@ def test_release_preflight_blocks_mutations_until_branch_policy_passes(
         )
 
 
-@pytest.mark.parametrize("ci", ["success", "partial", "delayed", "transient", "failure", "missing", "full_failure", "full_missing", "full_unconfirmed"])
+@pytest.mark.parametrize("ci", ["success", "partial", "expired", "stale_manual", "delayed", "transient", "failure", "missing", "full_failure", "full_missing", "full_unconfirmed"])
 def test_release_creates_tag_only_after_successful_remote_ci(tmp_path, ci):
     result, calls = _run_release_script(tmp_path, state="aligned", ci=ci)
     assert ["git", "push", "origin", "release-commit:refs/heads/main"] in calls
     tag_calls = [call for call in calls if call[:2] == ["git", "tag"]]
-    if ci in {"success", "partial", "delayed", "transient"}:
+    if ci in {"success", "partial", "expired", "stale_manual", "delayed", "transient"}:
         assert result.returncode == 0, result.stdout + result.stderr
         assert len(tag_calls) == 1
         assert next(i for i, call in enumerate(calls) if call[:4] == ["gh", "run", "view", "123"]) < calls.index(tag_calls[0])
         dispatch = [call for call in calls if call[:2] == ["gh", "workflow"]]
-        if ci == "partial":
+        if ci in {"partial", "expired", "stale_manual"}:
             assert dispatch == [["gh", "workflow", "run", "ci.yml", "--ref", "main"]]
             assert next(i for i, call in enumerate(calls) if call[:4] == ["gh", "run", "view", "124"]) < calls.index(tag_calls[0])
         else:
@@ -417,3 +442,46 @@ def test_workflow_wires_draft_desktop_and_signed_standalone_candidates():
     assert "Magi.app/Contents/Resources/server-dist" in packages[0]["run"]
     assert "--signed-source" in packages[0]["run"]
     assert packages[0]["env"]["MAGI_REQUIRE_SERVICE_NOTARIZATION"] == "1"
+
+
+@pytest.mark.parametrize(
+    "runner,target,relative",
+    [
+        ("macOS", "aarch64-apple-darwin", "macos/Magi.app/Contents/MacOS/magi-desktop"),
+        ("Windows", "x86_64-pc-windows-msvc", "nsis/Magi_1.2.3_x64-setup.exe"),
+    ],
+)
+def test_release_restores_the_candidate_archived_by_ci(tmp_path, runner, target, relative):
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("Candidate archiving requires bash")
+    ci = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    archive = next(s for s in ci["desktop-shell"]["steps"] if s["name"].startswith("Archive the checked"))
+    restore = next(s for s in _workflow_jobs()["publish-tauri"]["steps"] if s["name"].startswith("Restore the checked"))
+    build = tmp_path / "ci"
+    release = tmp_path / "release"
+    bundle = Path("target") / target / "release/bundle"
+    binary = build / bundle / relative
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"checked candidate")
+    binary.chmod(0o755)
+    if runner == "macOS" and os.name != "nt":
+        binary.with_name("link").symlink_to(binary.name)
+    (build / "VERSION").write_text("1.2.3\n")
+    subprocess.run([bash, "-euc", archive["run"]], cwd=build, check=True,
+                   env={**os.environ, "RUNNER_OS": runner, "MAGI_BUILD_TARGET": target})
+    release.mkdir()
+    _command_double(tmp_path, "gh", """
+import os, pathlib, shutil, sys
+assert sys.argv[1:] == ["run", "download", "123", "--name", "desktop-" + os.environ["TARGET"], "--dir", "candidate"]
+pathlib.Path("candidate").mkdir()
+shutil.copy("../ci/desktop-candidate.tar", "candidate")
+""")
+    script = restore["run"].replace("${{ matrix.target }}", target).replace("${{ needs.verify-ci.outputs.run_id }}", "123")
+    subprocess.run([bash, "-euc", script], cwd=release, check=True,
+                   env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"], "TARGET": target})
+    restored = release / bundle / relative
+    assert restored.read_bytes() == binary.read_bytes()
+    if runner == "macOS" and os.name != "nt":
+        assert os.access(restored, os.X_OK)
+        assert restored.with_name("link").readlink() == Path(binary.name)

@@ -48,8 +48,10 @@ def select_scope(paths: list[str] | None, root: Path) -> dict:
     targets: set[str] = set()
     full = paths is None
     for path in paths or []:
-        if path.startswith((".github/workflows/", "sdk/", "contracts/", "configs/")) or path in {
-            "VERSION", "backend/pyproject.toml",
+        if path.startswith((".github/workflows/", "backend/pyinstaller-hooks/", "sdk/", "contracts/", "configs/")) or path in {
+            "VERSION", "backend/pyproject.toml", "backend/src/magi/utils/sidecar_build.py",
+            "frontend/src-tauri/tauri.conf.json", "frontend/src-tauri/tauri.candidate.conf.json",
+            "frontend/src-tauri/Entitlements.plist",
         }:
             full = True
         elif path.startswith("scripts/"):

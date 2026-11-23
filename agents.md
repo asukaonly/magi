@@ -390,8 +390,8 @@ It reads the current version from `VERSION`, bumps the requested part, syncs **a
 metadata via `scripts/release-version.py sync` (VERSION, Cargo.lock, frontend
 `package.json`/lock, `tauri.conf.json`, `src-tauri/Cargo.toml`, `backend/pyproject.toml`),
 runs an environment-independent sanity check, pushes the branch, then **gates on the
-remote `ci.yml` run** (`gh run watch`) and only creates + pushes the `v<version>` tag
-once CI is green. The tag triggers `release.yml` (desktop bundle builds).
+remote `ci.yml` run** (matching commit, successful full validation and available desktop artifacts) and only creates + pushes the `v<version>` tag
+once CI is green. The tag triggers `release.yml` to sign and distribute the tested macOS and Windows candidates.
 If the remote CI gate fails after the version commit is pushed, fix forward and
 run `scripts/bump-release.sh resume`. Resume mode validates the current version,
 reruns the same local and remote gates, and creates the still-missing tag without
